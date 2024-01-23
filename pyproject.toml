@@ -30,7 +30,16 @@ classifiers = [
   "Typing :: Typed",
 ]
 dynamic = ["version"]
-dependencies = []
+dependencies = [
+  "area-detector-handlers",
+  "caproto",
+  "event-model",
+  "h5py",
+  "numpy",
+  "ophyd",
+  "pillow",
+  "tifffile",
+]
 
 [project.optional-dependencies]
 test = [
