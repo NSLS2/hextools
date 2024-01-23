@@ -1,0 +1,12 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: 2023.12.21
+_src_path: gh:scientific-python/cookie
+backend: setuptools621
+email: mrakitin@bnl.gov
+full_name: Brookhaven National Laboratory
+license: BSD
+org: NSLS-II-HEX
+project_name: hextools
+project_short_description: Tools for NSLS-II HEX beamline
+url: https://github.com/NSLS-II-HEX/hextools
+vcs: true
