@@ -32,7 +32,7 @@ class ExternalFileReference(Signal):
         return resource_document_data
 
 
-class GeRMDetector(Device):
+class GeRMDetectorBase(Device):
     count = Cpt(EpicsSignal, ".CNT", kind=Kind.omitted, string=True)
     mca = Cpt(EpicsSignal, ".MCA", kind=Kind.omitted)
     number_of_channels = Cpt(EpicsSignal, ".NELM", kind=Kind.config)
@@ -86,10 +86,27 @@ class GeRMDetector(Device):
         self._resource_document, self._datum_factory = None, None
         self._asset_docs_cache = deque()
 
-    def describe(self):
-        desc = super().describe()
-        return desc
+    def collect_asset_docs(self):
+        items = list(self._asset_docs_cache)
+        self._asset_docs_cache.clear()
+        yield from items
 
+    def unstage(self):
+        super().unstage()
+        self._resource_document = None
+        self._datum_factory = None
+
+    def get_current_image(self):
+        # This is the reshaping we want
+        # This doesn't trigger the detector
+        data = self.mca.get()
+        height = int(self.number_of_channels.get())
+        width = len(self.energy.get())
+        data = np.reshape(data, (height, width))
+        return data
+
+
+class GeRMDetectorTiff(GeRMDetectorBase):
     def trigger(self):
         def is_done(value, old_value, **kwargs):
             if old_value == "Count" and value == "Done":
@@ -131,25 +148,6 @@ class GeRMDetector(Device):
 
         return status
 
-    def collect_asset_docs(self):
-        items = list(self._asset_docs_cache)
-        self._asset_docs_cache.clear()
-        yield from items
-
-    def unstage(self):
-        super().unstage()
-        self._resource_document = None
-        self._datum_factory = None
-
-    def get_current_image(self):
-        # This is the reshaping we want
-        # This doesn't trigger the detector
-        data = self.mca.get()
-        height = int(self.number_of_channels.get())
-        width = len(self.energy.get())
-        data = np.reshape(data, (height, width))
-        return data
-
     def save_image(self, file_path, mat, overwrite=True):
         image = Image.fromarray(mat)
         if not overwrite:
@@ -174,7 +172,7 @@ class GeRMDetector(Device):
         return str(file_path)
 
 
-class GeRMDetectorHDF5(GeRMDetector):
+class GeRMDetectorHDF5(GeRMDetectorBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         height = int(self.number_of_channels.get())
@@ -252,7 +250,4 @@ class GeRMDetectorHDF5(GeRMDetector):
 
     def unstage(self):
         super().unstage()
-        # del self._dataset
         self._h5file_desc.close()
-        self._resource_document = None
-        self._datum_factory = None
