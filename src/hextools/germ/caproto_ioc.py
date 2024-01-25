@@ -71,28 +71,19 @@ class GeRMSaveIOC(PVGroup):
     frame_num = pvproperty(value=0, doc="Frame counter")
     frame_shape = pvproperty(value=(0, 0), doc="Frame shape")
 
-    async def _callback(self, pv, response, prop_name=None):
-        if not pv:
-            pass
-        # Update our own value based on the monitored one:
-        await getattr(self, prop_name).write(
-            response.data,
-            # We can even make the timestamp the same:
-            timestamp=response.metadata.timestamp,
-        )
-
     async def _add_subscription(self, prop_name):
-        self.client_context = Context()
+        client_context = Context()
 
         pvname = getattr(self.ophyd_det, prop_name).pvname
-        (pvobject,) = await self.client_context.get_pvs(pvname)
+        (pvobject,) = await client_context.get_pvs(pvname)
 
         # Subscribe to the target PV and register a customized self._callback.
-        self.subscriptions[prop_name] = pvobject.subscribe()
+        self.subscriptions[prop_name] = pvobject.subscribe(data_type="time")
         self.subscriptions[prop_name].add_callback(
-            functools.partial(self._callback, prop_name=prop_name)
+            getattr(self, f"callback_{prop_name}")
         )
 
+    ### Count ###
     count = pvproperty(
         value=AcqStatuses.IDLE.value,
         enum_strings=[x.value for x in AcqStatuses],
@@ -100,38 +91,73 @@ class GeRMSaveIOC(PVGroup):
         doc="Trigger the detector via a mirrored PV and save the data",
     )
 
+    async def callback_count(self, pv, response):
+        """A callback method for the 'count' PV."""
+        # pylint: disable=unused-argument
+        await self.count.write(
+            response.data,
+            # We can even make the timestamp the same:
+            timestamp=response.metadata.timestamp,
+        )
+
     @count.startup
     async def count(self, instance, async_lib):
         """Startup behavior of count."""
-        if not instance or not async_lib:
-            pass
+        # pylint: disable=unused-argument
         await self._add_subscription("count")
 
+    ### MCA ###
     mca = pvproperty(value=0, doc="Mirrored mca PV")
+
+    async def callback_mca(self, pv, response):
+        """A callback method for the 'mca' PV."""
+        # pylint: disable=unused-argument
+        await self.mca.write(
+            response.data,
+            # We can even make the timestamp the same:
+            timestamp=response.metadata.timestamp,
+        )
 
     @mca.startup
     async def mca(self, instance, async_lib):
         """Startup behavior of mca."""
-        if not instance or not async_lib:
-            pass
+        # pylint: disable=unused-argument
         await self._add_subscription("mca")
 
+    ### Number of channels ###
     number_of_channels = pvproperty(value=0, doc="Mirrored number_of_channels PV")
+
+    async def callback_number_of_channels(self, pv, response):
+        """A callback method for the 'number_of_channels' PV."""
+        # pylint: disable=unused-argument
+        await self.number_of_channels.write(
+            response.data,
+            # We can even make the timestamp the same:
+            timestamp=response.metadata.timestamp,
+        )
 
     @number_of_channels.startup
     async def number_of_channels(self, instance, async_lib):
         """Startup behavior of number_of_channels."""
-        if not instance or not async_lib:
-            pass
+        # pylint: disable=unused-argument
         await self._add_subscription("number_of_channels")
 
-    energy = pvproperty(value=0, doc="Mirrored energy PV")
+    ### Energy ###
+    energy = pvproperty(value=0, doc="Mirrored energy PV", max_length=4096)
+
+    async def callback_energy(self, pv, response):
+        """A callback method for the 'energy' PV."""
+        # pylint: disable=unused-argument
+        await self.energy.write(
+            response.data,
+            # We can even make the timestamp the same:
+            timestamp=response.metadata.timestamp,
+        )
 
     @energy.startup
     async def energy(self, instance, async_lib):
         """Startup behavior of energy."""
-        if not instance or not async_lib:
-            pass
+        # pylint: disable=unused-argument
         await self._add_subscription("energy")
 
     def __init__(self, ophyd_det, *args, **kwargs):

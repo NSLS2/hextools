@@ -114,7 +114,7 @@ src = ["src"]
 extend-select = [
   "B",        # flake8-bugbear
   "I",        # isort
-  "ARG",      # flake8-unused-arguments
+  # "ARG",      # flake8-unused-arguments
   "C4",       # flake8-comprehensions
   "EM",       # flake8-errmsg
   "ICN",      # flake8-import-conventions
