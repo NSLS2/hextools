@@ -10,7 +10,6 @@ import contextvars
 import datetime
 import functools
 import textwrap
-from enum import Enum
 from pathlib import Path
 
 import h5py
@@ -19,14 +18,10 @@ from caproto import ChannelType
 from caproto.asyncio.client import Context
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run
 
+from ..germ import AcqStatuses
 from ..germ.ophyd import GeRMMiniClassForCaprotoIOC
 
 internal_process = contextvars.ContextVar("internal_process", default=False)
-
-
-class AcqStatuses(Enum):
-    idle = "Done"
-    acquiring = "Count"
 
 
 def no_reentry(func):
@@ -77,6 +72,8 @@ class GeRMSaveIOC(PVGroup):
     frame_shape = pvproperty(value=(0, 0), doc="Frame shape")
 
     async def _callback(self, pv, response, prop_name=None):
+        if not pv:
+            pass
         # Update our own value based on the monitored one:
         await getattr(self, prop_name).write(
             response.data,
@@ -97,7 +94,7 @@ class GeRMSaveIOC(PVGroup):
         )
 
     count = pvproperty(
-        value=AcqStatuses.idle.value,
+        value=AcqStatuses.IDLE.value,
         enum_strings=[x.value for x in AcqStatuses],
         dtype=ChannelType.ENUM,
         doc="Trigger the detector via a mirrored PV and save the data",
@@ -105,30 +102,43 @@ class GeRMSaveIOC(PVGroup):
 
     @count.startup
     async def count(self, instance, async_lib):
+        """Startup behavior of count."""
+        if not instance or not async_lib:
+            pass
         await self._add_subscription("count")
 
     mca = pvproperty(value=0, doc="Mirrored mca PV")
 
     @mca.startup
     async def mca(self, instance, async_lib):
+        """Startup behavior of mca."""
+        if not instance or not async_lib:
+            pass
         await self._add_subscription("mca")
 
     number_of_channels = pvproperty(value=0, doc="Mirrored number_of_channels PV")
 
     @number_of_channels.startup
     async def number_of_channels(self, instance, async_lib):
+        """Startup behavior of number_of_channels."""
+        if not instance or not async_lib:
+            pass
         await self._add_subscription("number_of_channels")
 
     energy = pvproperty(value=0, doc="Mirrored energy PV")
 
     @energy.startup
     async def energy(self, instance, async_lib):
+        """Startup behavior of energy."""
+        if not instance or not async_lib:
+            pass
         await self._add_subscription("energy")
 
     def __init__(self, ophyd_det, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.subscriptions = {}
+        self.client_context = None
 
         self.ophyd_det = ophyd_det
         self._data_file = None
@@ -137,6 +147,9 @@ class GeRMSaveIOC(PVGroup):
 
     @frame_shape.startup
     async def frame_shape(self, instance, async_lib):
+        """Startup behavior of frame_shape."""
+        if not instance or not async_lib:
+            pass
         await self.frame_shape.write(
             (self.number_of_channels.value, len(self.energy.value))
         )
@@ -144,8 +157,7 @@ class GeRMSaveIOC(PVGroup):
     def _get_current_image(self):
         """The function to return a current image from detector's MCA."""
         raw_data = self.mca.value
-        data = np.reshape(raw_data, self.frame_shape.value)
-        return data
+        return np.reshape(raw_data, self.frame_shape.value)
 
     @stage.putter
     async def stage(self, instance, value):
@@ -168,9 +180,9 @@ class GeRMSaveIOC(PVGroup):
             group = self._h5file_desc.create_group("/entry")
             self._dataset = group.create_dataset(
                 "data/data",
-                data=np.full(fill_value=np.nan, shape=(1, *self._frame_shape)),
-                maxshape=(None, *self._frame_shape),
-                chunks=(1, *self._frame_shape),
+                data=np.full(fill_value=np.nan, shape=(1, *self.frame_shape.value)),
+                maxshape=(None, *self.frame_shape.value),
+                chunks=(1, *self.frame_shape.value),
                 dtype="float32",
             )
             self._h5file_desc.swmr_mode = True
@@ -178,30 +190,31 @@ class GeRMSaveIOC(PVGroup):
 
         if value == "unstaged":
             self._h5file_desc.close()
-            return False
+
+        return False
 
     @count.putter
     @no_reentry
     async def count(self, instance, value):
         """The count method to perform an individual count of the detector."""
-        if value != AcqStatuses.acquiring.value:
+        if value != AcqStatuses.ACQUIRING.value:
             return 0
 
         if (
-            instance.value in [True, AcqStatuses.acquiring.value]
-            and value == AcqStatuses.acquiring.value
+            instance.value in [True, AcqStatuses.ACQUIRING.value]
+            and value == AcqStatuses.ACQUIRING.value
         ):
             print(
-                f"The device is already acquiring. Please wait until the '{AcqStatuses.idle.value}' status."
+                f"The device is already acquiring. Please wait until the '{AcqStatuses.IDLE.value}' status."
             )
             return 1
 
         while True:
-            if instance.value != AcqStatuses.idle.value:
+            if instance.value != AcqStatuses.IDLE.value:
                 await asyncio.sleep(0.1)
                 continue
 
-            self._dataset.resize((self.frame_num.value + 1, *self._frame_shape))
+            self._dataset.resize((self.frame_num.value + 1, *self.frame_shape.value))
             self._dataset[
                 self.frame_num.value, :, :
             ] = self.ophyd_det.get_current_image()

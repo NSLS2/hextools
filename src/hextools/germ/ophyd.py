@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import datetime
-import itertools
 import uuid
 from collections import deque
 from pathlib import Path
 
-import h5py
 import numpy as np
 from event_model import compose_resource
 from ophyd import Component as Cpt
@@ -14,6 +12,8 @@ from ophyd import Device, EpicsSignal, Kind, Signal
 from ophyd.sim import new_uid
 from ophyd.status import SubscriptionStatus
 from PIL import Image
+
+from ..germ import AcqStatuses
 
 
 class ExternalFileReference(Signal):
@@ -33,6 +33,8 @@ class ExternalFileReference(Signal):
 
 
 class GeRMMiniClassForCaprotoIOC(Device):
+    """Minimal GeRM detector ophyd class used in caproto IOC."""
+
     count = Cpt(EpicsSignal, ".CNT", kind=Kind.omitted, string=True)
     mca = Cpt(EpicsSignal, ".MCA", kind=Kind.omitted)
     number_of_channels = Cpt(EpicsSignal, ".NELM", kind=Kind.config)
@@ -86,6 +88,32 @@ class GeRMDetectorBase(Device):
 
     image = Cpt(ExternalFileReference, kind=Kind.normal)
 
+    # Caproto IOC components:
+    caproto_pv_prefix = "XF:27ID1-ES:GeRM-Det:1:"
+    write_dir = Cpt(
+        EpicsSignal,
+        f"{caproto_pv_prefix}write_dir",
+        kind=Kind.config,
+        add_prefix=(),
+        as_string=True,
+    )
+    file_name_prefix = Cpt(
+        EpicsSignal,
+        f"{caproto_pv_prefix}file_name_prefix",
+        kind=Kind.config,
+        add_prefix=(),
+        as_string=True,
+    )
+    frame_num = Cpt(
+        EpicsSignal, f"{caproto_pv_prefix}frame_num", kind=Kind.omitted, add_prefix=()
+    )
+    frame_shape = Cpt(
+        EpicsSignal, f"{caproto_pv_prefix}:frame_shape", kind=Kind.config, add_prefix=()
+    )
+    ioc_stage = Cpt(
+        EpicsSignal, f"{caproto_pv_prefix}:stage", kind=Kind.omitted, add_prefix=()
+    )
+
     def __init__(self, *args, root_dir=None, **kwargs):
         super().__init__(*args, **kwargs)
         if root_dir is None:
@@ -115,15 +143,14 @@ class GeRMDetectorBase(Device):
         # This is the reshaping we want
         # This doesn't trigger the detector
         raw_data = self.mca.get()
-        data = np.reshape(raw_data, self.frame_shape)
-        return data
+        return np.reshape(raw_data, self.frame_shape)
 
 
 def done_callback(value, old_value, **kwargs):
     """The callback function used by ophyd's SubscriptionStatus."""
     if not kwargs:
         pass
-    if old_value == "Count" and value == "Done":
+    if old_value == AcqStatuses.ACQUIRING.value and value == AcqStatuses.IDLE.value:
         return True
     return False
 
@@ -136,7 +163,7 @@ class GeRMDetectorTiff(GeRMDetectorBase):
 
         status = SubscriptionStatus(self.count, run=False, callback=done_callback)
 
-        self.count.put("Count")
+        self.count.put(AcqStatuses.ACQUIRING.value)
         status.wait()
 
         # Read the image array:
@@ -169,6 +196,7 @@ class GeRMDetectorTiff(GeRMDetectorBase):
         return status
 
     def save_image(self, file_path, mat, overwrite=True):
+        """A method to save an input matrix as an image."""
         image = Image.fromarray(mat)
         if not overwrite:
             file_path = self._make_file_name(file_path)
@@ -193,6 +221,8 @@ class GeRMDetectorTiff(GeRMDetectorBase):
 
 
 class GeRMDetectorHDF5(GeRMDetectorBase):
+    """The ophyd class for GeRM detector producing HDF5 files."""
+
     def stage(self):
         super().stage()
 
@@ -200,40 +230,24 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         self._asset_docs_cache.clear()
 
         date = datetime.datetime.now()
-        self._assets_dir = date.strftime("%Y/%m/%d")
+        assets_dir = date.strftime("%Y/%m/%d")
         data_file = f"{new_uid()}.h5"
 
         self._resource_document, self._datum_factory, _ = compose_resource(
             start={"uid": "needed for compose_resource() but will be discarded"},
             spec="AD_HDF5_GERM",
             root=self._root_dir,
-            resource_path=str(Path(self._assets_dir) / Path(data_file)),
+            resource_path=str(Path(assets_dir) / Path(data_file)),
             resource_kwargs={},
-        )
-
-        self._data_file = str(
-            Path(self._resource_document["root"])
-            / Path(self._resource_document["resource_path"])
         )
 
         # now discard the start uid, a real one will be added later
         self._resource_document.pop("run_start")
         self._asset_docs_cache.append(("resource", self._resource_document))
 
-        # TODO: replace this logic with the caproto IOC calls:
-        # - .write_dir <...>
-        # - .file_name_prefix <uuid4>
-        # - .stage staged
-        self._h5file_desc = h5py.File(self._data_file, "x")
-        group = self._h5file_desc.create_group("/entry")
-        self._dataset = group.create_dataset(
-            "data/data",
-            data=np.full(fill_value=np.nan, shape=(1, *self._frame_shape)),
-            maxshape=(None, *self._frame_shape),
-            chunks=(1, *self._frame_shape),
-            dtype="float32",
-        )
-        self._counter = itertools.count()
+        self.write_dir.put(self._root_dir)
+        self.file_name_prefix.put(data_file)
+        self.ioc_stage.put("staged")
 
     def describe(self):
         res = super().describe()
@@ -241,24 +255,13 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         return res
 
     def trigger(self):
-        def is_done(value, old_value, **kwargs):
-            if old_value == "Count" and value == "Done":
-                data = self.get_current_image()
-
-                self._dataset.resize((self.current_frame + 1, *self._frame_shape))
-                self._dataset[self.current_frame, :, :] = data
-
-                return True
-
-            return False
-
-        status = SubscriptionStatus(self.count, run=False, callback=is_done)
+        status = SubscriptionStatus(self.count, run=False, callback=done_callback)
 
         # Reuse the counter from the caproto IOC
-        self.current_frame = next(self._counter)
-        self.count.put("Count")
+        current_frame = self.frame_num.get()
+        self.count.put(AcqStatuses.ACQUIRING.value)
 
-        datum_document = self._datum_factory(datum_kwargs={"frame": self.current_frame})
+        datum_document = self._datum_factory(datum_kwargs={"frame": current_frame})
         self._asset_docs_cache.append(("datum", datum_document))
 
         self.image.put(datum_document["datum_id"])
@@ -267,4 +270,4 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
 
     def unstage(self):
         super().unstage()
-        self._h5file_desc.close()
+        self.ioc_stage.put("unstaged")
