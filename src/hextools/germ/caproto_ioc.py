@@ -107,7 +107,7 @@ class GeRMSaveIOC(PVGroup):
         await self._add_subscription("count")
 
     ### MCA ###
-    mca = pvproperty(value=0, doc="Mirrored mca PV")
+    mca = pvproperty(value=0, doc="Mirrored mca PV", max_length=786432)
 
     async def callback_mca(self, pv, response):
         """A callback method for the 'mca' PV."""
