@@ -10,17 +10,23 @@ import contextvars
 import datetime
 import functools
 import textwrap
+from enum import Enum
 from pathlib import Path
 
 import h5py
 import numpy as np
 from caproto import ChannelType
+from caproto.asyncio.client import Context
 from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run
-from ophyd.status import SubscriptionStatus
 
-from ..germ.ophyd import GeRMDetectorHDF5
+from ..germ.ophyd import GeRMMiniClassForCaprotoIOC
 
 internal_process = contextvars.ContextVar("internal_process", default=False)
+
+
+class AcqStatuses(Enum):
+    idle = "Done"
+    acquiring = "Count"
 
 
 def no_reentry(func):
@@ -66,26 +72,90 @@ class GeRMSaveIOC(PVGroup):
         dtype=ChannelType.ENUM,
         doc="Stage/unstage the detector. 0=unstaged, 1=staged",
     )
-    count = pvproperty(
-        value="idle",
-        enum_strings=["idle", "acquiring"],
-        dtype=ChannelType.ENUM,
-        doc="Trigger the detector and save the data",
-    )
+
     frame_num = pvproperty(value=0, doc="Frame counter")
+    frame_shape = pvproperty(value=(0, 0), doc="Frame shape")
+
+    async def _callback(self, pv, response, prop_name=None):
+        # Update our own value based on the monitored one:
+        await getattr(self, prop_name).write(
+            response.data,
+            # We can even make the timestamp the same:
+            timestamp=response.metadata.timestamp,
+        )
+
+    async def _add_subscription(self, prop_name):
+        self.client_context = Context()
+
+        pvname = getattr(self.ophyd_det, prop_name).pvname
+        (pvobject,) = await self.client_context.get_pvs(pvname)
+
+        # Subscribe to the target PV and register a customized self._callback.
+        self.subscriptions[prop_name] = pvobject.subscribe()
+        self.subscriptions[prop_name].add_callback(
+            functools.partial(self._callback, prop_name=prop_name)
+        )
+
+    count = pvproperty(
+        value=AcqStatuses.idle.value,
+        enum_strings=[x.value for x in AcqStatuses],
+        dtype=ChannelType.ENUM,
+        doc="Trigger the detector via a mirrored PV and save the data",
+    )
+
+    @count.startup
+    async def count(self, instance, async_lib):
+        await self._add_subscription("count")
+
+    mca = pvproperty(value=0, doc="Mirrored mca PV")
+
+    @mca.startup
+    async def mca(self, instance, async_lib):
+        await self._add_subscription("mca")
+
+    number_of_channels = pvproperty(value=0, doc="Mirrored number_of_channels PV")
+
+    @number_of_channels.startup
+    async def number_of_channels(self, instance, async_lib):
+        await self._add_subscription("number_of_channels")
+
+    energy = pvproperty(value=0, doc="Mirrored energy PV")
+
+    @energy.startup
+    async def energy(self, instance, async_lib):
+        await self._add_subscription("energy")
 
     def __init__(self, ophyd_det, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.subscriptions = {}
+
         self.ophyd_det = ophyd_det
         self._data_file = None
         self._h5file_desc = None
+        self._dataset = None
+
+    @frame_shape.startup
+    async def frame_shape(self, instance, async_lib):
+        await self.frame_shape.write(
+            (self.number_of_channels.value, len(self.energy.value))
+        )
+
+    def _get_current_image(self):
+        """The function to return a current image from detector's MCA."""
+        raw_data = self.mca.value
+        data = np.reshape(raw_data, self.frame_shape.value)
+        return data
 
     @stage.putter
     async def stage(self, instance, value):
+        """The stage method to perform preparation of a dataset to save the data."""
         if instance.value in [True, "staged"] and value == "staged":
             msg = "The device is already staged. Unstage it first."
             raise ValueError(msg)
+
         if value == "staged":
+            await self.frame_num.write(0)
             date = datetime.datetime.now()
             root_dir = self.write_dir.value
             assets_dir = date.strftime("%Y/%m/%d")
@@ -96,7 +166,6 @@ class GeRMSaveIOC(PVGroup):
 
             self._h5file_desc = h5py.File(self._data_file, "x", libver="latest")
             group = self._h5file_desc.create_group("/entry")
-            self._frame_shape = self.ophyd_det._frame_shape
             self._dataset = group.create_dataset(
                 "data/data",
                 data=np.full(fill_value=np.nan, shape=(1, *self._frame_shape)),
@@ -107,43 +176,38 @@ class GeRMSaveIOC(PVGroup):
             self._h5file_desc.swmr_mode = True
             return True
 
-        elif value == "unstaged":
+        if value == "unstaged":
             self._h5file_desc.close()
             return False
 
     @count.putter
     @no_reentry
     async def count(self, instance, value):
-        if value != "acquiring":
+        """The count method to perform an individual count of the detector."""
+        if value != AcqStatuses.acquiring.value:
             return 0
 
-        if instance.value in [True, "acquiring"] and value == "acquiring":
+        if (
+            instance.value in [True, AcqStatuses.acquiring.value]
+            and value == AcqStatuses.acquiring.value
+        ):
             print(
-                "The device is already acquiring. Please wait until the 'idle' status."
+                f"The device is already acquiring. Please wait until the '{AcqStatuses.idle.value}' status."
             )
             return 1
 
-        def is_done(value, old_value, **kwargs):
-            if old_value == "Count" and value == "Done":
-                return True
-            return False
-
-        status = SubscriptionStatus(self.ophyd_det.count, run=False, callback=is_done)
-        self.ophyd_det.count.put("Count")
-
         while True:
-            if not status.done:
-                await instance.write(value)
+            if instance.value != AcqStatuses.idle.value:
                 await asyncio.sleep(0.1)
                 continue
-            else:
-                self._dataset.resize((self.frame_num.value + 1, *self._frame_shape))
-                self._dataset[
-                    self.frame_num.value, :, :
-                ] = self.ophyd_det.get_current_image()
-                self._dataset.flush()
-                await self.frame_num.write(self.frame_num.value + 1)
-                break
+
+            self._dataset.resize((self.frame_num.value + 1, *self._frame_shape))
+            self._dataset[
+                self.frame_num.value, :, :
+            ] = self.ophyd_det.get_current_image()
+            self._dataset.flush()
+            await self.frame_num.write(self.frame_num.value + 1)
+            break
 
         return 0
 
@@ -154,6 +218,6 @@ if __name__ == "__main__":
     ioc_options, run_options = ioc_arg_parser(
         default_prefix=PV_PREFIX, desc=textwrap.dedent(GeRMSaveIOC.__doc__)
     )
-    ophyd_det = GeRMDetectorHDF5(PV_PREFIX_CURLED, name="GeRM")
-    ioc = GeRMSaveIOC(ophyd_det=ophyd_det, **ioc_options)
+    germ_mini = GeRMMiniClassForCaprotoIOC(PV_PREFIX_CURLED, name="germ_mini")
+    ioc = GeRMSaveIOC(ophyd_det=germ_mini, **ioc_options)
     run(ioc.pvdb, **run_options)

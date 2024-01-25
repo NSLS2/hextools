@@ -48,6 +48,7 @@ test = [
 ]
 dev = [
   "pre-commit",
+  "pylint",
   "pytest >=6",
   "pytest-cov >=3",
 ]

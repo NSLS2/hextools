@@ -9,6 +9,8 @@ from area_detector_handlers import HandlerBase
 
 
 class AreaDetectorTiffHandlerGERM(HandlerBase):
+    """The handler to read TIFF files produced by the GeRM ophyd detector."""
+
     specs = {"AD_TIFF_GERM"}
 
     def __init__(self, fpath):
@@ -22,6 +24,8 @@ class AreaDetectorTiffHandlerGERM(HandlerBase):
 
 
 class AreaDetectorHDF5HandlerGERM(HandlerBase):
+    """The handler to read HDF5 files produced by the GeRM ophyd detector."""
+
     specs = {"AD_HDF5_GERM"}
 
     def __init__(self, filename):

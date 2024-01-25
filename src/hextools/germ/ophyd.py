@@ -32,7 +32,16 @@ class ExternalFileReference(Signal):
         return resource_document_data
 
 
+class GeRMMiniClassForCaprotoIOC(Device):
+    count = Cpt(EpicsSignal, ".CNT", kind=Kind.omitted, string=True)
+    mca = Cpt(EpicsSignal, ".MCA", kind=Kind.omitted)
+    number_of_channels = Cpt(EpicsSignal, ".NELM", kind=Kind.config)
+    energy = Cpt(EpicsSignal, ".SPCTX", kind=Kind.omitted)
+
+
 class GeRMDetectorBase(Device):
+    """The base ophyd class for GeRM detector."""
+
     count = Cpt(EpicsSignal, ".CNT", kind=Kind.omitted, string=True)
     mca = Cpt(EpicsSignal, ".MCA", kind=Kind.omitted)
     number_of_channels = Cpt(EpicsSignal, ".NELM", kind=Kind.config)
@@ -86,7 +95,12 @@ class GeRMDetectorBase(Device):
         self._resource_document, self._datum_factory = None, None
         self._asset_docs_cache = deque()
 
+        height = int(self.number_of_channels.get())
+        width = len(self.energy.get())
+        self.frame_shape = (height, width)
+
     def collect_asset_docs(self):
+        """The method to collect resource/datum documents."""
         items = list(self._asset_docs_cache)
         self._asset_docs_cache.clear()
         yield from items
@@ -97,24 +111,30 @@ class GeRMDetectorBase(Device):
         self._datum_factory = None
 
     def get_current_image(self):
+        """The function to return a current image from detector's MCA."""
         # This is the reshaping we want
         # This doesn't trigger the detector
-        data = self.mca.get()
-        height = int(self.number_of_channels.get())
-        width = len(self.energy.get())
-        data = np.reshape(data, (height, width))
+        raw_data = self.mca.get()
+        data = np.reshape(raw_data, self.frame_shape)
         return data
 
 
+def done_callback(value, old_value, **kwargs):
+    """The callback function used by ophyd's SubscriptionStatus."""
+    if not kwargs:
+        pass
+    if old_value == "Count" and value == "Done":
+        return True
+    return False
+
+
 class GeRMDetectorTiff(GeRMDetectorBase):
+    """The ophyd class for GeRM detector producing TIFF files."""
+
     def trigger(self):
-        def is_done(value, old_value, **kwargs):
-            if old_value == "Count" and value == "Done":
-                return True
+        "The trigger method to acquire a single frame."
 
-            return False
-
-        status = SubscriptionStatus(self.count, run=False, callback=is_done)
+        status = SubscriptionStatus(self.count, run=False, callback=done_callback)
 
         self.count.put("Count")
         status.wait()
@@ -173,12 +193,6 @@ class GeRMDetectorTiff(GeRMDetectorBase):
 
 
 class GeRMDetectorHDF5(GeRMDetectorBase):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        height = int(self.number_of_channels.get())
-        width = len(self.energy.get())
-        self._frame_shape = (height, width)
-
     def stage(self):
         super().stage()
 
@@ -206,6 +220,10 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         self._resource_document.pop("run_start")
         self._asset_docs_cache.append(("resource", self._resource_document))
 
+        # TODO: replace this logic with the caproto IOC calls:
+        # - .write_dir <...>
+        # - .file_name_prefix <uuid4>
+        # - .stage staged
         self._h5file_desc = h5py.File(self._data_file, "x")
         group = self._h5file_desc.create_group("/entry")
         self._dataset = group.create_dataset(
@@ -217,9 +235,12 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         )
         self._counter = itertools.count()
 
+    def describe(self):
+        res = super().describe()
+        res[self.image.name].update({"shape": self._frame_shape})
+        return res
+
     def trigger(self):
-        # Write image to open hdf5 file
-        # deco.move_motor(moto_pv_name, pos)  # do in bluesky plan
         def is_done(value, old_value, **kwargs):
             if old_value == "Count" and value == "Done":
                 data = self.get_current_image()
@@ -233,6 +254,7 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
 
         status = SubscriptionStatus(self.count, run=False, callback=is_done)
 
+        # Reuse the counter from the caproto IOC
         self.current_frame = next(self._counter)
         self.count.put("Count")
 
@@ -242,11 +264,6 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         self.image.put(datum_document["datum_id"])
 
         return status
-
-    def describe(self):
-        res = super().describe()
-        res[self.image.name].update({"shape": self._frame_shape})
-        return res
 
     def unstage(self):
         super().unstage()

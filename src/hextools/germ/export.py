@@ -6,9 +6,6 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-db = None
-
-
 GERM_DETECTOR_KEYS = [
     "count_time",
     "gain",
@@ -18,10 +15,26 @@ GERM_DETECTOR_KEYS = [
 ]
 
 
-def get_detector_parameters(det=None, keys=GERM_DETECTOR_KEYS):
+def get_detector_parameters(det=None, keys=None):
+    """Auxiliary function to get detector parameters.
+
+    Parameters:
+    -----------
+    det : ophyd.Device
+        ophyd detector object
+    keys : dict
+        the detector keys to to get the values for to the returned dictionary
+
+    Returns:
+    --------
+    detector_metadata : dict
+        the dictionary with detector parameters
+    """
     if det is None:
         msg = "The 'det' cannot be None"
         raise ValueError(msg)
+    if keys is None:
+        keys = GERM_DETECTOR_KEYS
     group_key = f"{det.name.lower()}_detector"
     detector_metadata = {group_key: {}}
     for key in keys:
@@ -32,11 +45,27 @@ def get_detector_parameters(det=None, keys=GERM_DETECTOR_KEYS):
 
 
 def nx_export_callback(name, doc):
+    """A bluesky callback function for NeXus file exporting.
+
+    Parameters:
+    -----------
+    name : str
+        the name of the incoming bluesky/event-model document (start, event, stop, etc.)
+    doc : dict
+        the dictionary representing the document
+
+    Check https://blueskyproject.io/event-model/main/user/explanations/data-model.html for details.
+    """
     print(f"Exporting the nx file at {datetime.datetime.now().isoformat()}")
     if name == "stop":
         run_start = doc["run_start"]
         # TODO: rewrite with SingleRunCache.
-        hdr = db[run_start]
+        try:
+            db = globals().get("db", None)
+            hdr = db[run_start]
+        except Exception as exc:
+            msg = "The databroker object 'db' is not defined"
+            raise RuntimeError(msg) from exc
         for nn, dd in hdr.documents():
             if nn == "resource" and dd["spec"] == "AD_HDF5_GERM":
                 resource_root = dd["root"]
@@ -51,12 +80,11 @@ def nx_export_callback(name, doc):
                 def get_dtype(value):
                     if isinstance(value, str):
                         return h5py.special_dtype(vlen=str)
-                    elif isinstance(value, float):
+                    if isinstance(value, float):
                         return np.float32
-                    elif isinstance(value, int):
+                    if isinstance(value, int):
                         return np.int32
-                    else:
-                        return type(value)
+                    return type(value)
 
                 with h5py.File(nx_filepath, "w") as h5_file:
                     entry_grp = h5_file.require_group("entry")
