@@ -38,6 +38,7 @@ dependencies = [
   "numpy",
   "ophyd",
   "pillow",
+  "pyepics",
   "tifffile",
 ]
 
