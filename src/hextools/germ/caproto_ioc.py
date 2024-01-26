@@ -69,7 +69,7 @@ class GeRMSaveIOC(PVGroup):
     )
 
     frame_num = pvproperty(value=0, doc="Frame counter")
-    frame_shape = pvproperty(value=(0, 0), doc="Frame shape")
+    frame_shape = pvproperty(value=(0, 0), doc="Frame shape", max_length=2)
 
     async def _add_subscription(self, prop_name):
         client_context = Context()
@@ -171,11 +171,19 @@ class GeRMSaveIOC(PVGroup):
         self._h5file_desc = None
         self._dataset = None
 
-    @frame_shape.startup
-    async def frame_shape(self, instance, async_lib):
-        """Startup behavior of frame_shape."""
-        if not instance or not async_lib:
-            pass
+    @frame_shape.getter
+    async def frame_shape(self, instance):
+        """Calculate the frame shape using the PVs from the real IOC.
+
+        Note:
+        -----
+        It may be considered as bad practice (see
+        https://caproto.github.io/caproto/v1.1.1/iocs.html#don-t-use-a-getter),
+        but the .getter was the only way to get the shape updated after all
+        subscriptions to the real IOC's PVs had been done, as it was not
+        working on .startup as expected.
+        """
+        # pylint: disable=unused-argument
         await self.frame_shape.write(
             (self.number_of_channels.value, len(self.energy.value))
         )
