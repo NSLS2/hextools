@@ -1,8 +1,9 @@
 """
 To run as:
 
-EPICS_CAS_AUTO_BEACON_ADDR_LIST=no EPICS_CAS_BEACON_ADDR_LIST=<EPICS_SUBNET> python germ_ioc.py -v
+EPICS_CAS_AUTO_BEACON_ADDR_LIST=no EPICS_CAS_BEACON_ADDR_LIST=${EPICS_CA_ADDR_LIST} python -m hextools.germ.caproto_ioc --list-pvs --prefix='XF:27ID1-ES{{GeRM-Det:1}}:'
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +17,7 @@ import h5py
 import numpy as np
 from caproto import ChannelType
 from caproto.asyncio.client import Context
-from caproto.server import PVGroup, ioc_arg_parser, pvproperty, run
+from caproto.server import PVGroup, pvproperty, run, template_arg_parser
 
 from ..germ import AcqStatuses
 from ..germ.ophyd import GeRMMiniClassForCaprotoIOC
@@ -43,9 +44,7 @@ def no_reentry(func):
 
 
 class GeRMSaveIOC(PVGroup):
-    """
-    When a PV is written to, write the new value into a file as a string.
-    """
+    """An IOC to write GeRM detector data to an HDF5 file."""
 
     write_dir = pvproperty(
         value="/tmp",
@@ -260,11 +259,22 @@ class GeRMSaveIOC(PVGroup):
 
 
 if __name__ == "__main__":
-    PV_PREFIX_CURLED = "XF:27ID1-ES{GeRM-Det:1}"
-    PV_PREFIX = "XF:27ID1-ES:GeRM-Det:1:"
-    ioc_options, run_options = ioc_arg_parser(
-        default_prefix=PV_PREFIX, desc=textwrap.dedent(GeRMSaveIOC.__doc__)
+    parser, split_args = template_arg_parser(
+        default_prefix="", desc=textwrap.dedent(GeRMSaveIOC.__doc__)
     )
-    germ_mini = GeRMMiniClassForCaprotoIOC(PV_PREFIX_CURLED, name="germ_mini")
-    ioc = GeRMSaveIOC(ophyd_det=germ_mini, **ioc_options)
+
+    parsed_args = parser.parse_args()
+    prefix = parsed_args.prefix
+    if not prefix:
+        parser.error("The 'prefix' argument must be specified.")
+    pv_prefix_ophyd = prefix.replace("{{", "{").replace("}}", "}")
+    # Remove the trailing ':'
+    if pv_prefix_ophyd[-1] == ":":
+        pv_prefix_ophyd = pv_prefix_ophyd[:-1]
+
+    ioc_options, run_options = split_args(parsed_args)
+
+    det = GeRMMiniClassForCaprotoIOC(pv_prefix_ophyd, name="det")
+
+    ioc = GeRMSaveIOC(ophyd_det=det, **ioc_options)
     run(ioc.pvdb, **run_options)
