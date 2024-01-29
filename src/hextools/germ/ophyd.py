@@ -41,12 +41,9 @@ class GeRMMiniClassForCaprotoIOC(Device):
     energy = Cpt(EpicsSignal, ".SPCTX", kind=Kind.omitted)
 
 
-class GeRMDetectorBase(Device):
+class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
     """The base ophyd class for GeRM detector."""
 
-    count = Cpt(EpicsSignal, ".CNT", kind=Kind.omitted, string=True)
-    mca = Cpt(EpicsSignal, ".MCA", kind=Kind.omitted)
-    number_of_channels = Cpt(EpicsSignal, ".NELM", kind=Kind.config)
     gain = Cpt(EpicsSignal, ".GAIN", kind=Kind.config)
     shaping_time = Cpt(EpicsSignal, ".SHPT", kind=Kind.config)
     count_time = Cpt(EpicsSignal, ".TP", kind=Kind.config)
@@ -84,35 +81,25 @@ class GeRMDetectorBase(Device):
     ring_hi = Cpt(EpicsSignal, ":DRFTHI", kind=Kind.omitted)
     ring_lo = Cpt(EpicsSignal, ":DRFTLO", kind=Kind.omitted)
     channel_enabled = Cpt(EpicsSignal, ".TSEN", kind=Kind.omitted)
-    energy = Cpt(EpicsSignal, ".SPCTX", kind=Kind.omitted)
 
     image = Cpt(ExternalFileReference, kind=Kind.normal)
 
     # Caproto IOC components:
-    caproto_pv_prefix = "XF:27ID1-ES:GeRM-Det:1:"
     write_dir = Cpt(
         EpicsSignal,
-        f"{caproto_pv_prefix}write_dir",
+        ":write_dir",
         kind=Kind.config,
-        add_prefix=(),
-        as_string=True,
+        string=True,
     )
     file_name_prefix = Cpt(
         EpicsSignal,
-        f"{caproto_pv_prefix}file_name_prefix",
+        ":file_name_prefix",
         kind=Kind.config,
-        add_prefix=(),
-        as_string=True,
+        string=True,
     )
-    frame_num = Cpt(
-        EpicsSignal, f"{caproto_pv_prefix}frame_num", kind=Kind.omitted, add_prefix=()
-    )
-    frame_shape = Cpt(
-        EpicsSignal, f"{caproto_pv_prefix}:frame_shape", kind=Kind.config, add_prefix=()
-    )
-    ioc_stage = Cpt(
-        EpicsSignal, f"{caproto_pv_prefix}:stage", kind=Kind.omitted, add_prefix=()
-    )
+    frame_num = Cpt(EpicsSignal, ":frame_num", kind=Kind.omitted)
+    frame_shape = Cpt(EpicsSignal, ":frame_shape", kind=Kind.config)
+    ioc_stage = Cpt(EpicsSignal, ":stage", kind=Kind.omitted)
 
     def __init__(self, *args, root_dir=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -122,10 +109,6 @@ class GeRMDetectorBase(Device):
         self._root_dir = root_dir
         self._resource_document, self._datum_factory = None, None
         self._asset_docs_cache = deque()
-
-        height = int(self.number_of_channels.get())
-        width = len(self.energy.get())
-        self.frame_shape = (height, width)
 
     def collect_asset_docs(self):
         """The method to collect resource/datum documents."""
@@ -251,7 +234,7 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
 
     def describe(self):
         res = super().describe()
-        res[self.image.name].update({"shape": self._frame_shape})
+        res[self.image.name].update({"shape": self.frame_shape.get()})
         return res
 
     def trigger(self):
