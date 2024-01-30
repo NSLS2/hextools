@@ -84,7 +84,9 @@ log_cli_level = "INFO"
 testpaths = [
   "tests",
 ]
-
+markers = [
+    "hardware: marks tests as requiring the hardware IOC to be available/running (deselect with '-m \"not hardware\"')",
+]
 
 [tool.coverage]
 run.source = ["hextools"]
