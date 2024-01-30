@@ -23,7 +23,8 @@ def germ_det():
 @pytest.fixture()
 def db():
     """Return a data broker"""
-    db = Broker.named("temp")
+    # db = Broker.named("temp")
+    db = Broker.named("hex")
     with contextlib.suppress(Exception):
         databroker.assets.utils.install_sentinels(db.reg.config, version=1)
 

@@ -72,6 +72,8 @@ Homepage = "https://github.com/NSLS-II-HEX/hextools"
 Discussions = "https://github.com/NSLS-II-HEX/hextools/discussions"
 Changelog = "https://github.com/NSLS-II-HEX/hextools/releases"
 
+[project.entry-points."databroker.handlers"]
+AD_HDF5_GERM = "hextools.handlers:AreaDetectorHDF5HandlerGERM"
 
 [tool.setuptools_scm]
 write_to = "src/hextools/_version.py"
