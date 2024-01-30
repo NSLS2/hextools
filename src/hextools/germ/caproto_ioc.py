@@ -67,8 +67,10 @@ class GeRMSaveIOC(PVGroup):
         doc="Stage/unstage the detector. 0=unstaged, 1=staged",
     )
 
-    frame_num = pvproperty(value=0, doc="Frame counter")
-    frame_shape = pvproperty(value=(0, 0), doc="Frame shape", max_length=2)
+    frame_num = pvproperty(value=0, doc="Frame counter", dtype=int)
+    frame_shape = pvproperty(
+        value=(0, 0), doc="Frame shape", max_length=2, dtype=int, read_only=True
+    )
 
     async def _add_subscription(self, prop_name):
         client_context = Context()
@@ -96,7 +98,7 @@ class GeRMSaveIOC(PVGroup):
         await self.count.write(
             response.data,
             # We can even make the timestamp the same:
-            timestamp=response.metadata.timestamp,
+            # timestamp=response.metadata.timestamp,  # Note: we use caproto IOC timestamp for this PV.
         )
 
     @count.startup
@@ -106,7 +108,7 @@ class GeRMSaveIOC(PVGroup):
         await self._add_subscription("count")
 
     ### MCA ###
-    mca = pvproperty(value=0, doc="Mirrored mca PV", max_length=786432)
+    mca = pvproperty(value=0, doc="Mirrored mca PV", max_length=786432, read_only=True)
 
     async def callback_mca(self, pv, response):
         """A callback method for the 'mca' PV."""
@@ -124,7 +126,9 @@ class GeRMSaveIOC(PVGroup):
         await self._add_subscription("mca")
 
     ### Number of channels ###
-    number_of_channels = pvproperty(value=0, doc="Mirrored number_of_channels PV")
+    number_of_channels = pvproperty(
+        value=0, doc="Mirrored number_of_channels PV", dtype=int, read_only=True
+    )
 
     async def callback_number_of_channels(self, pv, response):
         """A callback method for the 'number_of_channels' PV."""
@@ -142,7 +146,9 @@ class GeRMSaveIOC(PVGroup):
         await self._add_subscription("number_of_channels")
 
     ### Energy ###
-    energy = pvproperty(value=0, doc="Mirrored energy PV", max_length=4096)
+    energy = pvproperty(
+        value=0, doc="Mirrored energy PV", max_length=4096, read_only=True
+    )
 
     async def callback_energy(self, pv, response):
         """A callback method for the 'energy' PV."""
@@ -184,7 +190,7 @@ class GeRMSaveIOC(PVGroup):
         """
         # pylint: disable=unused-argument
         await self.frame_shape.write(
-            (self.number_of_channels.value, len(self.energy.value))
+            (int(self.number_of_channels.value), len(self.energy.value))
         )
 
     def _get_current_image(self):
@@ -211,11 +217,12 @@ class GeRMSaveIOC(PVGroup):
 
             self._h5file_desc = h5py.File(self._data_file, "x", libver="latest")
             group = self._h5file_desc.create_group("/entry")
+            frame_shape = self.frame_shape.value
             self._dataset = group.create_dataset(
                 "data/data",
-                data=np.full(fill_value=np.nan, shape=(1, *self.frame_shape.value)),
-                maxshape=(None, *self.frame_shape.value),
-                chunks=(1, *self.frame_shape.value),
+                data=np.full(fill_value=np.nan, shape=(1, *frame_shape)),
+                maxshape=(None, *frame_shape),
+                chunks=(1, *frame_shape),
                 dtype="float32",
             )
             self._h5file_desc.swmr_mode = True
@@ -242,17 +249,19 @@ class GeRMSaveIOC(PVGroup):
             )
             return 1
 
+        frame_shape = self.frame_shape.value
         while True:
-            if instance.value != AcqStatuses.IDLE.value:
-                await asyncio.sleep(0.1)
+            # TODO: figure out why the subscription does not update the value:
+            count_value = await self.subscriptions["count"].pv.read()
+            if count_value.data[0] != 0:  # 1=Count, 0=Done
+                await asyncio.sleep(0.5)
                 continue
 
-            self._dataset.resize((self.frame_num.value + 1, *self.frame_shape.value))
-            self._dataset[
-                self.frame_num.value, :, :
-            ] = self.ophyd_det.get_current_image()
+            frame_num = self.frame_num.value
+            self._dataset.resize((frame_num + 1, *frame_shape))
+            self._dataset[frame_num, :, :] = self._get_current_image()
             self._dataset.flush()
-            await self.frame_num.write(self.frame_num.value + 1)
+            await self.frame_num.write(frame_num + 1)
             break
 
         return 0
