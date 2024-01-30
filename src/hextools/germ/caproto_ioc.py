@@ -19,7 +19,7 @@ from caproto import ChannelType
 from caproto.asyncio.client import Context
 from caproto.server import PVGroup, pvproperty, run, template_arg_parser
 
-from ..germ import AcqStatuses
+from ..germ import AcqStatuses, StageStates
 from ..germ.ophyd import GeRMMiniClassForCaprotoIOC
 
 internal_process = contextvars.ContextVar("internal_process", default=False)
@@ -61,10 +61,10 @@ class GeRMSaveIOC(PVGroup):
         max_length=255,
     )
     stage = pvproperty(
-        value="unstaged",
-        enum_strings=["unstaged", "staged"],
+        value=StageStates.UNSTAGED.value,
+        enum_strings=[x.value for x in StageStates],
         dtype=ChannelType.ENUM,
-        doc="Stage/unstage the detector. 0=unstaged, 1=staged",
+        doc="Stage/unstage the detector",
     )
 
     frame_num = pvproperty(value=0, doc="Frame counter", dtype=int)
@@ -201,11 +201,14 @@ class GeRMSaveIOC(PVGroup):
     @stage.putter
     async def stage(self, instance, value):
         """The stage method to perform preparation of a dataset to save the data."""
-        if instance.value in [True, "staged"] and value == "staged":
+        if (
+            instance.value in [True, StageStates.STAGED.value]
+            and value == StageStates.STAGED.value
+        ):
             msg = "The device is already staged. Unstage it first."
             raise ValueError(msg)
 
-        if value == "staged":
+        if value == StageStates.STAGED.value:
             await self.frame_num.write(0)
             date = datetime.datetime.now()
             root_dir = self.write_dir.value
@@ -228,7 +231,7 @@ class GeRMSaveIOC(PVGroup):
             self._h5file_desc.swmr_mode = True
             return True
 
-        if value == "unstaged":
+        if value == StageStates.UNSTAGED.value:
             self._h5file_desc.close()
 
         return False

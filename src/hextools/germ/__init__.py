@@ -8,3 +8,10 @@ class AcqStatuses(Enum):
 
     IDLE = "Done"
     ACQUIRING = "Count"
+
+
+class StageStates(Enum):
+    """Enum class for stage states."""
+
+    UNSTAGED = "unstaged"
+    STAGED = "staged"

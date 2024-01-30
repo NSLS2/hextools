@@ -13,7 +13,7 @@ from ophyd.sim import new_uid
 from ophyd.status import SubscriptionStatus
 from PIL import Image
 
-from ..germ import AcqStatuses
+from ..germ import AcqStatuses, StageStates
 
 
 class ExternalFileReference(Signal):
@@ -231,7 +231,7 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         # Update caproto IOC parameters:
         self.write_dir.put(self._root_dir)
         self.file_name_prefix.put(data_file_no_ext)
-        self.ioc_stage.put("staged")
+        self.ioc_stage.put(StageStates.STAGED.value)
 
     def describe(self):
         res = super().describe()
@@ -253,5 +253,5 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         return status
 
     def unstage(self):
-        self.ioc_stage.put("unstaged")
+        self.ioc_stage.put(StageStates.UNSTAGED.value)
         super().unstage()
