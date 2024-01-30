@@ -13,9 +13,11 @@ def test_germ_ops(germ_det):
 
 
 @pytest.mark.hardware()
-def test_germ_with_bluesky(RE, db, germ_det):
-    RE(bps.mv(germ_det.count_time, 5.0))
+@pytest.mark.parametrize("count_time", [0.1, 1, 2, 5, 10, 15, 20, 30, 45, 60, 120])
+def test_germ_with_bluesky(RE, db, germ_det, count_time):
+    RE(bps.mv(germ_det.count_time, count_time))
     (uid,) = RE(bp.count([germ_det], num=1))
+    RE(bps.sleep(5))
 
     hdr = db[uid]
     tbl = hdr.table(fill=True)
