@@ -131,14 +131,13 @@ class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
 
 def done_callback(value, old_value, **kwargs):
     """The callback function used by ophyd's SubscriptionStatus."""
-    if not kwargs:
-        pass
+    # pylint: disable=unused-argument
     if old_value == AcqStatuses.ACQUIRING.value and value == AcqStatuses.IDLE.value:
         return True
     return False
 
 
-class GeRMDetectorTiff(GeRMDetectorBase):
+class GeRMDetectorTIFF(GeRMDetectorBase):
     """The ophyd class for GeRM detector producing TIFF files."""
 
     def trigger(self):
@@ -214,13 +213,14 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
 
         date = datetime.datetime.now()
         assets_dir = date.strftime("%Y/%m/%d")
-        data_file = f"{new_uid()}.h5"
+        data_file_no_ext = f"{new_uid()}"
+        data_file_with_ext = f"{data_file_no_ext}.h5"
 
         self._resource_document, self._datum_factory, _ = compose_resource(
             start={"uid": "needed for compose_resource() but will be discarded"},
             spec="AD_HDF5_GERM",
             root=self._root_dir,
-            resource_path=str(Path(assets_dir) / Path(data_file)),
+            resource_path=str(Path(assets_dir) / Path(data_file_with_ext)),
             resource_kwargs={},
         )
 
@@ -228,13 +228,14 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         self._resource_document.pop("run_start")
         self._asset_docs_cache.append(("resource", self._resource_document))
 
+        # Update caproto IOC parameters:
         self.write_dir.put(self._root_dir)
-        self.file_name_prefix.put(data_file)
+        self.file_name_prefix.put(data_file_no_ext)
         self.ioc_stage.put("staged")
 
     def describe(self):
         res = super().describe()
-        res[self.image.name].update({"shape": self.frame_shape.get()})
+        res[self.image.name].update({"shape": self.frame_shape.get().tolist()})
         return res
 
     def trigger(self):
@@ -252,5 +253,5 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         return status
 
     def unstage(self):
-        super().unstage()
         self.ioc_stage.put("unstaged")
+        super().unstage()
