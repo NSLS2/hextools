@@ -13,7 +13,7 @@ from ophyd.sim import new_uid
 from ophyd.status import SubscriptionStatus
 from PIL import Image
 
-from ..germ import AcqStatuses, StageStates
+from . import AcqStatuses, StageStates
 
 
 class ExternalFileReference(Signal):

@@ -11,16 +11,17 @@ import contextvars
 import datetime
 import functools
 import textwrap
+from multiprocessing import Process, Queue
 from pathlib import Path
 
-import h5py
 import numpy as np
 from caproto import ChannelType
 from caproto.asyncio.client import Context
 from caproto.server import PVGroup, pvproperty, run, template_arg_parser
 
-from ..germ import AcqStatuses, StageStates
-from ..germ.ophyd import GeRMMiniClassForCaprotoIOC
+from . import AcqStatuses, StageStates
+from .export import save_hdf5
+from .ophyd import GeRMMiniClassForCaprotoIOC
 
 internal_process = contextvars.ContextVar("internal_process", default=False)
 
@@ -173,8 +174,8 @@ class GeRMSaveIOC(PVGroup):
 
         self.ophyd_det = ophyd_det
         self._data_file = None
-        self._h5file_desc = None
-        self._dataset = None
+        self._queue = None
+        self._mprocess = None
 
     @frame_shape.getter
     async def frame_shape(self, instance):
@@ -215,25 +216,19 @@ class GeRMSaveIOC(PVGroup):
             assets_dir = date.strftime("%Y/%m/%d")
             full_path = Path(root_dir) / Path(assets_dir)
             if not full_path.exists():
-                full_path.mkdir(parents=True, exist_ok=True)
+                # full_path.mkdir(parents=True, exist_ok=True)
+                msg = f"Path '{full_path}' does not exist."
+                raise OSError(msg)
+
             self._data_file = str(full_path / f"{self.file_name_prefix.value}.h5")
 
-            self._h5file_desc = h5py.File(self._data_file, "x", libver="latest")
-            group = self._h5file_desc.create_group("/entry")
-            frame_shape = self.frame_shape.value
-            self._dataset = group.create_dataset(
-                "data/data",
-                data=np.full(fill_value=np.nan, shape=(1, *frame_shape)),
-                maxshape=(None, *frame_shape),
-                chunks=(1, *frame_shape),
-                dtype="float32",
-            )
-            self._h5file_desc.swmr_mode = True
+            self._queue = Queue(maxsize=1)
+
             return True
 
-        if value == StageStates.UNSTAGED.value:
-            self._h5file_desc.close()
-
+        if value == StageStates.UNSTAGED.value and self._mprocess is not None:
+            self._mprocess.kill()
+            self._mprocess.close()
         return False
 
     @count.putter
@@ -252,22 +247,32 @@ class GeRMSaveIOC(PVGroup):
             )
             return 1
 
-        frame_shape = self.frame_shape.value
         while True:
             # TODO: figure out why the subscription does not update the value:
             count_value = await self.subscriptions["count"].pv.read()
             if count_value.data[0] != 0:  # 1=Count, 0=Done
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
                 continue
 
-            frame_num = self.frame_num.value
-            self._dataset.resize((frame_num + 1, *frame_shape))
-            self._dataset[frame_num, :, :] = self._get_current_image()
-            self._dataset.flush()
-            await self.frame_num.write(frame_num + 1)
+            self._queue.put(self._get_current_image())
+            self._mprocess = Process(
+                target=self.saver, args=(self._queue, self._data_file)
+            )
+            self._mprocess.start()
+
+            await self.frame_num.write(self.frame_num.value + 1)
             break
 
         return 0
+
+    @staticmethod
+    def saver(queue, fname):
+        """The saver callback for multiprocess-based queueing."""
+        data = queue.get()
+        save_hdf5(fname=fname, data=data)
+        print(
+            f"{datetime.datetime.now().isoformat()}: saved {data.shape} data into:\n  {fname}\n"
+        )
 
 
 if __name__ == "__main__":

@@ -48,6 +48,7 @@ test = [
   "databroker",
   "matplotlib",
   "pyarrow",
+  "pyqt5 >=5.12",
   "pytest >=6",
   "pytest-cov >=3",
 ]
