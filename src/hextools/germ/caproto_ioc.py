@@ -11,7 +11,7 @@ import contextvars
 import datetime
 import functools
 import textwrap
-from multiprocessing import Process, Queue
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -174,8 +174,8 @@ class GeRMSaveIOC(PVGroup):
 
         self.ophyd_det = ophyd_det
         self._data_file = None
-        self._queue = None
-        self._mprocess = None
+        self._request_queue = None
+        self._response_queue = None
 
     @frame_shape.getter
     async def frame_shape(self, instance):
@@ -222,14 +222,27 @@ class GeRMSaveIOC(PVGroup):
 
             self._data_file = str(full_path / f"{self.file_name_prefix.value}.h5")
 
-            self._queue = Queue(maxsize=1)
-
             return True
 
-        if value == StageStates.UNSTAGED.value and self._mprocess is not None:
-            self._mprocess.kill()
-            self._mprocess.close()
         return False
+
+    @count.startup
+    async def count(self, instance, async_lib):
+        """The startup behavior of the count property to set up threading queues."""
+        # pylint: disable=unused-argument
+        self._request_queue = async_lib.ThreadsafeQueue()
+        self._response_queue = async_lib.ThreadsafeQueue()
+
+        # Start a separate thread that consumes requests and sends responses.
+        thread = threading.Thread(
+            target=self.saver,
+            daemon=True,
+            kwargs={
+                "request_queue": self._request_queue,
+                "response_queue": self._response_queue,
+            },
+        )
+        thread.start()
 
     @count.putter
     @no_reentry
@@ -254,11 +267,14 @@ class GeRMSaveIOC(PVGroup):
                 await asyncio.sleep(0.1)
                 continue
 
-            self._queue.put(self._get_current_image())
-            self._mprocess = Process(
-                target=self.saver, args=(self._queue, self._data_file)
+            # The count is done at this point.
+            # Delegate saving the resulting data to a blocking callback in a thread.
+
+            await self._request_queue.async_put(
+                (self._data_file, self._get_current_image())
             )
-            self._mprocess.start()
+            status = await self._response_queue.async_get()
+            print(f"Got a response from the worker: saved={status}")
 
             await self.frame_num.write(self.frame_num.value + 1)
             break
@@ -266,13 +282,19 @@ class GeRMSaveIOC(PVGroup):
         return 0
 
     @staticmethod
-    def saver(queue, fname):
+    def saver(request_queue, response_queue):
         """The saver callback for multiprocess-based queueing."""
-        data = queue.get()
-        save_hdf5(fname=fname, data=data)
-        print(
-            f"{datetime.datetime.now().isoformat()}: saved {data.shape} data into:\n  {fname}\n"
-        )
+        while True:
+            fname, data = request_queue.get()
+            save_hdf5(fname=fname, data=data)
+            print(
+                f"{datetime.datetime.now().isoformat()}: saved {data.shape} data into:\n  {fname}"
+            )
+
+            response_queue.put(True)
+            print(
+                f"{datetime.datetime.now().isoformat()}: response sent to the response queue"
+            )
 
 
 if __name__ == "__main__":
