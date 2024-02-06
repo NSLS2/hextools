@@ -17,7 +17,6 @@ def test_germ_ops(germ_det):
 def test_germ_with_bluesky(RE, db, germ_det, count_time):
     RE(bps.mv(germ_det.count_time, count_time))
     (uid,) = RE(bp.count([germ_det], num=1))
-    RE(bps.sleep(5))
 
     hdr = db[uid]
     tbl = hdr.table(fill=True)
