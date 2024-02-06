@@ -166,16 +166,19 @@ class GeRMSaveIOC(PVGroup):
         # pylint: disable=unused-argument
         await self._add_subscription("energy")
 
-    def __init__(self, ophyd_det, *args, **kwargs):
+    def __init__(self, ophyd_det, *args, update_rate=10, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.subscriptions = {}
         self.client_context = None
 
         self.ophyd_det = ophyd_det
+        self._update_rate = update_rate
+        self._update_period = 1.0 / update_rate
         self._data_file = None
-        self._queue = None
         self._mprocess = None
+        self._exec_queue = Queue(maxsize=1)
+        self._status_queue = Queue(maxsize=1)
 
     @frame_shape.getter
     async def frame_shape(self, instance):
@@ -221,14 +224,31 @@ class GeRMSaveIOC(PVGroup):
                 raise OSError(msg)
 
             self._data_file = str(full_path / f"{self.file_name_prefix.value}.h5")
-
-            self._queue = Queue(maxsize=1)
+            print(f"\n{self._now()}: STAGED with {self._data_file}")
+            self._mprocess = Process(
+                target=self.saver,
+                args=(self._exec_queue, self._status_queue, self._data_file),
+            )
+            self._mprocess.start()
+            print(
+                f"{self._now()}: STAGED {self._mprocess.name = }  {self._mprocess.pid = }"
+            )
+            print(
+                f"{self._now()}: {self._exec_queue.qsize() = }  {self._status_queue.qsize() = }"
+            )
 
             return True
 
-        if value == StageStates.UNSTAGED.value and self._mprocess is not None:
-            self._mprocess.kill()
-            self._mprocess.close()
+        if value == StageStates.UNSTAGED.value:
+            print(f"{self._now()}: UNSTAGED with {self._data_file}\n")
+            self._data_file = None
+            if self._mprocess is not None:
+                # self._mprocess.join(timeout=0)
+                # while self._mprocess.is_alive():
+                #     await asyncio.sleep(self._update_period)
+                # print(f"{self._now()}: {self._exec_queue.qsize() = }  {self._status_queue.qsize() = }")
+                self._mprocess.terminate()
+                # self._mprocess.close()
         return False
 
     @count.putter
@@ -251,28 +271,40 @@ class GeRMSaveIOC(PVGroup):
             # TODO: figure out why the subscription does not update the value:
             count_value = await self.subscriptions["count"].pv.read()
             if count_value.data[0] != 0:  # 1=Count, 0=Done
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(self._update_period)
                 continue
 
-            self._queue.put(self._get_current_image())
-            self._mprocess = Process(
-                target=self.saver, args=(self._queue, self._data_file)
-            )
-            self._mprocess.start()
+            self._exec_queue.put(self._get_current_image())
+            while True:
+                print(f"{self._now()}:   still waiting ...")
+                print(
+                    f"{self._now()}: {self._exec_queue.qsize() = }  {self._status_queue.qsize() = }"
+                )
+                await asyncio.sleep(self._update_period)
+                status = self._status_queue.get_nowait()
+                if status:
+                    break
 
             await self.frame_num.write(self.frame_num.value + 1)
             break
 
         return 0
 
+    def _now(self):
+        return datetime.datetime.now().isoformat()
+
     @staticmethod
-    def saver(queue, fname):
+    def saver(exec_queue, status_queue, fname):
         """The saver callback for multiprocess-based queueing."""
-        data = queue.get()
+        print(
+            f"{datetime.datetime.now().isoformat()}: SAVER {exec_queue.qsize()=}  {status_queue.qsize()=}"
+        )
+        data = exec_queue.get()
         save_hdf5(fname=fname, data=data)
         print(
             f"{datetime.datetime.now().isoformat()}: saved {data.shape} data into:\n  {fname}\n"
         )
+        status_queue.put(True)
 
 
 if __name__ == "__main__":
