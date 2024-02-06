@@ -43,9 +43,9 @@ jobs:
         python-version: ["3.8", "3.12"]
         runs-on: [ubuntu-latest, macos-latest, windows-latest]
 
-        include:
-          - python-version: pypy-3.10
-            runs-on: ubuntu-latest
+        # include:
+        #   - python-version: pypy-3.10
+        #     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +63,7 @@ jobs:
       - name: Test package
         run: >-
           python -m pytest -ra --cov --cov-report=xml --cov-report=term
-          --durations=20
+          --durations=20 -m "not hardware"
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v3.1.4
