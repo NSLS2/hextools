@@ -21,6 +21,7 @@ from caproto import ChannelType
 from caproto.asyncio.client import Context
 from caproto.server import PVGroup, pvproperty, run, template_arg_parser
 
+from ..utils import now
 from . import AcqStatuses, StageStates
 from .export import save_hdf5
 from .ophyd import GeRMMiniClassForCaprotoIOC
@@ -191,14 +192,17 @@ class GeRMSaveIOC(PVGroup):
         )
         thread.start()
 
-    def __init__(self, ophyd_det, *args, **kwargs):
+    def __init__(self, ophyd_det, *args, update_rate=10.0, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.subscriptions = {}
         self.client_context = None
 
         self.ophyd_det = ophyd_det
-        # self._data_file = None
+        self._update_rate = update_rate
+        self._update_period = 1.0 / update_rate
+
+        # Threading-based queues attributes:
         self._request_queue = None
         self._response_queue = None
 
@@ -276,7 +280,7 @@ class GeRMSaveIOC(PVGroup):
             # TODO: figure out why the subscription does not update the value:
             count_value = await self.subscriptions["count"].pv.read()
             if count_value.data[0] != 0:  # 1=Count, 0=Done
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(self._update_period)
                 continue
 
             # The count is done at this point.
@@ -308,9 +312,7 @@ class GeRMSaveIOC(PVGroup):
             data = received["data"]
             try:
                 save_hdf5(fname=filename, data=data)
-                print(
-                    f"{datetime.datetime.now().isoformat()}: saved {data.shape} data into:\n  {filename}"
-                )
+                print(f"{now()}: saved {data.shape} data into:\n  {filename}")
 
                 success = True
                 error_message = ""
