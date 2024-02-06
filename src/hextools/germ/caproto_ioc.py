@@ -12,6 +12,8 @@ import datetime
 import functools
 import textwrap
 import threading
+import time as ttime
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -60,6 +62,9 @@ class GeRMSaveIOC(PVGroup):
         string_encoding="utf-8",
         report_as_string=True,
         max_length=255,
+    )
+    data_file = pvproperty(
+        value="", doc="Full path to the data file", dtype=str, read_only=True
     )
     stage = pvproperty(
         value=StageStates.UNSTAGED.value,
@@ -166,6 +171,26 @@ class GeRMSaveIOC(PVGroup):
         # pylint: disable=unused-argument
         await self._add_subscription("energy")
 
+    queue = pvproperty(value=0, doc="A PV to facilitate threading-based queue")
+
+    @queue.startup
+    async def queue(self, instance, async_lib):
+        """The startup behavior of the count property to set up threading queues."""
+        # pylint: disable=unused-argument
+        self._request_queue = async_lib.ThreadsafeQueue()
+        self._response_queue = async_lib.ThreadsafeQueue()
+
+        # Start a separate thread that consumes requests and sends responses.
+        thread = threading.Thread(
+            target=self.saver,
+            daemon=True,
+            kwargs={
+                "request_queue": self._request_queue,
+                "response_queue": self._response_queue,
+            },
+        )
+        thread.start()
+
     def __init__(self, ophyd_det, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -173,7 +198,7 @@ class GeRMSaveIOC(PVGroup):
         self.client_context = None
 
         self.ophyd_det = ophyd_det
-        self._data_file = None
+        # self._data_file = None
         self._request_queue = None
         self._response_queue = None
 
@@ -220,29 +245,16 @@ class GeRMSaveIOC(PVGroup):
                 msg = f"Path '{full_path}' does not exist."
                 raise OSError(msg)
 
-            self._data_file = str(full_path / f"{self.file_name_prefix.value}.h5")
+            await self.data_file.write(
+                str(full_path / f"{self.file_name_prefix.value}.h5")
+            )
 
             return True
 
+        # TODO: Figure out how to do clean up on unstage without breaking the next scan:
+        # await self.data_file.write("")
+
         return False
-
-    @count.startup
-    async def count(self, instance, async_lib):
-        """The startup behavior of the count property to set up threading queues."""
-        # pylint: disable=unused-argument
-        self._request_queue = async_lib.ThreadsafeQueue()
-        self._response_queue = async_lib.ThreadsafeQueue()
-
-        # Start a separate thread that consumes requests and sends responses.
-        thread = threading.Thread(
-            target=self.saver,
-            daemon=True,
-            kwargs={
-                "request_queue": self._request_queue,
-                "response_queue": self._response_queue,
-            },
-        )
-        thread.start()
 
     @count.putter
     @no_reentry
@@ -269,32 +281,51 @@ class GeRMSaveIOC(PVGroup):
 
             # The count is done at this point.
             # Delegate saving the resulting data to a blocking callback in a thread.
+            payload = {
+                "filename": self.data_file.value,
+                "data": self._get_current_image(),
+                "uid": str(uuid.uuid4()),
+                "timestamp": ttime.time(),
+            }
 
-            await self._request_queue.async_put(
-                (self._data_file, self._get_current_image())
-            )
-            status = await self._response_queue.async_get()
-            print(f"Got a response from the worker: saved={status}")
+            await self._request_queue.async_put(payload)
+            response = await self._response_queue.async_get()
 
-            await self.frame_num.write(self.frame_num.value + 1)
+            if response["success"]:
+                # Increment the counter only on a successful saving of the file.
+                await self.frame_num.write(self.frame_num.value + 1)
+
             break
 
         return 0
 
     @staticmethod
     def saver(request_queue, response_queue):
-        """The saver callback for multiprocess-based queueing."""
+        """The saver callback for threading-based queueing."""
         while True:
-            fname, data = request_queue.get()
-            save_hdf5(fname=fname, data=data)
-            print(
-                f"{datetime.datetime.now().isoformat()}: saved {data.shape} data into:\n  {fname}"
-            )
+            received = request_queue.get()
+            filename = received["filename"]
+            data = received["data"]
+            try:
+                save_hdf5(fname=filename, data=data)
+                print(
+                    f"{datetime.datetime.now().isoformat()}: saved {data.shape} data into:\n  {filename}"
+                )
 
-            response_queue.put(True)
-            print(
-                f"{datetime.datetime.now().isoformat()}: response sent to the response queue"
-            )
+                success = True
+                error_message = ""
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                # The GeRM detector happens to response twice for a single
+                # ".CNT" put, so capture an attempt to save the file with the
+                # same name here and do nothing.
+                success = False
+                error_message = exc
+                print(
+                    f"Cannot save file {filename!r} due to the following exception:\n{exc}"
+                )
+
+            response = {"success": success, "error_message": error_message}
+            response_queue.put(response)
 
 
 if __name__ == "__main__":
