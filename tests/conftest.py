@@ -42,4 +42,7 @@ def RE(db):
     bec = BestEffortCallback()
     RE.subscribe(bec)
 
+    # from bluesky.utils import ts_msg_hook
+    # RE.msg_hook = ts_msg_hook
+
     return RE
