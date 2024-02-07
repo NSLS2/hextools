@@ -235,7 +235,9 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
 
     def describe(self):
         res = super().describe()
-        res[self.image.name].update({"shape": self.frame_shape.get().tolist()})
+        res[self.image.name].update(
+            {"shape": self.frame_shape.get().tolist(), "dtype_str": "<f4"}
+        )
         return res
 
     def trigger(self):
