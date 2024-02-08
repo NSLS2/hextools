@@ -93,6 +93,7 @@ testpaths = [
 ]
 markers = [
     "hardware: marks tests as requiring the hardware IOC to be available/running (deselect with '-m \"not hardware\"')",
+    "tiled: marks tests as requiring tiled",
 ]
 
 [tool.coverage]

@@ -8,6 +8,7 @@ import pytest
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import RunEngine
 from databroker import Broker
+from tiled.client import from_profile
 
 from hextools.germ.ophyd import GeRMDetectorHDF5
 from hextools.handlers import AreaDetectorHDF5HandlerGERM
@@ -46,3 +47,13 @@ def RE(db):
     # RE.msg_hook = ts_msg_hook
 
     return RE
+
+
+@pytest.fixture()
+def tiled_client():
+    return from_profile("nsls2")["hex"]["raw"]
+
+
+@pytest.fixture()
+def tiled_run_with_germ_data(tiled_client):
+    return tiled_client["8ab00260-d81f-44e4-8f53-be6adace15f8"]
