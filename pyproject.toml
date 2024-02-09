@@ -40,6 +40,7 @@ dependencies = [
   "pillow",
   "pyepics",
   "tifffile",
+  "tiled[client]",
 ]
 
 [project.optional-dependencies]
