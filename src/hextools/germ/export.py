@@ -23,7 +23,7 @@ def get_detector_parameters(det=None, keys=None):
     det : ophyd.Device
         ophyd detector object
     keys : dict
-        the detector keys to to get the values for to the returned dictionary
+        the detector keys to get the values for to the returned dictionary
 
     Returns:
     --------
@@ -42,6 +42,97 @@ def get_detector_parameters(det=None, keys=None):
         as_string = bool(obj.enum_strs)
         detector_metadata[group_key][key] = obj.get(as_string=as_string)
     return detector_metadata
+
+
+def get_detector_parameters_from_tiled(run, det_name=None, keys=None):
+    """Auxiliary function to get detector parameters from tiled.
+
+    Parameters:
+    -----------
+    run : bluesky run
+        the bluesky run to get detector parameters for
+    det_name : str
+        ophyd detector name
+    keys : dict
+        the detector keys to get the values for to the returned dictionary
+
+    Returns:
+    --------
+    detector_metadata : dict
+        the dictionary with detector parameters
+    """
+    if det_name is None:
+        msg = "The 'det_name' cannot be None"
+        raise ValueError(msg)
+    try:
+        # make sure det_name is correct
+        config = run.primary["config"][det_name].read()
+    except KeyError as err:
+        msg = f"{err} det_name is incorrect. Check ophyd device .name"
+        raise ValueError(msg) from err
+    if keys is None:
+        keys = GERM_DETECTOR_KEYS
+    group_key = f"{det_name.lower()}_detector"
+    detector_metadata = {group_key: {}}
+    for key in keys:
+        detector_metadata[group_key][key] = config[f"{det_name}_{key}"].data[0]
+    return detector_metadata
+
+
+def nx_export(run, det_name):
+    """Function to export bluesky run to NeXus file
+
+    Parameters:
+    -----------
+    run : bluesky run
+        the bluesky run to export to NeXus
+    """
+    for name, doc in run.documents():
+        if name == "resource" and doc["spec"] == "AD_HDF5_GERM":
+            resource_root = doc["root"]
+            resource_path = doc["resource_path"]
+            h5_filepath = Path(resource_root) / Path(resource_path)
+            nx_filepath = str(
+                Path.joinpath(h5_filepath.parent / f"{h5_filepath.stem}.nxs")
+                # Path.joinpath(Path("/tmp") / f"{h5_filepath.stem}.nxs")  # For testing
+            )
+            break
+
+    def get_dtype(value):
+        if isinstance(value, str):
+            return h5py.special_dtype(vlen=str)
+        if isinstance(value, float):
+            return np.float32
+        if isinstance(value, int):
+            return np.int32
+        return type(value)
+
+    with h5py.File(nx_filepath, "x") as h5_file:
+        entry_grp = h5_file.require_group("entry")
+        data_grp = entry_grp.require_group("data")
+
+        meta_dict = get_detector_parameters_from_tiled(run, det_name)
+        for _, v in meta_dict.items():
+            meta = v
+            break
+        current_metadata_grp = h5_file.require_group("entry/instrument/detector")
+        for key, value in meta.items():
+            if key not in current_metadata_grp:
+                dtype = get_dtype(value)
+                current_metadata_grp.create_dataset(key, data=value, dtype=dtype)
+
+        # External link
+        # data_grp["data"] = h5py.ExternalLink(h5_filepath, "entry/data/data")
+        data = run.primary["data"][f"{det_name}_image"].read()
+        frame_shape = data.shape[1:]
+        data_grp.create_dataset(
+            "data",
+            data=data,
+            maxshape=(None, *frame_shape),
+            chunks=(1, *frame_shape),
+            dtype=data.dtype,
+        )
+    return nx_filepath
 
 
 def nx_export_callback(name, doc):
@@ -118,24 +209,24 @@ def save_hdf5(
     update_existing=False,
 ):
     """The function to export the data to an HDF5 file."""
-    h5file_desc = h5py.File(fname, mode, libver="latest")
-    frame_shape = data.shape
-    if not update_existing:
-        group = h5file_desc.create_group(group_name)
-        dataset = group.create_dataset(
-            "data/data",
-            data=np.full(fill_value=np.nan, shape=(1, *frame_shape)),
-            maxshape=(None, *frame_shape),
-            chunks=(1, *frame_shape),
-            dtype=dtype,
-        )
-        frame_num = 0
-    else:
-        dataset = h5file_desc[f"{group_name}/{group_path}"]
-        frame_num = dataset.shape[0]
+    with h5py.File(fname, mode, libver="latest") as h5file_desc:
+        frame_shape = data.shape
+        if not update_existing:
+            group = h5file_desc.create_group(group_name)
+            dataset = group.create_dataset(
+                "data/data",
+                data=np.full(fill_value=np.nan, shape=(1, *frame_shape)),
+                maxshape=(None, *frame_shape),
+                chunks=(1, *frame_shape),
+                dtype=dtype,
+            )
+            frame_num = 0
+        else:
+            dataset = h5file_desc[f"{group_name}/{group_path}"]
+            frame_num = dataset.shape[0]
 
-    h5file_desc.swmr_mode = True
+        h5file_desc.swmr_mode = True
 
-    dataset.resize((frame_num + 1, *frame_shape))
-    dataset[frame_num, :, :] = data
-    dataset.flush()
+        dataset.resize((frame_num + 1, *frame_shape))
+        dataset[frame_num, :, :] = data
+        dataset.flush()

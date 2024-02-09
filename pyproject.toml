@@ -51,6 +51,7 @@ test = [
   "pyqt5 >=5.12",
   "pytest >=6",
   "pytest-cov >=3",
+  "tiled[client]",
 ]
 dev = [
   "ipython",
@@ -60,11 +61,11 @@ dev = [
   "pytest-cov >=3",
 ]
 docs = [
-  "sphinx>=7.0",
-  "myst_parser>=0.13",
-  "sphinx_copybutton",
-  "sphinx_autodoc_typehints",
   "furo>=2023.08.17",
+  "myst_parser>=0.13",
+  "sphinx>=7.0",
+  "sphinx_autodoc_typehints",
+  "sphinx_copybutton",
 ]
 
 [project.urls]
@@ -93,6 +94,7 @@ testpaths = [
 ]
 markers = [
     "hardware: marks tests as requiring the hardware IOC to be available/running (deselect with '-m \"not hardware\"')",
+    "tiled: marks tests as requiring tiled",
 ]
 
 [tool.coverage]

@@ -115,10 +115,17 @@ class GeRMSaveIOC(PVGroup):
         await self._add_subscription("count")
 
     ### MCA ###
-    mca = pvproperty(value=0, doc="Mirrored mca PV", max_length=786432, read_only=True)
+    mca = pvproperty(
+        value=0, doc="Mirrored mca PV", max_length=192 * 4096, read_only=True
+    )
 
     async def callback_mca(self, pv, response):
-        """A callback method for the 'mca' PV."""
+        """A callback method for the 'mca' PV.
+
+        The mca is returned as a 1-d array of size 192 * 4096 = 786432, where
+        192 is the number of channels (see 'number_of_channels' pvproperty) and
+        4096 is the number of elements in the 'energy' pvproperty.
+        """
         # pylint: disable=unused-argument
         await self.mca.write(
             response.data,
