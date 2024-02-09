@@ -93,8 +93,8 @@ def nx_export(run, det_name):
             resource_path = doc["resource_path"]
             h5_filepath = Path(resource_root) / Path(resource_path)
             nx_filepath = str(
-                # Path.joinpath(h5_filepath.parent / f"{h5_filepath.stem}.nxs")
-                Path.joinpath(Path("/tmp") / f"{h5_filepath.stem}.nxs")
+                Path.joinpath(h5_filepath.parent / f"{h5_filepath.stem}.nxs")
+                # Path.joinpath(Path("/tmp") / f"{h5_filepath.stem}.nxs")  # For testing
             )
             break
 
