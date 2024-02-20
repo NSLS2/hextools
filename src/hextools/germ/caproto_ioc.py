@@ -54,7 +54,7 @@ class GeRMSaveIOC(PVGroup):
         value="/tmp",
         doc="The directory to write data to",
         string_encoding="utf-8",
-        report_as_string=True,
+        dtype=ChannelType.CHAR,
         max_length=255,
     )
     file_name_prefix = pvproperty(
