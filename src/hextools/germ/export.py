@@ -102,7 +102,7 @@ def nx_export(run, det_name, export_dir=None):
     #             # Path.joinpath(h5_filepath.parent / f"{h5_filepath.stem}.nxs")
     #             # Path.joinpath(Path("/tmp") / f"{h5_filepath.stem}.nxs")  # For testing
     #         break
-    nx_filepath = str(Path.joinpath(export_dir / rendered_file_name))
+    nx_filepath = str(Path(export_dir) / Path(rendered_file_name))
     print(f"!!! {nx_filepath}")
 
     def get_dtype(value):
