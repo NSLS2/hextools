@@ -85,13 +85,19 @@ def nx_export(run, det_name, export_dir=None):
     Parameters:
     -----------
     run : bluesky run
-        the bluesky run to export to NeXus
+        the bluesky run to export to NeXus.
+    det_name : str
+        the name of the detector to export the data/metadata for.
+    export_dir : str (optional)
+        the export directory for the resulting file.
     """
     start_doc = run.start
     if export_dir is None:
         export_dir = start_doc["export_dir"]
     date = datetime.datetime.fromtimestamp(start_doc["time"])
-    file_prefix = "scan_{start[scan_id]:05d}_{start[calibrant]}_{start[theta]}deg_{date.month:02d}_{date.day:02d}_{date.year:04d}.nxs"
+
+    # TODO: create defaults for file prefixes for different types of scans.
+    file_prefix = "scan_{start[scan_id]:05d}_{start[calibrant]}_{start[theta]:.3f}deg_{date.month:02d}_{date.day:02d}_{date.year:04d}.nxs"
     rendered_file_name = file_prefix.format(start=start_doc, date=date)
 
     # for name, doc in run.documents():
@@ -103,7 +109,7 @@ def nx_export(run, det_name, export_dir=None):
     #             # Path.joinpath(Path("/tmp") / f"{h5_filepath.stem}.nxs")  # For testing
     #         break
     nx_filepath = str(Path(export_dir) / Path(rendered_file_name))
-    print(f"!!! {nx_filepath}")
+    print(f"{nx_filepath = }")
 
     def get_dtype(value):
         if isinstance(value, str):
