@@ -79,24 +79,40 @@ def get_detector_parameters_from_tiled(run, det_name=None, keys=None):
     return detector_metadata
 
 
-def nx_export(run, det_name):
+def nx_export(run, det_name, export_dir=None, file_prefix=None):
     """Function to export bluesky run to NeXus file
 
     Parameters:
     -----------
     run : bluesky run
-        the bluesky run to export to NeXus
+        the bluesky run to export to NeXus.
+    det_name : str
+        the name of the detector to export the data/metadata for.
+    export_dir : str (optional)
+        the export directory for the resulting file.
+    file_prefix : str (optional)
+        the file prefix template for the resulting file.
     """
-    for name, doc in run.documents():
-        if name == "resource" and doc["spec"] == "AD_HDF5_GERM":
-            resource_root = doc["root"]
-            resource_path = doc["resource_path"]
-            h5_filepath = Path(resource_root) / Path(resource_path)
-            nx_filepath = str(
-                Path.joinpath(h5_filepath.parent / f"{h5_filepath.stem}.nxs")
-                # Path.joinpath(Path("/tmp") / f"{h5_filepath.stem}.nxs")  # For testing
-            )
-            break
+    start_doc = run.start
+    if export_dir is None:
+        export_dir = start_doc["export_dir"]
+    date = datetime.datetime.fromtimestamp(start_doc["time"])
+
+    # TODO: create defaults for file prefixes for different types of scans.
+    if file_prefix is None:
+        file_prefix = "scan_{start[scan_id]:05d}_{start[calibrant]}_{start[theta]:.3f}deg_{date.month:02d}_{date.day:02d}_{date.year:04d}.nxs"
+    rendered_file_name = file_prefix.format(start=start_doc, date=date)
+
+    # for name, doc in run.documents():
+    #     if name == "resource" and doc["spec"] == "AD_HDF5_GERM":
+    #         resource_root = doc["root"]
+    #         resource_path = doc["resource_path"]
+    #         h5_filepath = Path(resource_root) / Path(resource_path)
+    #             # Path.joinpath(h5_filepath.parent / f"{h5_filepath.stem}.nxs")
+    #             # Path.joinpath(Path("/tmp") / f"{h5_filepath.stem}.nxs")  # For testing
+    #         break
+    nx_filepath = str(Path(export_dir) / Path(rendered_file_name))
+    print(f"{nx_filepath = }")
 
     def get_dtype(value):
         if isinstance(value, str):
