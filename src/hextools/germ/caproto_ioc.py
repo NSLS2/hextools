@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 from caproto import ChannelType
 from caproto.asyncio.client import Context
+from caproto.ioc_examples.setpoint_rbv_pair import pvproperty_with_rbv
 from caproto.server import PVGroup, pvproperty, run, template_arg_parser
 
 from ..utils import now
@@ -65,7 +66,11 @@ class GeRMSaveIOC(PVGroup):
         max_length=255,
     )
     data_file = pvproperty(
-        value="", doc="Full path to the data file", dtype=str, read_only=True
+        value="",
+        doc="Full path to the data file",
+        dtype=str,
+        read_only=True,
+        max_length=255,
     )
     stage = pvproperty(
         value=StageStates.UNSTAGED.value,
@@ -92,27 +97,49 @@ class GeRMSaveIOC(PVGroup):
         )
 
     ### Count ###
-    count = pvproperty(
+    count = pvproperty_with_rbv(
         value=AcqStatuses.IDLE.value,
         enum_strings=[x.value for x in AcqStatuses],
         dtype=ChannelType.ENUM,
         doc="Trigger the detector via a mirrored PV and save the data",
     )
 
+    # count_rbv = pvproperty(
+    #     value=AcqStatuses.IDLE.value,
+    #     enum_strings=[x.value for x in AcqStatuses],
+    #     dtype=ChannelType.ENUM,
+    #     doc="Readback for the count",
+    #     read_only=True,
+    # )
+
+    _already_counting = None
+    _already_done = None
+
     async def callback_count(self, pv, response):
         """A callback method for the 'count' PV."""
         # pylint: disable=unused-argument
-        await self.count.write(
-            response.data,
-            # We can even make the timestamp the same:
-            # timestamp=response.metadata.timestamp,  # Note: we use caproto IOC timestamp for this PV.
-        )
 
-    @count.startup
-    async def count(self, instance, async_lib):
+        # The conditions below are needed to account for doubled
+        # Count(=1)/Done(=0)responses from the libCA IOC to process such events
+        # only once.
+        if response.data[0] == 1:
+            if self._already_counting in (None, False):
+                self._already_counting = True
+                await self.count.readback.write(response.data)
+            else:
+                self._already_counting = False
+        elif response.data[0] == 0:
+            if self._already_done in (None, False):
+                self._already_done = True
+                await self.count.readback.write(response.data)
+            else:
+                self._already_done = False
+
+    @count.setpoint.startup
+    async def count(obj, instance, async_lib):
         """Startup behavior of count."""
         # pylint: disable=unused-argument
-        await self._add_subscription("count")
+        await obj.parent._add_subscription("count")
 
     ### MCA ###
     mca = pvproperty(
@@ -213,8 +240,9 @@ class GeRMSaveIOC(PVGroup):
         self._request_queue = None
         self._response_queue = None
 
-    @frame_shape.getter
-    async def frame_shape(self, instance):
+        self._counting = None
+
+    async def _update_frame_shape(self, *args, **kwargs):
         """Calculate the frame shape using the PVs from the real IOC.
 
         Note:
@@ -229,6 +257,10 @@ class GeRMSaveIOC(PVGroup):
         await self.frame_shape.write(
             (int(self.number_of_channels.value), len(self.energy.value))
         )
+
+    @frame_shape.getter
+    async def frame_shape(self, instance):
+        await self._update_frame_shape(instance)
 
     def _get_current_image(self):
         """The function to return a current image from detector's MCA."""
@@ -260,6 +292,8 @@ class GeRMSaveIOC(PVGroup):
                 str(full_path / f"{self.file_name_prefix.value}.h5")
             )
 
+            await self._update_frame_shape()
+
             return True
 
         # TODO: Figure out how to do clean up on unstage without breaking the next scan:
@@ -267,46 +301,57 @@ class GeRMSaveIOC(PVGroup):
 
         return False
 
-    @count.putter
+    @count.setpoint.putter
     @no_reentry
-    async def count(self, instance, value):
+    async def count(obj, instance, value):
         """The count method to perform an individual count of the detector."""
         if value != AcqStatuses.ACQUIRING.value:
             return 0
 
-        if (
-            instance.value in [True, AcqStatuses.ACQUIRING.value]
-            and value == AcqStatuses.ACQUIRING.value
-        ):
+        if value == AcqStatuses.ACQUIRING.value and instance.value in [
+            True,
+            AcqStatuses.ACQUIRING.value,
+        ]:
             print(
                 f"The device is already acquiring. Please wait until the '{AcqStatuses.IDLE.value}' status."
             )
             return 1
 
+        self = obj.parent
+
+        num_acq_statuses = {val.value: idx for idx, val in enumerate(list(AcqStatuses))}
+        external_count_pv = self.subscriptions["count"].pv
+
+        # await self.count.readback.write(value)
+        await self.count.setpoint.write(value)
+
+        await external_count_pv.write(num_acq_statuses[value], wait=False)
+
         while True:
             # TODO: figure out why the subscription does not update the value:
-            count_value = await self.subscriptions["count"].pv.read()
-            if count_value.data[0] != 0:  # 1=Count, 0=Done
+            count_value = await external_count_pv.read()
+            if (
+                count_value.data[0] != num_acq_statuses[AcqStatuses.IDLE.value]
+            ):  # 1=Count, 0=Done
                 await asyncio.sleep(self._update_period)
                 continue
-
-            # The count is done at this point.
-            # Delegate saving the resulting data to a blocking callback in a thread.
-            payload = {
-                "filename": self.data_file.value,
-                "data": self._get_current_image(),
-                "uid": str(uuid.uuid4()),
-                "timestamp": ttime.time(),
-            }
-
-            await self._request_queue.async_put(payload)
-            response = await self._response_queue.async_get()
-
-            if response["success"]:
-                # Increment the counter only on a successful saving of the file.
-                await self.frame_num.write(self.frame_num.value + 1)
-
             break
+
+        # The count is done at this point.
+        # Delegate saving the resulting data to a blocking callback in a thread.
+        payload = {
+            "filename": self.data_file.value,
+            "data": self._get_current_image(),
+            "uid": str(uuid.uuid4()),
+            "timestamp": ttime.time(),
+        }
+
+        await self._request_queue.async_put(payload)
+        response = await self._response_queue.async_get()
+
+        if response["success"]:
+            # Increment the counter only on a successful saving of the file.
+            await self.frame_num.write(self.frame_num.value + 1)
 
         return 0
 
@@ -318,7 +363,7 @@ class GeRMSaveIOC(PVGroup):
             filename = received["filename"]
             data = received["data"]
             try:
-                save_hdf5(fname=filename, data=data)
+                save_hdf5(fname=filename, data=data, mode="a")
                 print(f"{now()}: saved {data.shape} data into:\n  {filename}")
 
                 success = True
@@ -330,7 +375,7 @@ class GeRMSaveIOC(PVGroup):
                 success = False
                 error_message = exc
                 print(
-                    f"Cannot save file {filename!r} due to the following exception:\n{exc}"
+                    f"{now()}: Cannot save file {filename!r} due to the following exception:\n{exc}"
                 )
 
             response = {"success": success, "error_message": error_message}
@@ -338,6 +383,8 @@ class GeRMSaveIOC(PVGroup):
 
 
 if __name__ == "__main__":
+    from hextools.utils import replace_curlies
+
     parser, split_args = template_arg_parser(
         default_prefix="", desc=textwrap.dedent(GeRMSaveIOC.__doc__)
     )
@@ -346,14 +393,18 @@ if __name__ == "__main__":
     prefix = parsed_args.prefix
     if not prefix:
         parser.error("The 'prefix' argument must be specified.")
-    pv_prefix_ophyd = prefix.replace("{{", "{").replace("}}", "}")
+    pv_prefix_ophyd = replace_curlies(prefix, how_many=4)
     # Remove the trailing ':'
     if pv_prefix_ophyd[-1] == ":":
         pv_prefix_ophyd = pv_prefix_ophyd[:-1]
 
+    print(f"{pv_prefix_ophyd = }")
     ioc_options, run_options = split_args(parsed_args)
 
     det = GeRMMiniClassForCaprotoIOC(pv_prefix_ophyd, name="det")
 
     ioc = GeRMSaveIOC(ophyd_det=det, **ioc_options)
-    run(ioc.pvdb, **run_options)
+    pvdb = {}
+    for k, v in ioc.pvdb.items():
+        pvdb[replace_curlies(k)] = v
+    run(pvdb, **run_options)
