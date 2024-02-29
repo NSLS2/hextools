@@ -35,7 +35,7 @@ class ExternalFileReference(Signal):
 class GeRMMiniClassForCaprotoIOC(Device):
     """Minimal GeRM detector ophyd class used in caproto IOC."""
 
-    count = Cpt(EpicsSignal, ".CNT", kind=Kind.omitted, string=True)
+    count = Cpt(EpicsSignal, ":count", kind=Kind.omitted, string=True)
     mca = Cpt(EpicsSignal, ".MCA", kind=Kind.omitted)
     number_of_channels = Cpt(EpicsSignal, ".NELM", kind=Kind.config)
     energy = Cpt(EpicsSignal, ".SPCTX", kind=Kind.omitted)
