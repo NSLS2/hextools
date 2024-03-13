@@ -104,14 +104,6 @@ class GeRMSaveIOC(PVGroup):
         doc="Trigger the detector via a mirrored PV and save the data",
     )
 
-    # count_rbv = pvproperty(
-    #     value=AcqStatuses.IDLE.value,
-    #     enum_strings=[x.value for x in AcqStatuses],
-    #     dtype=ChannelType.ENUM,
-    #     doc="Readback for the count",
-    #     read_only=True,
-    # )
-
     _already_counting = None
     _already_done = None
 
@@ -240,9 +232,7 @@ class GeRMSaveIOC(PVGroup):
         self._request_queue = None
         self._response_queue = None
 
-        self._counting = None
-
-    async def _update_frame_shape(self, *args, **kwargs):
+    async def _update_frame_shape(self):
         """Calculate the frame shape using the PVs from the real IOC.
 
         Note:
@@ -261,7 +251,8 @@ class GeRMSaveIOC(PVGroup):
     @frame_shape.getter
     async def frame_shape(self, instance):
         """Calculate the frame shape."""
-        await self._update_frame_shape(instance)
+        # pylint: disable=unused-argument
+        await self._update_frame_shape()
 
     def _get_current_image(self):
         """The function to return a current image from detector's MCA."""
@@ -324,9 +315,11 @@ class GeRMSaveIOC(PVGroup):
         num_acq_statuses = {val.value: idx for idx, val in enumerate(list(AcqStatuses))}
         external_count_pv = self.subscriptions["count"].pv
 
-        # await self.count.readback.write(value)
         await self.count.setpoint.write(value)
 
+        # Note: while the value is set successfully on the libCA IOC, it does
+        # not confirm the writing was done, so the external_count_pv.write(...)
+        # was failing. We do not wait for confirmation here.
         await external_count_pv.write(num_acq_statuses[value], wait=False)
 
         while True:
@@ -335,7 +328,6 @@ class GeRMSaveIOC(PVGroup):
                 count_value.data[0] != num_acq_statuses[AcqStatuses.IDLE.value]
             ):  # 1=Count, 0=Done
                 await asyncio.sleep(self._update_period)
-                continue
             break
 
         # The count is done at this point.
@@ -394,18 +386,25 @@ if __name__ == "__main__":
     prefix = parsed_args.prefix
     if not prefix:
         parser.error("The 'prefix' argument must be specified.")
+    # Note: for an ophyd object to instantiate, we need a single pairs of curly
+    # braces, so replacing 4 pair with one.
     pv_prefix_ophyd = replace_curlies(prefix, how_many=4)
     # Remove the trailing ':'
     if pv_prefix_ophyd[-1] == ":":
         pv_prefix_ophyd = pv_prefix_ophyd[:-1]
 
-    print(f"{pv_prefix_ophyd = }")
+    # Note: we need to escape curly braces twice ({.} -> {{.}} -> {{{{.}}}}),
+    # meaning we should have four pairs in the args for the PV prefix. The
+    # escaping is needed because .format(...) is called twice due to the
+    # pvproperty_with_rbv is used.
     ioc_options, run_options = split_args(parsed_args)
 
     det = GeRMMiniClassForCaprotoIOC(pv_prefix_ophyd, name="det")
 
     ioc = GeRMSaveIOC(ophyd_det=det, **ioc_options)
     pvdb = {}
+    # Note: for a caproto IOC to instantiate, we need a double pair of curly
+    # braces, so replacing 4 pairs with 2.
     for k, v in ioc.pvdb.items():
         pvdb[replace_curlies(k)] = v
     run(pvdb, **run_options)

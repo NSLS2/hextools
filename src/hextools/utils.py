@@ -9,5 +9,5 @@ def now():
 
 
 def replace_curlies(string, how_many=2):
-    """A helper function to replace multiple curly brackets with one."""
+    """A helper function to replace multiple curly braces with one."""
     return string.replace("{" * how_many, "{").replace("}" * how_many, "}")
