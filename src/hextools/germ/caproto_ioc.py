@@ -137,8 +137,8 @@ class GeRMSaveIOC(PVGroup):
 
     @count.setpoint.startup
     async def count(obj, instance, async_lib):
+        # pylint: disable=[function-redefined, no-self-argument, unused-argument, protected-access]
         """Startup behavior of count."""
-        # pylint: disable=unused-argument
         await obj.parent._add_subscription("count")
 
     ### MCA ###
@@ -260,6 +260,7 @@ class GeRMSaveIOC(PVGroup):
 
     @frame_shape.getter
     async def frame_shape(self, instance):
+        """Calculate the frame shape."""
         await self._update_frame_shape(instance)
 
     def _get_current_image(self):
@@ -305,6 +306,7 @@ class GeRMSaveIOC(PVGroup):
     @no_reentry
     async def count(obj, instance, value):
         """The count method to perform an individual count of the detector."""
+        # pylint: disable=[function-redefined, no-self-argument, protected-access]
         if value != AcqStatuses.ACQUIRING.value:
             return 0
 
@@ -328,7 +330,6 @@ class GeRMSaveIOC(PVGroup):
         await external_count_pv.write(num_acq_statuses[value], wait=False)
 
         while True:
-            # TODO: figure out why the subscription does not update the value:
             count_value = await external_count_pv.read()
             if (
                 count_value.data[0] != num_acq_statuses[AcqStatuses.IDLE.value]
