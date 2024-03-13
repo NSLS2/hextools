@@ -247,3 +247,4 @@ def save_hdf5(
         dataset.resize((frame_num + 1, *frame_shape))
         dataset[frame_num, :, :] = data
         dataset.flush()
+        return dataset.shape

@@ -356,9 +356,9 @@ class GeRMSaveIOC(PVGroup):
             filename = received["filename"]
             data = received["data"]
             try:
-                save_hdf5(fname=filename, data=data, mode="a")
-                print(f"{now()}: saved {data.shape} data into:\n  {filename}")
-
+                dataset_shape = save_hdf5(fname=filename, data=data, mode="a")
+                print(f"{now()}: saved {data.shape} data into:\n  {filename}\n."
+                      f"  Dataset shape in the file: {dataset_shape}")
                 success = True
                 error_message = ""
             except Exception as exc:  # pylint: disable=broad-exception-caught
