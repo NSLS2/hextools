@@ -104,28 +104,10 @@ class GeRMSaveIOC(PVGroup):
         doc="Trigger the detector via a mirrored PV and save the data",
     )
 
-    _already_counting = None
-    _already_done = None
-
     async def callback_count(self, pv, response):
         """A callback method for the 'count' PV."""
         # pylint: disable=unused-argument
-
-        # The conditions below are needed to account for doubled
-        # Count(=1)/Done(=0)responses from the libCA IOC to process such events
-        # only once.
-        if response.data[0] == 1:
-            if self._already_counting in (None, False):
-                self._already_counting = True
-                await self.count.readback.write(response.data)
-            else:
-                self._already_counting = False
-        elif response.data[0] == 0:
-            if self._already_done in (None, False):
-                self._already_done = True
-                await self.count.readback.write(response.data)
-            else:
-                self._already_done = False
+        await self.count.readback.write(response.data)
 
     @count.setpoint.startup
     async def count(obj, instance, async_lib):
