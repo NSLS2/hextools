@@ -35,7 +35,7 @@ class ExternalFileReference(Signal):
 class GeRMMiniClassForCaprotoIOC(Device):
     """Minimal GeRM detector ophyd class used in caproto IOC."""
 
-    count = Cpt(EpicsSignal, ":count", kind=Kind.omitted, string=True)
+    count = Cpt(EpicsSignal, ".CNT", kind=Kind.omitted, string=True)
     mca = Cpt(EpicsSignal, ".MCA", kind=Kind.omitted)
     number_of_channels = Cpt(EpicsSignal, ".NELM", kind=Kind.config)
     energy = Cpt(EpicsSignal, ".SPCTX", kind=Kind.omitted)
@@ -43,7 +43,6 @@ class GeRMMiniClassForCaprotoIOC(Device):
 
 class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
     """The base ophyd class for GeRM detector."""
-
     gain = Cpt(EpicsSignal, ".GAIN", kind=Kind.config)
     shaping_time = Cpt(EpicsSignal, ".SHPT", kind=Kind.config)
     count_time = Cpt(EpicsSignal, ".TP", kind=Kind.config)
@@ -100,6 +99,7 @@ class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
     frame_num = Cpt(EpicsSignal, ":frame_num", kind=Kind.omitted)
     frame_shape = Cpt(EpicsSignal, ":frame_shape", kind=Kind.config)
     ioc_stage = Cpt(EpicsSignal, ":stage", kind=Kind.omitted)
+    count = Cpt(EpicsSignal, ":count", kind=Kind.omitted, string=True)
 
     def __init__(self, *args, root_dir=None, **kwargs):
         super().__init__(*args, **kwargs)
