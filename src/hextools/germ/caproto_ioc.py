@@ -361,7 +361,7 @@ class GeRMSaveIOC(PVGroup):
             try:
                 dataset_shape = save_hdf5(fname=filename, data=data, mode="a")
                 print(
-                    f"{now()}: saved {data.shape} data into:\n  {filename}\n."
+                    f"{now()}: saved {data.shape} data into:\n  {filename}.\n"
                     f"  Dataset shape in the file: {dataset_shape}"
                 )
                 success = True
