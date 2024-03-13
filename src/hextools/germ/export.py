@@ -222,15 +222,16 @@ def save_hdf5(
     group_path="data/data",
     dtype="float32",
     mode="x",
-    update_existing=False,
 ):
     """The function to export the data to an HDF5 file."""
+
+    update_existing = Path(fname).is_file()
     with h5py.File(fname, mode, libver="latest") as h5file_desc:
         frame_shape = data.shape
         if not update_existing:
             group = h5file_desc.create_group(group_name)
             dataset = group.create_dataset(
-                "data/data",
+                group_path,
                 data=np.full(fill_value=np.nan, shape=(1, *frame_shape)),
                 maxshape=(None, *frame_shape),
                 chunks=(1, *frame_shape),
@@ -246,3 +247,4 @@ def save_hdf5(
         dataset.resize((frame_num + 1, *frame_shape))
         dataset[frame_num, :, :] = data
         dataset.flush()
+        return dataset.shape

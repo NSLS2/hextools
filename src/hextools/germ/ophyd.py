@@ -100,6 +100,7 @@ class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
     frame_num = Cpt(EpicsSignal, ":frame_num", kind=Kind.omitted)
     frame_shape = Cpt(EpicsSignal, ":frame_shape", kind=Kind.config)
     ioc_stage = Cpt(EpicsSignal, ":stage", kind=Kind.omitted)
+    count = Cpt(EpicsSignal, ":count", kind=Kind.omitted, string=True)
 
     def __init__(self, *args, root_dir=None, **kwargs):
         super().__init__(*args, **kwargs)
