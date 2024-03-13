@@ -43,6 +43,7 @@ class GeRMMiniClassForCaprotoIOC(Device):
 
 class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
     """The base ophyd class for GeRM detector."""
+
     gain = Cpt(EpicsSignal, ".GAIN", kind=Kind.config)
     shaping_time = Cpt(EpicsSignal, ".SHPT", kind=Kind.config)
     count_time = Cpt(EpicsSignal, ".TP", kind=Kind.config)

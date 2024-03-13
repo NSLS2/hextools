@@ -315,6 +315,8 @@ class GeRMSaveIOC(PVGroup):
         num_acq_statuses = {val.value: idx for idx, val in enumerate(list(AcqStatuses))}
         external_count_pv = self.subscriptions["count"].pv
 
+        # Note: updating the setpoint is needed to reflect the state change for
+        # camonitor, etc.
         await self.count.setpoint.write(value)
 
         # Note: while the value is set successfully on the libCA IOC, it does
@@ -328,7 +330,8 @@ class GeRMSaveIOC(PVGroup):
                 count_value.data[0] != num_acq_statuses[AcqStatuses.IDLE.value]
             ):  # 1=Count, 0=Done
                 await asyncio.sleep(self._update_period)
-            break
+            else:
+                break
 
         # The count is done at this point.
         # Delegate saving the resulting data to a blocking callback in a thread.
@@ -357,8 +360,10 @@ class GeRMSaveIOC(PVGroup):
             data = received["data"]
             try:
                 dataset_shape = save_hdf5(fname=filename, data=data, mode="a")
-                print(f"{now()}: saved {data.shape} data into:\n  {filename}\n."
-                      f"  Dataset shape in the file: {dataset_shape}")
+                print(
+                    f"{now()}: saved {data.shape} data into:\n  {filename}\n."
+                    f"  Dataset shape in the file: {dataset_shape}"
+                )
                 success = True
                 error_message = ""
             except Exception as exc:  # pylint: disable=broad-exception-caught
