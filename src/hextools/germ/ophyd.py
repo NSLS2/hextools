@@ -4,9 +4,10 @@ import datetime
 import uuid
 from collections import deque
 from pathlib import Path
+from pprint import pformat
 
 import numpy as np
-from event_model import compose_resource
+from event_model import StreamRange, compose_resource, compose_stream_resource
 from ophyd import Component as Cpt
 from ophyd import Device, EpicsSignal, Kind, Signal
 from ophyd.sim import new_uid
@@ -25,7 +26,7 @@ class ExternalFileReference(Signal):
         resource_document_data = super().describe()
         resource_document_data[self.name].update(
             {
-                "external": "FILESTORE:",
+                "external": "STREAM:",
                 "dtype": "array",
             }
         )
@@ -119,8 +120,8 @@ class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
 
     def unstage(self):
         super().unstage()
-        self._resource_document = None
-        self._datum_factory = None
+        self._stream_resource_document = None
+        self._stream_datum_factory = None
 
     def get_current_image(self):
         """The function to return a current image from detector's MCA."""
@@ -217,17 +218,33 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         data_file_no_ext = f"{new_uid()}"
         data_file_with_ext = f"{data_file_no_ext}.h5"
 
-        self._resource_document, self._datum_factory, _ = compose_resource(
-            start={"uid": "needed for compose_resource() but will be discarded"},
-            spec="AD_HDF5_GERM",
-            root=self._root_dir,
-            resource_path=str(Path(assets_dir) / Path(data_file_with_ext)),
-            resource_kwargs={},
+        # self._resource_document, self._datum_factory, _ = compose_resource(
+        #     start={"uid": "needed for compose_resource() but will be discarded"},
+        #     spec="AD_HDF5_GERM",
+        #     root=self._root_dir,
+        #     resource_path=str(Path(assets_dir) / Path(data_file_with_ext)),
+        #     resource_kwargs={},
+        # )
+
+        full_path = Path(self._root_dir) / Path(assets_dir) / Path(data_file_with_ext)
+        uri = f"file://xf27id1-det1.nsls2.bnl.local/{str(full_path).strip('/')}"
+
+        (
+            self._stream_resource_document,
+            self._stream_datum_factory,
+        ) = compose_stream_resource(
+            mimetype="application/x-hdf5",
+            uri=uri,
+            data_key=self.image.name,
+            parameters={"chunk_size": 1, "path": "/entry/data/data"},
         )
 
-        # now discard the start uid, a real one will be added later
-        self._resource_document.pop("run_start")
-        self._asset_docs_cache.append(("resource", self._resource_document))
+        print(f"stream_resource_doc:\n{pformat(self._stream_resource_document)}")
+
+        # self._stream_resource_document.pop("run_start")
+        self._asset_docs_cache.append(
+            ("stream_resource", self._stream_resource_document)
+        )
 
         # Update caproto IOC parameters:
         self.write_dir.put(self._root_dir)
@@ -248,10 +265,15 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         current_frame = self.frame_num.get()
         self.count.put(AcqStatuses.ACQUIRING.value)
 
-        datum_document = self._datum_factory(datum_kwargs={"frame": current_frame})
-        self._asset_docs_cache.append(("datum", datum_document))
+        stream_datum_document = self._stream_datum_factory(
+            StreamRange(start=current_frame - 1, stop=current_frame),
+        )
 
-        self.image.put(datum_document["datum_id"])
+        print(f"stream_datum_document:\n{pformat(stream_datum_document)}")
+
+        self._asset_docs_cache.append(("stream_datum", stream_datum_document))
+
+        # self.image.put(stream_datum_document["datum_id"])
 
         return status
 
