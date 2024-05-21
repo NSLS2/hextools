@@ -109,7 +109,7 @@ class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
             msg = "The 'root_dir' kwarg cannot be None"
             raise RuntimeError(msg)
         self._root_dir = root_dir
-        self._resource_document, self._datum_factory = None, None
+        self._stream_resource_document, self._stream_datum_factory = None, None
         self._asset_docs_cache = deque()
 
     def collect_asset_docs(self):
@@ -141,6 +141,10 @@ def done_callback(value, old_value, **kwargs):
 
 class GeRMDetectorTIFF(GeRMDetectorBase):
     """The ophyd class for GeRM detector producing TIFF files."""
+
+    def __init__(self, *args, root_dir=None, **kwargs):
+        super().__init__(*args, root_dir=root_dir, **kwargs)
+        self._resource_document, self._datum_factory = None, None
 
     def trigger(self):
         "The trigger method to acquire a single frame."
