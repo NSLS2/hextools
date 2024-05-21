@@ -267,11 +267,11 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
 
         # Reuse the counter from the caproto IOC
         current_frame = self.frame_num.get()
-        self.count.put(AcqStatuses.ACQUIRING.value)
-
         stream_datum_document = self._stream_datum_factory(
-            StreamRange(start=current_frame - 1, stop=current_frame),
+            StreamRange(start=current_frame, stop=current_frame + 1),
         )
+
+        self.count.put(AcqStatuses.ACQUIRING.value)
 
         print(f"stream_datum_document:\n{pformat(stream_datum_document)}")
 
