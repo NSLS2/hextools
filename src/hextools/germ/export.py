@@ -5,6 +5,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+from tiled.client.utils import get_asset_filepaths
 
 GERM_DETECTOR_KEYS = [
     "count_time",
@@ -66,7 +67,7 @@ def get_detector_parameters_from_tiled(run, det_name=None, keys=None):
         raise ValueError(msg)
     try:
         # make sure det_name is correct
-        config = run.primary["config"][det_name].read()
+        config = run.primary["config"][det_name]
     except KeyError as err:
         msg = f"{err} det_name is incorrect. Check ophyd device .name"
         raise ValueError(msg) from err
@@ -75,8 +76,17 @@ def get_detector_parameters_from_tiled(run, det_name=None, keys=None):
     group_key = f"{det_name.lower()}_detector"
     detector_metadata = {group_key: {}}
     for key in keys:
-        detector_metadata[group_key][key] = config[f"{det_name}_{key}"].data[0]
+        detector_metadata[group_key][key] = config[f"{det_name}_{key}"][:][0]
     return detector_metadata
+
+
+def get_filepath_from_run(run, stream_name):
+    entry = run[stream_name]["external"].values().last()
+    filepath = get_asset_filepaths(entry)[0]
+    if not filepath.is_file():
+        msg = f"{filepath!r} does not exist!"
+        raise RuntimeError(msg)
+    return filepath
 
 
 def nx_export(run, det_name, export_dir=None, file_prefix=None):
@@ -111,6 +121,10 @@ def nx_export(run, det_name, export_dir=None, file_prefix=None):
     #             # Path.joinpath(h5_filepath.parent / f"{h5_filepath.stem}.nxs")
     #             # Path.joinpath(Path("/tmp") / f"{h5_filepath.stem}.nxs")  # For testing
     #         break
+
+    det_filepath = get_filepath_from_run(run, "primary")
+    print(f"{det_filepath = }")
+
     nx_filepath = str(Path(export_dir) / Path(rendered_file_name))
     print(f"{nx_filepath = }")
 
@@ -138,16 +152,16 @@ def nx_export(run, det_name, export_dir=None, file_prefix=None):
                 current_metadata_grp.create_dataset(key, data=value, dtype=dtype)
 
         # External link
-        # data_grp["data"] = h5py.ExternalLink(h5_filepath, "entry/data/data")
-        data = run.primary["data"][f"{det_name}_image"].read()
-        frame_shape = data.shape[1:]
-        data_grp.create_dataset(
-            "data",
-            data=data,
-            maxshape=(None, *frame_shape),
-            chunks=(1, *frame_shape),
-            dtype=data.dtype,
-        )
+        data_grp["data"] = h5py.ExternalLink(det_filepath, "entry/data/data")
+        # data = run.primary["data"][f"{det_name}_image"].read()
+        # frame_shape = data.shape[1:]
+        # data_grp.create_dataset(
+        #     "data",
+        #     data=data,
+        #     maxshape=(None, *frame_shape),
+        #     chunks=(1, *frame_shape),
+        #     dtype=data.dtype,
+        # )
     return nx_filepath
 
 
