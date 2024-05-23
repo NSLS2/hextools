@@ -281,8 +281,6 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
 
         self._asset_docs_cache.append(("stream_datum", stream_datum_document))
 
-        # self.image.put(stream_datum_document["datum_id"])
-
         return status
 
     def unstage(self):
