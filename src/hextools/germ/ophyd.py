@@ -231,7 +231,11 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         # )
 
         full_path = Path(self._root_dir) / Path(assets_dir) / Path(data_file_with_ext)
-        uri = f"file://xf27id1-det1.nsls2.bnl.local/{str(full_path).strip('/')}"
+
+        from hextools.utils import get_ioc_hostname
+
+        hostname = get_ioc_hostname(self.count.pvname)
+        uri = f"file://{hostname}/{str(full_path).strip('/')}"
 
         (
             self._stream_resource_document,
