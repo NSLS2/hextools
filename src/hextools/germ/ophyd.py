@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import uuid
 from collections import deque
 from pathlib import Path
@@ -17,6 +18,8 @@ from PIL import Image
 from hextools.utils import get_ioc_hostname
 
 from . import AcqStatuses, StageStates
+
+logger = logging.getLogger(__name__)
 
 
 class ExternalFileReference(Signal):
@@ -224,14 +227,6 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         data_file_no_ext = f"{new_uid()}"
         data_file_with_ext = f"{data_file_no_ext}.h5"
 
-        # self._resource_document, self._datum_factory, _ = compose_resource(
-        #     start={"uid": "needed for compose_resource() but will be discarded"},
-        #     spec="AD_HDF5_GERM",
-        #     root=self._root_dir,
-        #     resource_path=str(Path(assets_dir) / Path(data_file_with_ext)),
-        #     resource_kwargs={},
-        # )
-
         full_path = Path(self._root_dir) / Path(assets_dir) / Path(data_file_with_ext)
 
         hostname = get_ioc_hostname(self.count.pvname)
@@ -247,7 +242,9 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
             parameters={"chunk_size": 1, "path": "/entry/data/data"},
         )
 
-        print(f"stream_resource_doc:\n{pformat(self._stream_resource_document)}")
+        logger.debug(
+            "stream_resource_doc:\n %s", {pformat(self._stream_resource_document)}
+        )
 
         # self._stream_resource_document.pop("run_start")
         self._asset_docs_cache.append(
@@ -277,7 +274,7 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
 
         self.count.put(AcqStatuses.ACQUIRING.value)
 
-        print(f"stream_datum_document:\n{pformat(stream_datum_document)}")
+        logger.debug("stream_datum_document:\n%s", pformat(stream_datum_document))
 
         self._asset_docs_cache.append(("stream_datum", stream_datum_document))
 
