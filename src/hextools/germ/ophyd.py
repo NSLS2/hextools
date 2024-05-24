@@ -14,6 +14,8 @@ from ophyd.sim import new_uid
 from ophyd.status import SubscriptionStatus
 from PIL import Image
 
+from hextools.utils import get_ioc_hostname
+
 from . import AcqStatuses, StageStates
 
 
@@ -231,8 +233,6 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         # )
 
         full_path = Path(self._root_dir) / Path(assets_dir) / Path(data_file_with_ext)
-
-        from hextools.utils import get_ioc_hostname
 
         hostname = get_ioc_hostname(self.count.pvname)
         uri = f"file://{hostname}/{str(full_path).strip('/')}"
