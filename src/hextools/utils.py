@@ -21,7 +21,7 @@ def get_ioc_hostname(pvname):
     """A helper function to get the IOC hostname based on the provided PV."""
 
     ctx = Context()
-    (pv,) = ctx.get_pvs(pvname)
+    (pv,) = ctx.get_pvs(pvname)  # pylint: disable=unbalanced-tuple-unpacking
     pv.wait_for_connection()
     s = pv.circuit_manager.socket
 
