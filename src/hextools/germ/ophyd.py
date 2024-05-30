@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import uuid
 from collections import deque
 from pathlib import Path
+from pprint import pformat
 
 import numpy as np
-from event_model import compose_resource
+from event_model import StreamRange, compose_resource, compose_stream_resource
 from ophyd import Component as Cpt
 from ophyd import Device, EpicsSignal, Kind, Signal
 from ophyd.sim import new_uid
 from ophyd.status import SubscriptionStatus
 from PIL import Image
 
+from hextools.utils import get_ioc_hostname
+
 from . import AcqStatuses, StageStates
+
+logger = logging.getLogger(__name__)
 
 
 class ExternalFileReference(Signal):
@@ -25,7 +31,7 @@ class ExternalFileReference(Signal):
         resource_document_data = super().describe()
         resource_document_data[self.name].update(
             {
-                "external": "FILESTORE:",
+                "external": "STREAM:",
                 "dtype": "array",
             }
         )
@@ -108,7 +114,7 @@ class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
             msg = "The 'root_dir' kwarg cannot be None"
             raise RuntimeError(msg)
         self._root_dir = root_dir
-        self._resource_document, self._datum_factory = None, None
+        self._stream_resource_document, self._stream_datum_factory = None, None
         self._asset_docs_cache = deque()
 
     def collect_asset_docs(self):
@@ -119,8 +125,8 @@ class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
 
     def unstage(self):
         super().unstage()
-        self._resource_document = None
-        self._datum_factory = None
+        self._stream_resource_document = None
+        self._stream_datum_factory = None
 
     def get_current_image(self):
         """The function to return a current image from detector's MCA."""
@@ -140,6 +146,10 @@ def done_callback(value, old_value, **kwargs):
 
 class GeRMDetectorTIFF(GeRMDetectorBase):
     """The ophyd class for GeRM detector producing TIFF files."""
+
+    def __init__(self, *args, root_dir=None, **kwargs):
+        super().__init__(*args, root_dir=root_dir, **kwargs)
+        self._resource_document, self._datum_factory = None, None
 
     def trigger(self):
         "The trigger method to acquire a single frame."
@@ -217,17 +227,29 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         data_file_no_ext = f"{new_uid()}"
         data_file_with_ext = f"{data_file_no_ext}.h5"
 
-        self._resource_document, self._datum_factory, _ = compose_resource(
-            start={"uid": "needed for compose_resource() but will be discarded"},
-            spec="AD_HDF5_GERM",
-            root=self._root_dir,
-            resource_path=str(Path(assets_dir) / Path(data_file_with_ext)),
-            resource_kwargs={},
+        full_path = Path(self._root_dir) / Path(assets_dir) / Path(data_file_with_ext)
+
+        hostname = get_ioc_hostname(self.count.pvname)
+        uri = f"file://{hostname}/{str(full_path).strip('/')}"
+
+        (
+            self._stream_resource_document,
+            self._stream_datum_factory,
+        ) = compose_stream_resource(
+            mimetype="application/x-hdf5",
+            uri=uri,
+            data_key=self.image.name,
+            parameters={"chunk_size": 1, "path": "/entry/data/data"},
         )
 
-        # now discard the start uid, a real one will be added later
-        self._resource_document.pop("run_start")
-        self._asset_docs_cache.append(("resource", self._resource_document))
+        logger.debug(
+            "stream_resource_doc:\n %s", {pformat(self._stream_resource_document)}
+        )
+
+        # self._stream_resource_document.pop("run_start")
+        self._asset_docs_cache.append(
+            ("stream_resource", self._stream_resource_document)
+        )
 
         # Update caproto IOC parameters:
         self.write_dir.put(self._root_dir)
@@ -246,12 +268,15 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
 
         # Reuse the counter from the caproto IOC
         current_frame = self.frame_num.get()
+        stream_datum_document = self._stream_datum_factory(
+            StreamRange(start=current_frame, stop=current_frame + 1),
+        )
+
         self.count.put(AcqStatuses.ACQUIRING.value)
 
-        datum_document = self._datum_factory(datum_kwargs={"frame": current_frame})
-        self._asset_docs_cache.append(("datum", datum_document))
+        logger.debug("stream_datum_document:\n%s", pformat(stream_datum_document))
 
-        self.image.put(datum_document["datum_id"])
+        self._asset_docs_cache.append(("stream_datum", stream_datum_document))
 
         return status
 

@@ -33,7 +33,7 @@ dynamic = ["version"]
 dependencies = [
   "area-detector-handlers",
   "caproto",
-  "event-model",
+  "event-model>=1.21.0",
   "h5py",
   "numpy",
   "ophyd",
