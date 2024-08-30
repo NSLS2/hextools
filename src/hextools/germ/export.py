@@ -220,7 +220,7 @@ def save_hdf5(
     data,
     group_name="/entry",
     group_path="data/data",
-    dtype="float32",
+    dtype="int64",
     mode="x",
 ):
     """The function to export the data to an HDF5 file."""
