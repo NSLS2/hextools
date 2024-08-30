@@ -104,7 +104,7 @@ class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
         string=True,
     )
     frame_num = Cpt(EpicsSignal, ":frame_num", kind=Kind.omitted)
-    frame_shape = Cpt(EpicsSignal, ":frame_shape", kind=Kind.config)
+    frame_shape = Cpt(EpicsSignal, ":frame_shape", kind=Kind.omitted)
     ioc_stage = Cpt(EpicsSignal, ":stage", kind=Kind.omitted)
     count = Cpt(EpicsSignal, ":count", kind=Kind.omitted, string=True)
 
@@ -239,7 +239,7 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
             mimetype="application/x-hdf5",
             uri=uri,
             data_key=self.image.name,
-            parameters={"chunk_size": 1, "path": "/entry/data/data"},
+            parameters={"chunk_size": 1, "dataset": "/entry/data/data"},
         )
 
         logger.debug(
@@ -259,7 +259,7 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
     def describe(self):
         res = super().describe()
         res[self.image.name].update(
-            {"shape": self.frame_shape.get().tolist(), "dtype_str": "<f4"}
+            {"shape": self.frame_shape.get().tolist(), "dtype_numpy": "<i8"}
         )
         return res
 

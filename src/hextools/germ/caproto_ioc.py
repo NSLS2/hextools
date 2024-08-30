@@ -116,8 +116,9 @@ class GeRMSaveIOC(PVGroup):
         await obj.parent._add_subscription("count")
 
     ### MCA ###
+    # MCA reported by the GeRM libCA IOC has type 'DBF_LONG' (np.int64 or '<i8').
     mca = pvproperty(
-        value=0, doc="Mirrored mca PV", max_length=192 * 4096, read_only=True
+        value=0, doc="Mirrored mca PV", max_length=192 * 4096, dtype=int, read_only=True
     )
 
     async def callback_mca(self, pv, response):
