@@ -236,6 +236,7 @@ def save_hdf5(
                 maxshape=(None, *frame_shape),
                 chunks=(1, *frame_shape),
                 dtype=dtype,
+                compression="gzip",
             )
             frame_num = 0
         else:

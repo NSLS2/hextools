@@ -2,18 +2,16 @@ from __future__ import annotations
 
 import datetime
 import logging
-import uuid
 from collections import deque
 from pathlib import Path
 from pprint import pformat
 
 import numpy as np
-from event_model import StreamRange, compose_resource, compose_stream_resource
+from event_model import StreamRange, compose_stream_resource
 from ophyd import Component as Cpt
 from ophyd import Device, EpicsSignal, Kind, Signal
 from ophyd.sim import new_uid
 from ophyd.status import SubscriptionStatus
-from PIL import Image
 
 from hextools.utils import get_ioc_hostname
 
@@ -97,9 +95,9 @@ class GeRMDetectorBase(GeRMMiniClassForCaprotoIOC):
         kind=Kind.config,
         string=True,
     )
-    file_name_prefix = Cpt(
+    file_name = Cpt(
         EpicsSignal,
-        ":file_name_prefix",
+        ":file_name",
         kind=Kind.config,
         string=True,
     )
@@ -144,77 +142,19 @@ def done_callback(value, old_value, **kwargs):
     return False
 
 
-class GeRMDetectorTIFF(GeRMDetectorBase):
-    """The ophyd class for GeRM detector producing TIFF files."""
-
-    def __init__(self, *args, root_dir=None, **kwargs):
-        super().__init__(*args, root_dir=root_dir, **kwargs)
-        self._resource_document, self._datum_factory = None, None
-
-    def trigger(self):
-        "The trigger method to acquire a single frame."
-
-        status = SubscriptionStatus(self.count, run=False, callback=done_callback)
-
-        self.count.put(AcqStatuses.ACQUIRING.value)
-        status.wait()
-
-        # Read the image array:
-        img = self.get_current_image()
-
-        # Save TIFF files:
-        date = datetime.datetime.now()
-        assets_dir = date.strftime("%Y/%m/%d")
-        file_name = f"{uuid.uuid4()}.tiff"
-        file_path = str(Path(self._root_dir) / Path(assets_dir) / Path(file_name))
-        self.save_image(file_path=file_path, mat=img)
-
-        # Create resource/datum docs:
-        self._resource_document, self._datum_factory, _ = compose_resource(
-            start={"uid": "needed for compose_resource() but will be discarded"},
-            spec="AD_TIFF_GERM",  # TODO: convert to use standard AD_TIFF.
-            root=self._root_dir,
-            resource_path=str(Path(assets_dir) / Path(file_name)),
-            resource_kwargs={},
-        )
-
-        self._resource_document.pop("run_start")
-        self._asset_docs_cache.append(("resource", self._resource_document))
-
-        datum_document = self._datum_factory(datum_kwargs={})
-        self._asset_docs_cache.append(("datum", datum_document))
-
-        self.image.put(datum_document["datum_id"])
-
-        return status
-
-    def save_image(self, file_path, mat, overwrite=True):
-        """A method to save an input matrix as an image."""
-        image = Image.fromarray(mat)
-        if not overwrite:
-            file_path = self._make_file_name(file_path)
-            image.save(file_path)
-        return file_path
-
-    def _make_file_name(self, file_path):
-        file_path = Path(file_path)
-        file_base = file_path.parent / file_path.stem
-        file_ext = file_path.suffix
-        if file_path.is_file():
-            nfile = 0
-            check = True
-            while check:
-                name_add = f"{nfile:04d}"
-                file_path = Path(f"{file_base}_{name_add}{file_ext}")
-                if file_path.is_file():
-                    nfile += nfile
-                else:
-                    check = False
-        return str(file_path)
-
-
 class GeRMDetectorHDF5(GeRMDetectorBase):
     """The ophyd class for GeRM detector producing HDF5 files."""
+
+    def __init__(self, *args, date_template="%Y/%m/%d", **kwargs):
+        super().__init__(*args, **kwargs)
+        self._date_template = date_template
+
+    def _generate_file_path(self):
+        date = datetime.datetime.now()
+        assets_dir = date.strftime(self._date_template)
+        data_file = f"{new_uid()}.h5"
+
+        return Path(self._root_dir) / Path(assets_dir) / Path(data_file)
 
     def stage(self):
         super().stage()
@@ -222,12 +162,7 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         # Clear asset docs cache which may have some documents from the previous failed run.
         self._asset_docs_cache.clear()
 
-        date = datetime.datetime.now()
-        assets_dir = date.strftime("%Y/%m/%d")
-        data_file_no_ext = f"{new_uid()}"
-        data_file_with_ext = f"{data_file_no_ext}.h5"
-
-        full_path = Path(self._root_dir) / Path(assets_dir) / Path(data_file_with_ext)
+        full_path = self._generate_file_path()
 
         hostname = get_ioc_hostname(self.count.pvname)
         uri = f"file://{hostname}/{str(full_path).strip('/')}"
@@ -252,8 +187,8 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         )
 
         # Update caproto IOC parameters:
-        self.write_dir.put(self._root_dir)
-        self.file_name_prefix.put(data_file_no_ext)
+        self.write_dir.put(str(full_path.parent))
+        self.file_name.put(str(full_path.stem))
         self.ioc_stage.put(StageStates.STAGED.value)
 
     def describe(self):
@@ -283,3 +218,27 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
     def unstage(self):
         self.ioc_stage.put(StageStates.UNSTAGED.value)
         super().unstage()
+
+
+class HEXGeRMDetectorHDF5(GeRMDetectorHDF5):
+    """The HEX-specific ophyd class for GeRM detector producing HDF5 files."""
+
+    def __init__(self, *args, md=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._md = md or {"data_session": "", "cycle": "", "scan_id": 1}
+
+    def _generate_file_path(self):
+        date = datetime.datetime.now()
+        date_dir = date.strftime(self._date_template)
+        data_file = f"{new_uid()}.h5"
+
+        return (
+            Path(self._root_dir)
+            / Path(self._md["cycle"])
+            / Path(self._md["data_session"])
+            / "assets"
+            / "germ"
+            / Path(date_dir)
+            / Path(f"scan_{self._md['scan_id']:05d}")
+            / Path(data_file)
+        )

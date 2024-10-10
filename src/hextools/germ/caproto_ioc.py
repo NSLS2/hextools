@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
-import datetime
 import functools
 import textwrap
 import threading
@@ -52,19 +51,50 @@ class GeRMSaveIOC(PVGroup):
     """An IOC to write GeRM detector data to an HDF5 file."""
 
     write_dir = pvproperty(
-        value="/tmp",
+        value="/tmp/",
         doc="The directory to write data to",
         string_encoding="utf-8",
         dtype=ChannelType.CHAR,
         max_length=255,
     )
-    file_name_prefix = pvproperty(
-        value="test",
-        doc="The file name prefix of the file to write to",
+
+    @write_dir.putter
+    async def write_dir(self, instance, value):
+        path = Path(value)
+        if not path.exists():
+            msg = f"Path '{path}' does not exist."
+            raise OSError(msg)
+
+        return f"{Path(value)}/"
+
+    file_name = pvproperty(
+        value="test.h5",
+        doc="The file name of the file to write to",
         string_encoding="utf-8",
-        report_as_string=True,
+        dtype=ChannelType.CHAR,
         max_length=255,
     )
+
+    @file_name.putter
+    async def file_name(self, instance, value):
+        fname = Path(value)
+        suffix = fname.suffix
+        supported_suffixes = [".h5", ".hdf", ".hdf5", ".nxs"]
+        if suffix not in supported_suffixes:
+            if suffix == "":
+                return fname.with_suffix(".h5")
+            msg = f"File name extension '{suffix}' not supported.\nSupported extensions: {supported_suffixes}"
+            raise OSError(msg)
+        return value
+
+    # file_template = pvproperty(
+    #     value="%s%s_%6.6d.h5",
+    #     doc="The file path template",
+    #     string_encoding="utf-8",
+    #     report_as_string=True,
+    #     max_length=255,
+    # )
+
     data_file = pvproperty(
         value="",
         doc="Full path to the data file",
@@ -254,18 +284,10 @@ class GeRMSaveIOC(PVGroup):
 
         if value == StageStates.STAGED.value:
             await self.frame_num.write(0)
-            date = datetime.datetime.now()
-            root_dir = self.write_dir.value
-            assets_dir = date.strftime("%Y/%m/%d")
-            full_path = Path(root_dir) / Path(assets_dir)
-            if not full_path.exists():
-                # full_path.mkdir(parents=True, exist_ok=True)
-                msg = f"Path '{full_path}' does not exist."
-                raise OSError(msg)
+            write_dir = self.write_dir.value
+            file_name = self.file_name.value
 
-            await self.data_file.write(
-                str(full_path / f"{self.file_name_prefix.value}.h5")
-            )
+            await self.data_file.write(str(Path(write_dir) / file_name))
 
             await self._update_frame_shape()
 
