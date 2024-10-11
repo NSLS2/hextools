@@ -23,7 +23,7 @@ from caproto.ioc_examples.setpoint_rbv_pair import pvproperty_with_rbv
 from caproto.server import PVGroup, pvproperty, run, template_arg_parser
 
 from ..utils import now
-from . import AcqStatuses, StageStates, TrueFalse
+from . import AcqStatuses, StageStates, YesNo
 from .export import save_hdf5
 from .ophyd import GeRMMiniClassForCaprotoIOC
 
@@ -61,27 +61,35 @@ class GeRMSaveIOC(PVGroup):
 
     @write_dir.putter
     async def write_dir(self, instance, value):
+        # pylint: disable=unused-argument
+        """Put behavior of write_dir.
+
+        In this callback, we check if the target directory exists, and if not - attempt to create it.
+        If it exists, we check if we have write access to it.
+        Finally, we add a trailing slash to the directory name and update the PV with it.
+        """
         path = Path(value)
         if not path.exists():
             print(f"Path '{path}' does not exist. Creating one.")
             try:
                 path.mkdir(mode=0o750, exist_ok=True)
-                dir_exists = TrueFalse.true
-            except Exception as e:
-                dir_exists = TrueFalse.false
+                dir_exists = YesNo.YES.value
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                dir_exists = YesNo.NO.value
                 print(f"Failed to create directory {path}: {e}")
         else:
             if not os.access(path, os.W_OK):
-                dir_exists = TrueFalse.false
-            dir_exists = TrueFalse.true
+                dir_exists = YesNo.NO.value
+            dir_exists = YesNo.YES.value
         await self.directory_exists.write(dir_exists)
 
         return f"{Path(value)}/"
 
     directory_exists = pvproperty(
-        value=TrueFalse.false,
+        value=YesNo.NO.value,
+        enum_strings=[x.value for x in YesNo],
+        dtype=ChannelType.ENUM,
         doc="The PV to indicate if the write_dir exists",
-        record="bo",
         read_only=True,
     )
 
@@ -95,6 +103,12 @@ class GeRMSaveIOC(PVGroup):
 
     @file_name.putter
     async def file_name(self, instance, value):
+        # pylint: disable=unused-argument
+        """Put behavior of file_name.
+
+        In this callback, we check the suffix of the supplied file name to be in the list of supported extensions.
+        If there is no suffix found, the default .h5 is used.
+        """
         fname = Path(value)
         suffix = fname.suffix
         supported_suffixes = [".h5", ".hdf", ".hdf5", ".nxs"]
@@ -323,7 +337,7 @@ class GeRMSaveIOC(PVGroup):
         # pylint: disable=[function-redefined, no-self-argument, protected-access]
         if (
             value != AcqStatuses.ACQUIRING.value
-            or obj.parent.directory_exists.value == TrueFalse.false
+            or obj.parent.directory_exists.value == YesNo.NO.value
         ):
             return 0
 

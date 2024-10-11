@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import Enum, IntEnum
+from enum import Enum
 
 
 class AcqStatuses(Enum):
@@ -17,8 +17,8 @@ class StageStates(Enum):
     STAGED = "staged"
 
 
-class TrueFalse(IntEnum):
+class YesNo(Enum):
     """Enum class for bool states."""
 
-    false = 0
-    true = 1
+    NO = "No"
+    YES = "Yes"
