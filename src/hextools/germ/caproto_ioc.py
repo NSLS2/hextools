@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import functools
+import os
 import textwrap
 import threading
 import time as ttime
@@ -22,7 +23,7 @@ from caproto.ioc_examples.setpoint_rbv_pair import pvproperty_with_rbv
 from caproto.server import PVGroup, pvproperty, run, template_arg_parser
 
 from ..utils import now
-from . import AcqStatuses, StageStates
+from . import AcqStatuses, StageStates, TrueFalse
 from .export import save_hdf5
 from .ophyd import GeRMMiniClassForCaprotoIOC
 
@@ -62,10 +63,28 @@ class GeRMSaveIOC(PVGroup):
     async def write_dir(self, instance, value):
         path = Path(value)
         if not path.exists():
-            msg = f"Path '{path}' does not exist."
-            raise OSError(msg)
+            print(f"Path '{path}' does not exist. Creating one.")
+            try:
+                path.mkdir(mode=0o750, exist_ok=True)
+                dir_exists = TrueFalse.TRUE.value
+            except Exception as e:
+                dir_exists = TrueFalse.FALSE.value
+                print(f"Failed to create directory {path}: {e}")
+        else:
+            if not os.access(path, os.W_OK):
+                dir_exists = TrueFalse.FALSE.value
+            dir_exists = TrueFalse.TRUE.value
+        await self.directory_exists.write(dir_exists)
 
         return f"{Path(value)}/"
+
+    directory_exists = pvproperty(
+        value=TrueFalse.FALSE.value,
+        doc="The PV to indicate if the write_dir exists",
+        enum_strings=[x.value for x in TrueFalse],
+        dtype=ChannelType.ENUM,
+        read_only=True,
+    )
 
     file_name = pvproperty(
         value="test.h5",
@@ -82,7 +101,7 @@ class GeRMSaveIOC(PVGroup):
         supported_suffixes = [".h5", ".hdf", ".hdf5", ".nxs"]
         if suffix not in supported_suffixes:
             if suffix == "":
-                return fname.with_suffix(".h5")
+                return str(fname.with_suffix(".h5"))
             msg = f"File name extension '{suffix}' not supported.\nSupported extensions: {supported_suffixes}"
             raise OSError(msg)
         return value
@@ -303,7 +322,10 @@ class GeRMSaveIOC(PVGroup):
     async def count(obj, instance, value):
         """The count method to perform an individual count of the detector."""
         # pylint: disable=[function-redefined, no-self-argument, protected-access]
-        if value != AcqStatuses.ACQUIRING.value:
+        if (
+            value != AcqStatuses.ACQUIRING.value
+            or obj.parent.directory_exists.value in TrueFalse.FALSE.value
+        ):
             return 0
 
         if value == AcqStatuses.ACQUIRING.value and instance.value in [

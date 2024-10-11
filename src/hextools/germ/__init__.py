@@ -15,3 +15,10 @@ class StageStates(Enum):
 
     UNSTAGED = "unstaged"
     STAGED = "staged"
+
+
+class TrueFalse(Enum):
+    """Enum class for bool states."""
+
+    FALSE = "FALSE"
+    TRUE = "TRUE"
