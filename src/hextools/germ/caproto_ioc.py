@@ -66,23 +66,22 @@ class GeRMSaveIOC(PVGroup):
             print(f"Path '{path}' does not exist. Creating one.")
             try:
                 path.mkdir(mode=0o750, exist_ok=True)
-                dir_exists = TrueFalse.TRUE.value
+                dir_exists = TrueFalse.true
             except Exception as e:
-                dir_exists = TrueFalse.FALSE.value
+                dir_exists = TrueFalse.false
                 print(f"Failed to create directory {path}: {e}")
         else:
             if not os.access(path, os.W_OK):
-                dir_exists = TrueFalse.FALSE.value
-            dir_exists = TrueFalse.TRUE.value
+                dir_exists = TrueFalse.false
+            dir_exists = TrueFalse.true
         await self.directory_exists.write(dir_exists)
 
         return f"{Path(value)}/"
 
     directory_exists = pvproperty(
-        value=TrueFalse.FALSE.value,
+        value=TrueFalse.false,
         doc="The PV to indicate if the write_dir exists",
-        enum_strings=[x.value for x in TrueFalse],
-        dtype=ChannelType.ENUM,
+        record="bo",
         read_only=True,
     )
 
@@ -324,7 +323,7 @@ class GeRMSaveIOC(PVGroup):
         # pylint: disable=[function-redefined, no-self-argument, protected-access]
         if (
             value != AcqStatuses.ACQUIRING.value
-            or obj.parent.directory_exists.value in TrueFalse.FALSE.value
+            or obj.parent.directory_exists.value == TrueFalse.false
         ):
             return 0
 
