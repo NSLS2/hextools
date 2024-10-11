@@ -163,6 +163,7 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
         self._asset_docs_cache.clear()
 
         full_path = self._generate_file_path()
+        frame_shape = self.frame_shape.get()
 
         hostname = get_ioc_hostname(self.count.pvname)
         uri = f"file://{hostname}/{str(full_path).strip('/')}"
@@ -174,7 +175,7 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
             mimetype="application/x-hdf5",
             uri=uri,
             data_key=self.image.name,
-            parameters={"chunk_size": 1, "dataset": "/entry/data/data"},
+            parameters={"chunk_shape": (1, *frame_shape), "dataset": "/entry/data/data"},
         )
 
         logger.debug(
@@ -237,7 +238,7 @@ class HEXGeRMDetectorHDF5(GeRMDetectorHDF5):
             / Path(self._md["cycle"])
             / Path(self._md["data_session"])
             / "assets"
-            / "germ"
+            / self.name
             / Path(date_dir)
             / Path(f"scan_{self._md['scan_id']:05d}")
             / Path(data_file)
