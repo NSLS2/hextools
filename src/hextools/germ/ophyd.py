@@ -175,7 +175,10 @@ class GeRMDetectorHDF5(GeRMDetectorBase):
             mimetype="application/x-hdf5",
             uri=uri,
             data_key=self.image.name,
-            parameters={"chunk_shape": (1, *frame_shape), "dataset": "/entry/data/data"},
+            parameters={
+                "chunk_shape": (1, *frame_shape),
+                "dataset": "/entry/data/data",
+            },
         )
 
         logger.debug(
