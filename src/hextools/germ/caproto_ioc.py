@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
-import datetime
 import functools
+import os
 import textwrap
 import threading
 import time as ttime
@@ -23,7 +23,7 @@ from caproto.ioc_examples.setpoint_rbv_pair import pvproperty_with_rbv
 from caproto.server import PVGroup, pvproperty, run, template_arg_parser
 
 from ..utils import now
-from . import AcqStatuses, StageStates
+from . import AcqStatuses, StageStates, YesNo
 from .export import save_hdf5
 from .ophyd import GeRMMiniClassForCaprotoIOC
 
@@ -52,19 +52,81 @@ class GeRMSaveIOC(PVGroup):
     """An IOC to write GeRM detector data to an HDF5 file."""
 
     write_dir = pvproperty(
-        value="/tmp",
+        value="/tmp/",
         doc="The directory to write data to",
         string_encoding="utf-8",
         dtype=ChannelType.CHAR,
         max_length=255,
     )
-    file_name_prefix = pvproperty(
-        value="test",
-        doc="The file name prefix of the file to write to",
+
+    @write_dir.putter
+    async def write_dir(self, instance, value):
+        # pylint: disable=unused-argument
+        """Put behavior of write_dir.
+
+        In this callback, we check if the target directory exists, and if not - attempt to create it.
+        If it exists, we check if we have write access to it.
+        Finally, we add a trailing slash to the directory name and update the PV with it.
+        """
+        path = Path(value)
+        if not path.exists():
+            print(f"Path '{path}' does not exist. Creating one.")
+            try:
+                path.mkdir(mode=0o750, exist_ok=True)
+                dir_exists = YesNo.YES.value
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                dir_exists = YesNo.NO.value
+                print(f"Failed to create directory {path}: {e}")
+        else:
+            if not os.access(path, os.W_OK):
+                dir_exists = YesNo.NO.value
+            dir_exists = YesNo.YES.value
+        await self.directory_exists.write(dir_exists)
+
+        return f"{Path(value)}/"
+
+    directory_exists = pvproperty(
+        value=YesNo.NO.value,
+        enum_strings=[x.value for x in YesNo],
+        dtype=ChannelType.ENUM,
+        doc="The PV to indicate if the write_dir exists",
+        read_only=True,
+    )
+
+    file_name = pvproperty(
+        value="test.h5",
+        doc="The file name of the file to write to",
         string_encoding="utf-8",
-        report_as_string=True,
+        dtype=ChannelType.CHAR,
         max_length=255,
     )
+
+    @file_name.putter
+    async def file_name(self, instance, value):
+        # pylint: disable=unused-argument
+        """Put behavior of file_name.
+
+        In this callback, we check the suffix of the supplied file name to be in the list of supported extensions.
+        If there is no suffix found, the default .h5 is used.
+        """
+        fname = Path(value)
+        suffix = fname.suffix
+        supported_suffixes = [".h5", ".hdf", ".hdf5", ".nxs"]
+        if suffix not in supported_suffixes:
+            if suffix == "":
+                return str(fname.with_suffix(".h5"))
+            msg = f"File name extension '{suffix}' not supported.\nSupported extensions: {supported_suffixes}"
+            raise OSError(msg)
+        return value
+
+    # file_template = pvproperty(
+    #     value="%s%s_%6.6d.h5",
+    #     doc="The file path template",
+    #     string_encoding="utf-8",
+    #     report_as_string=True,
+    #     max_length=255,
+    # )
+
     data_file = pvproperty(
         value="",
         doc="Full path to the data file",
@@ -254,18 +316,10 @@ class GeRMSaveIOC(PVGroup):
 
         if value == StageStates.STAGED.value:
             await self.frame_num.write(0)
-            date = datetime.datetime.now()
-            root_dir = self.write_dir.value
-            assets_dir = date.strftime("%Y/%m/%d")
-            full_path = Path(root_dir) / Path(assets_dir)
-            if not full_path.exists():
-                # full_path.mkdir(parents=True, exist_ok=True)
-                msg = f"Path '{full_path}' does not exist."
-                raise OSError(msg)
+            write_dir = self.write_dir.value
+            file_name = self.file_name.value
 
-            await self.data_file.write(
-                str(full_path / f"{self.file_name_prefix.value}.h5")
-            )
+            await self.data_file.write(str(Path(write_dir) / file_name))
 
             await self._update_frame_shape()
 
@@ -281,7 +335,10 @@ class GeRMSaveIOC(PVGroup):
     async def count(obj, instance, value):
         """The count method to perform an individual count of the detector."""
         # pylint: disable=[function-redefined, no-self-argument, protected-access]
-        if value != AcqStatuses.ACQUIRING.value:
+        if (
+            value != AcqStatuses.ACQUIRING.value
+            or obj.parent.directory_exists.value == YesNo.NO.value
+        ):
             return 0
 
         if value == AcqStatuses.ACQUIRING.value and instance.value in [
@@ -344,7 +401,7 @@ class GeRMSaveIOC(PVGroup):
             try:
                 dataset_shape = save_hdf5(fname=filename, data=data, mode="a")
                 print(
-                    f"{now()}: saved {data.shape} data into:\n  {filename}.\n"
+                    f"{now()}: saved {data.shape} data into:\n  {filename}\n"
                     f"  Dataset shape in the file: {dataset_shape}"
                 )
                 success = True
