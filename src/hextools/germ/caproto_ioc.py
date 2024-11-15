@@ -147,10 +147,11 @@ class GeRMSaveIOC(PVGroup):
     )
 
     async def _add_subscription(self, prop_name):
-        client_context = Context()
+        if self._client_context is None:
+            self._client_context = Context()
 
         pvname = getattr(self.ophyd_det, prop_name).pvname
-        (pvobject,) = await client_context.get_pvs(pvname)
+        (pvobject,) = await self._client_context.get_pvs(pvname)
 
         # Subscribe to the target PV and register a customized self._callback.
         self.subscriptions[prop_name] = pvobject.subscribe(data_type="time")
@@ -265,7 +266,7 @@ class GeRMSaveIOC(PVGroup):
 
     def __init__(self, ophyd_det, *args, update_rate=10.0, **kwargs):
         super().__init__(*args, **kwargs)
-
+        self._client_context = None
         self.subscriptions = {}
         self.client_context = None
 
