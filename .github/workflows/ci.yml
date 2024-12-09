@@ -67,4 +67,4 @@ jobs:
           --durations=20 -m "(not hardware) and (not tiled)"
 
       - name: Upload coverage report
-        uses: codecov/codecov-action@v4.6.0
+        uses: codecov/codecov-action@v5.1.1
