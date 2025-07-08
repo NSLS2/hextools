@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - uses: pre-commit/action@v3.0.1
+      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
         with:
           extra_args: --hook-stage manual --all-files
       - name: Run PyLint
@@ -69,4 +69,4 @@ jobs:
           --durations=20 -m "(not hardware) and (not tiled)"
 
       - name: Upload coverage report
-        uses: codecov/codecov-action@v5.3.1
+        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5.3.1
