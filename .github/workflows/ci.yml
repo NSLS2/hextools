@@ -1,70 +1,56 @@
+---
+
 name: CI
 
 on:
-  workflow_dispatch:
-  pull_request:
   push:
-    branches:
-      - main
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  FORCE_COLOR: 3
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  pre-commit:
-    name: Format
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - uses: pre-commit/action@v3.0.1
-        with:
-          extra_args: --hook-stage manual --all-files
-      - name: Run PyLint
-        run: |
-          echo "::add-matcher::$GITHUB_WORKSPACE/.github/matchers/pylint.json"
-          pipx run nox -s pylint
+      - name: Checkout code
+        uses: actions/checkout@v6
 
-  checks:
-    name: Check Python ${{ matrix.python-version }} on ${{ matrix.runs-on }}
-    runs-on: ${{ matrix.runs-on }}
-    needs: [pre-commit]
+      - name: Setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Run linters
+        run: uv run pre-commit run --all-files
+  test:
+    name: Test
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.8", "3.11"]
-        # runs-on: [ubuntu-latest, macos-latest, windows-latest]
-        runs-on: [ubuntu-latest]
-
-        # include:
-        #   - python-version: pypy-3.10
-        #     runs-on: ubuntu-latest
-
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - name: Setup python
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-          allow-prereleases: true
 
-      - name: Install package
-        run: python -m pip install .[test]
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
 
-      - name: Test package
-        run: >-
-          python -m pytest -ra --cov --cov-report=xml --cov-report=term
-          --durations=20 -m "(not hardware) and (not tiled)"
+      - name: Sync dependencies
+        run: uv sync
 
-      - name: Upload coverage report
-        uses: codecov/codecov-action@v5.3.1
+      - name: Run tests
+        run: uv run pytest --cov --cov-report=xml

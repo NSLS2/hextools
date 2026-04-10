@@ -159,3 +159,6 @@ Thumbs.db
 
 # Test scripts
 run*.sh
+# pixi environments
+.pixi/*
+!.pixi/config.toml

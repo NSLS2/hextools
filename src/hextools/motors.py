@@ -1,0 +1,1 @@
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor

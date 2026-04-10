@@ -8,8 +8,8 @@ from pprint import pformat
 
 import numpy as np
 from event_model import StreamRange, compose_stream_resource
-from ophyd import Component as Cpt
-from ophyd import Device, EpicsSignal, Kind, Signal
+from hextools.detectors.germ.ophyd import Component as Cpt
+from hextools.detectors.germ.ophyd import Device, EpicsSignal, Kind, Signal
 from ophyd.sim import new_uid
 from ophyd.status import SubscriptionStatus
 
