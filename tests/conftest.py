@@ -1,14 +1,7 @@
 import asyncio
-import os
 import pprint
-import signal
-import subprocess
-import sys
-import time
 import warnings
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 # Pre-import websockets modules that trigger DeprecationWarnings so they are
 # cached in sys.modules before uvicorn's server thread imports them.
@@ -19,18 +12,15 @@ with warnings.catch_warnings():
     except (ImportError, Exception):
         pass
 
-import pytest
-from bluesky._vendor.super_state_machine.errors import TransitionError
-from bluesky.run_engine import RunEngine
-from pytest import FixtureRequest
 from collections.abc import Generator
 
+import pytest
+from bluesky._vendor.super_state_machine.errors import TransitionError  # noqa: PLC2701
+from bluesky.run_engine import RunEngine
+from pytest import FixtureRequest
 from tiled.client import from_uri
 from tiled.client.container import Container
 from tiled.server import SimpleTiledServer
-from bluesky_tiled_plugins import TiledWriter
-
-
 
 _ALLOWED_PYTEST_TASKS = {"async_finalizer", "async_setup", "async_teardown"}
 
@@ -105,7 +95,11 @@ async def fail_test_on_unclosed_tasks(request: FixtureRequest):
 def RE(request: FixtureRequest) -> RunEngine:
     loop = asyncio.new_event_loop()
     loop.set_debug(True)
-    RE = RunEngine({"cycle": "2026-1", "data_session": "pass-123456"}, call_returns_result=True, loop=loop)
+    RE = RunEngine(
+        {"cycle": "2026-1", "data_session": "pass-123456"},
+        call_returns_result=True,
+        loop=loop,
+    )
     fail_count = request.session.testsfailed
 
     def clean_event_loop():
@@ -135,7 +129,9 @@ def RE(request: FixtureRequest) -> RunEngine:
 @pytest.fixture
 def tiled_client(tmp_path: Path) -> Generator[tuple[Path, Container], None, None]:
     (tmp_path / "data").mkdir(parents=True, exist_ok=True)
-    server = SimpleTiledServer(tmp_path / "tiled_data", readable_storage=[tmp_path / "data"])
+    server = SimpleTiledServer(
+        tmp_path / "tiled_data", readable_storage=[tmp_path / "data"]
+    )
     client = from_uri(server.uri)
     yield tmp_path / "data", client
     client.context.close()

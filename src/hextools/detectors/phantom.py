@@ -1,51 +1,54 @@
-"""Ophyd async support for Phantom VEO camera at HEX
-"""
+"""Ophyd async support for Phantom VEO camera at HEX."""
 
 import asyncio
+from collections.abc import Sequence
+from typing import Annotated as A
 
-from pathlib import Path
-from ophyd_async.epics.adcore import ADBaseDataType, ADBaseIO, ADHDFDataLogic, ADMultipartDataLogic, AreaDetector, ADArmLogic, ADWriterType, NDPluginBaseIO, prepare_exposures
-from ophyd_async.epics.core import PvSuffix, epics_signal_rw_rbv
 from ophyd_async.core import (
-    DeviceVector,
-    derived_signal_r,
-    observe_value, DEFAULT_TIMEOUT,
-    DetectorArmLogic,
-    OnOff,
-    YesNo,
-    StandardReadable,
-    StandardReadableFormat as Format,
-    SubsetEnum,
-    PathProvider,
-    StrictEnum,
-    SupersetEnum,
-    init_devices,
-    AsyncStatus,
-    WatchableAsyncStatus,
-    TriggerInfo,
+    DEFAULT_TIMEOUT,
     DetectorTriggerLogic,
-    DetectorTrigger,
-    SignalRW,
+    DeviceVector,
+    OnOff,
+    PathProvider,
     SignalR,
-    SignalX,
-    set_and_wait_for_other_value
+    SignalRW,
+    StrictEnum,
+    SubsetEnum,
+    TriggerInfo,
+    YesNo,
+    derived_signal_r,
+    observe_value,
+    set_and_wait_for_other_value,
 )
-from typing import Annotated as A, Sequence
+from ophyd_async.epics.adcore import (
+    ADArmLogic,
+    ADBaseDataType,
+    ADBaseIO,
+    ADHDFDataLogic,
+    ADMultipartDataLogic,
+    ADWriterType,
+    AreaDetector,
+    NDPluginBaseIO,
+)
+from ophyd_async.epics.core import PvSuffix, epics_signal_rw_rbv
+
 
 class PhantomDownloadFrameMode(StrictEnum):
-    """Defines the mode for selecting frames to download from the camera."""
+    """Mode for selecting frames to download from the camera."""
 
     FIRST_AND_LAST = "First and Last"
     UNIVERSAL = "Universal"
 
+
 class PhantomDownloadSpeed(StrictEnum):
-    """Defines the speed for downloading frames from the camera."""
+    """Speed for downloading frames from the camera."""
 
     ONE_GIGABIT = "1 Gb/s"
     TEN_GIGABIT = "10 Gb/s"
 
+
 class PhantomSettingsSlot(StrictEnum):
-    """Defines the settings slots available on the camera for saving and loading configurations."""
+    """Settings slots available on the camera for saving and loading configurations."""
 
     SLOT_1 = "1"
     SLOT_2 = "2"
@@ -55,10 +58,10 @@ class PhantomSettingsSlot(StrictEnum):
 
 
 class PhantomExtSyncType(StrictEnum):
-    """Defines the types of external synchronization available for triggering the camera."""
+    """Types of external synchronization available for triggering the camera."""
 
     FREE_RUN = "FREE-RUN"  # Software internal trigger
-    FSYNC = "FSYNC"        # External frame sync signal, typically used for edge triggering
+    FSYNC = "FSYNC"  # External frame sync signal, typically used for edge triggering
     IRIG = "IRIG"
     VIDEO = "VIDEO"
 
@@ -72,12 +75,14 @@ class PhantomTrigEdge(StrictEnum):
 
 class PhantomReadySignal(StrictEnum):
     """Defines behavior of the camera's ready signal output."""
+
     RECORDING = "RECORDING"
     TRIGGER = "TRIGGER"
 
 
 class PhantomAuxPinMode(SubsetEnum):
     """Defines possible modes for camera's auxiliary pins."""
+
     FSYNCIO = "FSYNCIO"
     STROBE = "STROBE"
     EVENT = "EVENT"
@@ -112,8 +117,8 @@ class PhantomPixelDataFormat(StrictEnum):
 
 class PhantomIO(ADBaseIO):
     """IO class for ADPhantom driver.
-    
-    Mirrors API found in https://github.com/jwlodek/ADPhantom/blob/cleanup-build-process/ADPhantomApp/Db/phantomCamera.template
+
+    Mirrors API found in ADPhantomApp/Db/phantomCamera.template
     """
 
     acq_notify: A[SignalR[float], PvSuffix("AcqNotify")]
@@ -135,7 +140,9 @@ class PhantomIO(ADBaseIO):
     download_end_frame: A[SignalRW[int], PvSuffix.rbv("DownloadEndFrame")]
     download_start_cine: A[SignalRW[int], PvSuffix.rbv("DownloadStartCine")]
     download_end_cine: A[SignalRW[int], PvSuffix.rbv("DownloadEndCine")]
-    download_frame_mode: A[SignalRW[PhantomDownloadFrameMode], PvSuffix.rbv("DownloadFrameMode")]
+    download_frame_mode: A[
+        SignalRW[PhantomDownloadFrameMode], PvSuffix.rbv("DownloadFrameMode")
+    ]
     download_speed: A[SignalRW[PhantomDownloadSpeed], PvSuffix.rbv("DownloadSpeed")]
     dropped_packets: A[SignalR[int], PvSuffix("DroppedPackets_RBV")]
     mark_cine_saved: A[SignalRW[YesNo], PvSuffix.rbv("MarkCineSaved")]
@@ -164,7 +171,9 @@ class PhantomIO(ADBaseIO):
     ready_signal: A[SignalRW[PhantomReadySignal], PvSuffix.rbv("ReadySignal")]
     quiet_fan: A[SignalRW[PhantomFanState], PvSuffix.rbv("QuietFan")]
     sync_clock: A[SignalRW[int], PvSuffix("SyncClock")]
-    select_pixel_data_format: A[SignalRW[PhantomPixelDataFormat], PvSuffix.rbv("SelectPixelDataFormat")]
+    select_pixel_data_format: A[
+        SignalRW[PhantomPixelDataFormat], PvSuffix.rbv("SelectPixelDataFormat")
+    ]
     frame_read_speed: A[SignalR[int], PvSuffix("FrameReadSpeed_RBV")]
     invalid: A[SignalR[int], PvSuffix("State_RBV.B0")]
     complete_and_valid: A[SignalR[int], PvSuffix("State_RBV.B1")]
@@ -172,27 +181,41 @@ class PhantomIO(ADBaseIO):
     trigger_received: A[SignalR[int], PvSuffix("State_RBV.B3")]
     cine_content_saved: A[SignalR[int], PvSuffix("State_RBV.B9")]
 
-
     def __init__(self, prefix: str, name: str = ""):
         super().__init__(prefix, name=name)
-        self.aux_pins = DeviceVector({i: epics_signal_rw_rbv(PhantomAuxPinMode, prefix + f"Aux{i}PinMode", name=f"aux_pin{i}") for i in range(1, 5)}, name="aux_pins")
+        self.aux_pins = DeviceVector(
+            {
+                i: epics_signal_rw_rbv(
+                    PhantomAuxPinMode, prefix + f"Aux{i}PinMode", name=f"aux_pin{i}"
+                )
+                for i in range(1, 5)
+            },
+            name="aux_pins",
+        )
 
         # IOC does not provide these signals, so make them derived here
-        self.total_download_frames = derived_signal_r(self.get_total_downloaded_frames, start=self.download_start_frame, end=self.download_end_frame)
-        self.download_data_type = derived_signal_r(self.get_downloaded_dtype, pixel_token=self.select_pixel_data_format)
+        self.total_download_frames = derived_signal_r(
+            self.get_total_downloaded_frames,
+            start=self.download_start_frame,
+            end=self.download_end_frame,
+        )
+        self.download_data_type = derived_signal_r(
+            self.get_downloaded_dtype, pixel_token=self.select_pixel_data_format
+        )
 
-
-    def get_downloaded_dtype(self, pixel_token: PhantomPixelDataFormat) -> ADBaseDataType:
-        """Convert the ADPhantom pixel data format token to the corresponding ADBaseDataType for the datalogic description."""
-
-        if pixel_token in (PhantomPixelDataFormat.EIGHT, PhantomPixelDataFormat.EIGHT_R):
+    def get_downloaded_dtype(
+        self, pixel_token: PhantomPixelDataFormat
+    ) -> ADBaseDataType:
+        """Convert the pixel data format token to the corresponding ADBaseDataType."""
+        if pixel_token in (
+            PhantomPixelDataFormat.EIGHT,
+            PhantomPixelDataFormat.EIGHT_R,
+        ):
             return ADBaseDataType.UINT8
         return ADBaseDataType.UINT16
 
-
     def get_total_downloaded_frames(self, start: int, end: int) -> int:
-        """Calculate the total number of frames to download based on the start and end frame indices."""
-
+        """Get the number of frames to download based on start/end frame indices."""
         if end < start:
             return 0
 
@@ -200,13 +223,14 @@ class PhantomIO(ADBaseIO):
 
 
 class PhantomTriggerLogic(DetectorTriggerLogic):
+    """Trigger logic for the Phantom camera."""
 
     def __init__(self, driver: PhantomIO):
         self.driver = driver
 
     def config_sigs(self) -> set[SignalR]:
         """Return the signals that should appear in read_configuration."""
-        return { 
+        return {
             self.driver.acquire_time_ms,
             self.driver.ext_sync_type,
             self.driver.model,
@@ -216,46 +240,42 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
             self.driver.selected_cine,
             self.driver.download_start_frame,
             self.driver.download_end_frame,
-            self.driver.select_pixel_data_format
+            self.driver.select_pixel_data_format,
         }
-    
-    async def setup_download(self, num: int):
-        """Sets up the number of frames to download before and after the trigger
 
-        If post trigger frames are greater than or equal to the total number of frames to download,
-        then the download will be set up to download all frames from the event trigger until num.
-        If post trigger frames are less than the total number of frames to download, then the download
-        will be set up to download the specified number of post trigger frames, and the remaining
-        pre trigger frames.
+    async def setup_download(self, num: int):
+        """Given a total number of frames to download, set up the start/end indices.
+
+        If post trigger frames are greater than or equal to the total number of frames
+        to download, then the download will be set up to download all frames from the
+        event trigger until num. If post trigger frames are less than the total number
+        of frames to download, then the download will be set up to download the
+        specified number of post trigger frames, and the remaining pre trigger frames.
 
         Parameters
         ----------
         num : int
-            The total number of frames to download, including both pre and post trigger frames.
+            The total num of frames to download, incl both pre and post trigger frames.
 
         Raises
         ------
         ValueError
             If num is less than or equal to 0.
         """
-
         if num <= 0:
             raise ValueError("Number of frames to download must be greater than 0!")
 
         post_trig_frames = await self.driver.post_trig_frames.get_value()
-        print(f"Setting up download with num={num} and post_trig_frames={post_trig_frames}")
-        print(num < post_trig_frames)
-        print((num - post_trig_frames) * -1)
 
         if num < post_trig_frames:
             await asyncio.gather(
                 self.driver.download_start_frame.set(0),
-                self.driver.download_end_frame.set(num - 1)
+                self.driver.download_end_frame.set(num - 1),
             )
         else:
             await asyncio.gather(
                 self.driver.download_start_frame.set((num - post_trig_frames) * -1),
-                self.driver.download_end_frame.set(post_trig_frames - 1)
+                self.driver.download_end_frame.set(post_trig_frames - 1),
             )
 
     async def prepare_internal(self, num: int, livetime: float, deadtime: float):
@@ -291,20 +311,30 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
 
 
 class PhantomArmLogic(ADArmLogic):
+    """Arm logic for the Phantom camera."""
+
     def __init__(self, driver: PhantomIO):
         super().__init__(driver, driver.acquire)
         self.driver = driver
 
     async def arm(self):
         # Start the acquisition, and wait for waiting for trigger to be True
-        await set_and_wait_for_other_value(self.driver.acquire, True, self.driver.waiting_for_trigger, 1, timeout=DEFAULT_TIMEOUT)
+        await set_and_wait_for_other_value(
+            self.driver.acquire,
+            True,
+            self.driver.waiting_for_trigger,
+            1,
+            timeout=DEFAULT_TIMEOUT,
+        )
 
-        # Wait for trigger_received to go to 1.
-        # If trigger_received does not go to 1 within the timeout, check if acquisition stopped,
-        # and if so raise a timeout error indicating acquisition stopped while waiting for trigger.
+        # Wait for trigger_received to go to 1. If trigger_received does not go
+        # to 1 within the timeout, check if acquisition stopped, and if so raise
+        # a timeout error indicating acquisition stopped while waiting for trigger.
         while True:
             try:
-                async for trigger_received in observe_value(self.driver.trigger_received, done_timeout=DEFAULT_TIMEOUT):
+                async for trigger_received in observe_value(
+                    self.driver.trigger_received, done_timeout=DEFAULT_TIMEOUT
+                ):
                     if trigger_received == 1:
                         break
                 break
@@ -315,21 +345,34 @@ class PhantomArmLogic(ADArmLogic):
                         "Acquisition stopped while waiting for event trigger!"
                     ) from exc
 
-        # After we recieve the event trigger, we want to wait until the number of post trigger
-        # frames have been recorded before we start the download.
+        # After we recieve the event trigger, we want to wait until the number of
+        # post trigger frames have been recorded before we start the download.
         target_post_trig = await self.driver.post_trig_frames.get_value()
         try:
-            async for actual_post_trig in observe_value(self.driver.array_counter, done_timeout=DEFAULT_TIMEOUT):
+            async for actual_post_trig in observe_value(
+                self.driver.array_counter, done_timeout=DEFAULT_TIMEOUT
+            ):
                 if target_post_trig == actual_post_trig:
                     break
         except TimeoutError as exc:
-            actual_post_trig, complete_and_valid, trigger_received = await asyncio.gather(self.driver.array_counter.get_value(), self.driver.complete_and_valid.get_value(), self.driver.trigger_received.get_value())
+            (
+                actual_post_trig,
+                complete_and_valid,
+                trigger_received,
+            ) = await asyncio.gather(
+                self.driver.array_counter.get_value(),
+                self.driver.complete_and_valid.get_value(),
+                self.driver.trigger_received.get_value(),
+            )
             if trigger_received == 1 and complete_and_valid != 1:
                 raise TimeoutError(
                     "Received event trigger, but writing to cine was not completed!"
                 ) from exc
             elif actual_post_trig != target_post_trig:
-                raise ValueError(f"Expected number of post trig frames {target_post_trig} does not match actual number {actual_post_trig}")
+                raise ValueError(
+                    f"Expected number of post trig frames {target_post_trig} "
+                    f"does not match actual number {actual_post_trig}"
+                ) from exc
 
         # Finally, start the download
         await self.driver.download.set(True)
@@ -343,27 +386,33 @@ class PhantomArmLogic(ADArmLogic):
         # Check how many frames we are supposed to download
         target_num_saved = await self.driver.total_download_frames.get_value()
 
-        # As long as our download counter is counting up and has not reached the target number of frames, keep waiting.
-        # If we timeout, check if the download count has increased since the last time we checked,
-        # and if so keep waiting, otherwise raise a timeout error.
+        # As long as our download counter is counting up and has not reached the target
+        # number of frames, keep waiting. If we timeout, check if the download count
+        # has increased since the last time we checked, and if so keep waiting,
+        # otherwise raise a timeout error.
         last_value = None
         while True:
             try:
-                async for num_saved in observe_value(self.driver.download_count, done_timeout=DEFAULT_TIMEOUT):
+                async for num_saved in observe_value(
+                    self.driver.download_count, done_timeout=DEFAULT_TIMEOUT
+                ):
                     last_value = num_saved
                     if num_saved == target_num_saved:
                         return
-            except TimeoutError:
+            except TimeoutError as err:
                 current = await self.driver.download_count.get_value()
                 if current == last_value:
                     raise TimeoutError(
-                        f"Timeout waiting for download to complete! Target number of downloaded frames: {target_num_saved}"
-                    )
+                        "Timeout waiting for download to complete! "
+                        f"Target number of downloaded frames: {target_num_saved}"
+                    ) from err
                 if current == target_num_saved:
                     return
                 last_value = current
 
+
 class PhantomDetector(AreaDetector[PhantomIO]):
+    """Detector class for Phantom cameras."""
 
     def __init__(
         self,
