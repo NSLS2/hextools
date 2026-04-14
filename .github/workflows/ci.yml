@@ -27,6 +27,25 @@ jobs:
       - name: Run linting checks
         run: pixi run -e dev --frozen lint
 
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@8ca4608ef7f4daeb54f5205b20d0b7cb42f11143  # v0.8.14
+        with:
+          pixi-version: v0.56.0
+          cache: false
+          frozen: true
+
+      - name: Run type checks
+        run: pixi run -e dev --frozen pyright src/hextools tests
+
   test:
     name: Unit Tests - Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
