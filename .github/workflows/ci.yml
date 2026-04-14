@@ -25,7 +25,7 @@ jobs:
           frozen: true
 
       - name: Run linting checks
-        run: pixi run -e dev --frozen lint
+        run: pixi run --frozen lint
 
   type-check:
     name: Type Check
@@ -44,7 +44,7 @@ jobs:
           frozen: true
 
       - name: Run type checks
-        run: pixi run -e dev --frozen pyright src/hextools tests
+        run: pixi run -e py313 --frozen pyright src/hextools tests
 
   test:
     name: Unit Tests - Python ${{ matrix.python-version }}

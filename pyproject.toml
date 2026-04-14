@@ -46,12 +46,10 @@ dev = [
     "ophyd-async[ca, pva, sim]>=0.17a2",
     "inflection",
     "import-linter",
-    "myst-parser",
     "numpydoc",
     "pickleshare",
     "pipdeptree",
     "pre-commit",
-    "pydata-sphinx-theme>=0.12",
     "pyepics>=3.4.2",
     "pyright",
     "pytest",
@@ -64,17 +62,20 @@ dev = [
     "pytest-timeout",
     "ruff",
     "scanspec>=1.0a1",
-    "sphinx-autobuild",
-    "sphinx-autodoc2",
-    "sphinxcontrib-mermaid",
-    "sphinx-copybutton",
-    "sphinx-design",
-    "tox-uv-bare",
     "types-mock",
     "types-pyyaml",
     "tiled[client,server]>=0.2.9",
     "bluesky-tiled-plugins>=2.0.2",
     "h5py>=3.16.0",
+]
+docs = [
+    "pydata-sphinx-theme>=0.12",
+    "myst-parser",
+    "sphinx-autobuild",
+    "sphinx-autodoc2",
+    "sphinxcontrib-mermaid",
+    "sphinx-copybutton",
+    "sphinx-design",
 ]
 
 [project.urls]
@@ -279,6 +280,7 @@ python = "3.14.*"
 [tool.pixi.environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
+docs = { features = ["docs"], solve-group = "default" }
 gui = { features = ["gui"], solve-group = "default" }
 iocs = { features = ["iocs"], solve-group = "default" }
 py311 = { features = ["dev", "py311"], solve-group = "py311" }
@@ -286,5 +288,6 @@ py312 = { features = ["dev", "py312"], solve-group = "py312" }
 py313 = { features = ["dev", "py313"], solve-group = "py313" }
 py314 = { features = ["dev", "py314"], solve-group = "py314" }
 
-[tool.pixi.feature.dev.tasks]
+[tool.pixi.feature.py313.tasks]
+test = "pytest --cov=src/hextools --cov-report=term --cov-report=xml:coverage.xml"
 lint = "pre-commit run --all-files"
