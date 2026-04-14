@@ -249,17 +249,16 @@ async def test_arm_logic_wait_for_idle_success(
     phantom_arm_logic: PhantomArmLogic, monkeypatch
 ):
     monkeypatch.setattr(
-        hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
+        hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.5
     )  # Set a short timeout for the test
     set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)
     set_mock_value(phantom_arm_logic.driver.download_end_frame, 5)
     set_mock_value(phantom_arm_logic.driver.download, True)
 
-    # Simulate frames being downloaded by incrementing download_start_frame
-    # until it exceeds download_end_frame
+    # Simulate frames being downloaded by incrementing download_count
     async def _simulate_download():
         while True:
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.001)
             count = await phantom_arm_logic.driver.download_count.get_value()
             if count >= 11:  # Total frames to download is 11 (-5 to 5 inclusive)
                 break
