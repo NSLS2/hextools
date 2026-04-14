@@ -2713,8 +2713,8 @@ packages:
   requires_python: '>=3.9'
 - pypi: ./
   name: hextools
-  version: 0.2.4.dev8+g82a6ef1ac.d20260414
-  sha256: 5deb4bc7de28c52078d907ef29212c1b115bea95e84c9f0a52738ddceac91719
+  version: 0.2.4.dev11+gc57a7f542.d20260414
+  sha256: 3d997a998cc91e0aea74bb71a79147f1325d435d2b058aee0d00bf627680e4fb
   requires_dist:
   - ophyd-async[ca,pva]>=0.17a2
   - ophyd>=1.10.7

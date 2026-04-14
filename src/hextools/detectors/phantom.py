@@ -206,7 +206,18 @@ class PhantomIO(ADBaseIO):
     def get_downloaded_dtype(
         self, pixel_token: PhantomPixelDataFormat
     ) -> ADBaseDataType:
-        """Convert the pixel data format token to the corresponding ADBaseDataType."""
+        """Convert the pixel data format token to the corresponding ADBaseDataType.
+
+        Parameters
+        ----------
+        pixel_token : PhantomPixelDataFormat
+            The pixel data format token read from the camera.
+
+        Returns
+        -------
+        ADBaseDataType
+            The corresponding ADBaseDataType to use for the downloaded frames.
+        """
         if pixel_token in (
             PhantomPixelDataFormat.EIGHT,
             PhantomPixelDataFormat.EIGHT_R,
@@ -215,7 +226,21 @@ class PhantomIO(ADBaseIO):
         return ADBaseDataType.UINT16
 
     def get_total_downloaded_frames(self, start: int, end: int) -> int:
-        """Get the number of frames to download based on start/end frame indices."""
+        """Get the number of frames to download based on start/end frame indices.
+
+        Parameters
+        ----------
+        start : int
+            The starting frame index for the download.
+        end : int
+            The ending frame index for the download.
+
+        Returns
+        -------
+        int
+            The total number of frames to download, calculated as end - start + 1.
+            If end is less than start, returns 0.
+        """
         if end < start:
             return 0
 
@@ -229,7 +254,13 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         self.driver = driver
 
     def config_sigs(self) -> set[SignalR]:
-        """Return the signals that should appear in read_configuration."""
+        """Return the signals that should appear in read_configuration.
+
+        Returns
+        -------
+        set[SignalR]
+            The set of signals to include in the configuration.
+        """
         return {
             self.driver.acquire_time_ms,
             self.driver.ext_sync_type,
@@ -281,30 +312,43 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
     async def prepare_internal(self, num: int, livetime: float, deadtime: float):
         """Prepare the detector to take internally triggered exposures.
 
-        :param num: the number of exposures to take
-        :param livetime: how long the exposure should be, 0 means what is currently set
-        :param deadtime: how long between exposures, 0 means the shortest possible
+        Parameters
+        ----------
+        num : int
+            The total num of frames to download, incl both pre and post trigger frames.
+        livetime : float
+            How long the exposure should be, in s, 0 means what is currently set.
+        deadtime : float
+            How long between exposures, in s, 0 means the shortest possible.
         """
-        await asyncio.gather(
-            self.driver.ext_sync_type.set(PhantomExtSyncType.FREE_RUN),
-            self.driver.acquire_time.set(livetime),
-        )
-        # await self.setup_download(num)
+        coros = [self.driver.ext_sync_type.set(PhantomExtSyncType.FREE_RUN)]
+        if livetime != 0:
+            coros.append(self.driver.acquire_time_ms.set(livetime * 1000))
+        await asyncio.gather(*coros)
 
     async def prepare_edge(self, num: int, livetime: float):
         """Prepare the detector to take external edge triggered exposures.
 
-        :param num: the number of exposures to take
-        :param livetime: how long the exposure should be, 0 means what is currently set
+        Parameters
+        ----------
+        num : int
+            The total num of frames to download, incl both pre and post trigger frames.
+        livetime : float
+            How long the exposure should be, in s, 0 means what is currently set.
         """
-        await asyncio.gather(
-            self.driver.ext_sync_type.set(PhantomExtSyncType.FSYNC),
-            self.driver.acquire_time.set(livetime),
-        )
-        # await self.setup_download(num)
+        coros = [self.driver.ext_sync_type.set(PhantomExtSyncType.FSYNC)]
+        if livetime != 0:
+            coros.append(self.driver.acquire_time_ms.set(livetime * 1000))
+        await asyncio.gather(*coros)
 
     async def default_trigger_info(self) -> TriggerInfo:
-        """Fallback for the default TriggerInfo in plans without prepare."""
+        """Fallback for the default TriggerInfo in plans without prepare.
+
+        Returns
+        -------
+        TriggerInfo
+            A TriggerInfo with default values for the Phantom camera.
+        """
         dl_start = await self.driver.download_start_frame.get_value()
         dl_end = await self.driver.download_end_frame.get_value()
         return TriggerInfo(collections_per_event=(dl_end - dl_start + 1))
@@ -318,6 +362,20 @@ class PhantomArmLogic(ADArmLogic):
         self.driver = driver
 
     async def arm(self):
+        """Start the acquisition and the image data download.
+
+        Start the acquisition, wait for the event trigger,
+        wait for any post trigger frames, and start the download.
+
+        Raises
+        ------
+        RuntimeError
+            If acquisition stops before we receive the event trigger.
+        TimeoutError
+            If we timeout waiting for the cine to be marked as valid.
+        ValueError
+            If the number of post trigger frames recorded is not what was expected.
+        """
         # Start the acquisition, and wait for waiting for trigger to be True
         await set_and_wait_for_other_value(
             self.driver.acquire,
@@ -378,7 +436,13 @@ class PhantomArmLogic(ADArmLogic):
         await self.driver.download.set(True)
 
     async def wait_for_idle(self):
+        """Wait for the camera to finish downloading and return to idle state.
 
+        Raises
+        ------
+        TimeoutError
+            If we timeout waiting for the download to complete.
+        """
         # First, make sure our arm process is complete.
         if self.acquire_status:
             await self.acquire_status
