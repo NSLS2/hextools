@@ -51,11 +51,12 @@ jobs:
         env:
           PYTHON_VERSION: ${{ matrix.python-version }}
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        if: ${{ matrix.python-version == '3.13' }}  # Only upload coverage for Python 3.13 to avoid duplicates
-        with:
-          name: Coverage
-          files: coverage.xml
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+      # Uncomment once codecov is enabled.
+      # - name: Upload coverage to Codecov
+      #   uses: codecov/codecov-action@v5
+      #   if: ${{ matrix.python-version == '3.13' }}  # Only upload coverage for Python 3.13 to avoid duplicates
+      #   with:
+      #     name: Coverage
+      #     files: coverage.xml
+      #     fail_ci_if_error: true
+      #     token: ${{ secrets.CODECOV_TOKEN }}
