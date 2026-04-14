@@ -291,3 +291,4 @@ py314 = { features = ["dev", "py314"], solve-group = "py314" }
 [tool.pixi.feature.py313.tasks]
 test = "pytest --cov=src/hextools --cov-report=term --cov-report=xml:coverage.xml"
 lint = "pre-commit run --all-files"
+type-check = "pyright src tests"
