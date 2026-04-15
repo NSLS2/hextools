@@ -103,7 +103,7 @@ class GeRMTriggerLogic(DetectorTriggerLogic):
         deadtime : float
             How long between exposures, 0 means the shortest possible.
         """
-        asyncio.gather(self._driver.count_time.set(livetime))
+        await self._driver.count_time.set(livetime)
 
     async def default_trigger_info(self) -> TriggerInfo:
         return TriggerInfo(
