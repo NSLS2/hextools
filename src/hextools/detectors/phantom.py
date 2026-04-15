@@ -388,7 +388,7 @@ class PhantomArmLogic(ADArmLogic):
         # Wait for trigger_received to go to 1. If trigger_received does not go
         # to 1 within the timeout, check if acquisition stopped, and if so raise
         # a timeout error indicating acquisition stopped while waiting for trigger.
-        # Otherwise, if acquisition is still running, keep waiting for trigger_received to
+        # Otherwise, if acq is still running, keep waiting for trigger_received to
         # go to 1.
         while True:
             try:

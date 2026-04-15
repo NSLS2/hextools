@@ -1,6 +1,5 @@
 """Ophyd async support for the GeRM detector at HEX."""
 
-import asyncio
 from typing import Annotated as A
 
 from ophyd_async.core import (
