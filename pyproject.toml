@@ -2,16 +2,15 @@
 requires = ["setuptools>=61", "setuptools_scm[toml]>=7"]
 build-backend = "setuptools.build_meta"
 
-
 [project]
 name = "hextools"
 authors = [
-  { name = "Brookhaven National Laboratory", email = "mrakitin@bnl.gov" },
+  { name = "Brookhaven National Laboratory", email = "jwlodek@bnl.gov" },
 ]
 description = "Tools for NSLS-II HEX beamline"
 readme = "README.md"
 license.file = "LICENSE"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 classifiers = [
   "Development Status :: 1 - Planning",
   "Intended Audience :: Science/Research",
@@ -21,155 +20,186 @@ classifiers = [
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering",
   "Typing :: Typed",
 ]
 dynamic = ["version"]
 dependencies = [
-  "area-detector-handlers",
-  "caproto",
-  "event-model>=1.21.0",
-  "h5py",
-  "numpy",
-  "ophyd",
-  "pillow",
-  "pyepics",
-  "tifffile",
+  "ophyd-async[ca, pva]>=0.17a2",
+  "ophyd>=1.10.7",
 ]
 
 [project.optional-dependencies]
-test = [
-  "bluesky",
-  "databroker",
-  "matplotlib",
-  "pyarrow",
-  "pyqt5 >=5.12",
-  "pytest >=6",
-  "pytest-cov >=3",
-  "tiled[client]",
+iocs = [
+  "caproto",
 ]
+gui = [
+#   "ntnda-qt-viewer",
+]
+
+[dependency-groups]
 dev = [
-  "ipython",
-  "pre-commit",
-  "pylint",
-  "pytest >=6",
-  "pytest-cov >=3",
+    "ophyd-async[ca, pva, sim]>=0.17a2",
+    "inflection",
+    "import-linter",
+    "numpydoc",
+    "pickleshare",
+    "pipdeptree",
+    "pre-commit",
+    "pyepics>=3.4.2",
+    "pyright",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "pytest-faulthandler",
+    "pytest-forked",
+    "pytest-insubprocess",
+    "pytest-rerunfailures",
+    "pytest-timeout",
+    "ruff",
+    "scanspec>=1.0a1",
+    "types-mock",
+    "types-pyyaml",
+    "tiled[client,server]>=0.2.9",
+    "bluesky-tiled-plugins>=2.0.2",
+    "h5py>=3.16.0",
 ]
 docs = [
-  "furo>=2023.08.17",
-  "myst_parser>=0.13",
-  "sphinx>=7.0",
-  "sphinx_autodoc_typehints",
-  "sphinx_copybutton",
+    "pydata-sphinx-theme>=0.12",
+    "myst-parser",
+    "sphinx-autobuild",
+    "sphinx-autodoc2",
+    "sphinxcontrib-mermaid",
+    "sphinx-copybutton",
+    "sphinx-design",
 ]
 
 [project.urls]
 Homepage = "https://github.com/NSLS-II-HEX/hextools"
-"Bug Tracker" = "https://github.com/NSLS-II-HEX/hextools/issues"
+Issues = "https://github.com/NSLS-II-HEX/hextools/issues"
 Discussions = "https://github.com/NSLS-II-HEX/hextools/discussions"
 Changelog = "https://github.com/NSLS-II-HEX/hextools/releases"
-
-[project.entry-points."databroker.handlers"]
-AD_HDF5_GERM = "hextools.handlers:AreaDetectorHDF5HandlerGERM"
 
 [tool.setuptools_scm]
 write_to = "src/hextools/_version.py"
 
+[tool.pyright]
+typeCheckingMode = "standard"
+reportMissingImports = false  # Ignore missing stubs in imported modules
+
 
 [tool.pytest.ini_options]
-minversion = "6.0"
-addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
-xfail_strict = true
-filterwarnings = [
-  "ignore",
-]
-log_cli_level = "INFO"
-testpaths = [
-  "tests",
-]
-markers = [
-    "hardware: marks tests as requiring the hardware IOC to be available/running (deselect with '-m \"not hardware\"')",
-    "tiled: marks tests as requiring tiled",
-]
+# Run pytest with all our checkers, and don't spam us with massive tracebacks on error
+addopts = """
+    --tb=native -vv --strict-markers --doctest-modules
+    --doctest-glob="*.rst" --doctest-glob="*.md"
+    --ignore=docs/examples
+    """
+# https://iscinumpy.gitlab.io/post/bound-version-constraints/#watch-for-warnings
+filterwarnings = ["error"]
+# Doctest python code in docs, python code in src docstrings, test functions in tests
+testpaths = "docs src tests"
+log_format = "%(asctime)s,%(msecs)03d %(levelname)s (%(threadName)s) %(message)s"
+log_date_format = "%H:%M:%S"
 
-[tool.coverage]
-run.source = ["hextools"]
-report.exclude_also = [
-  '\.\.\.',
-  'if typing.TYPE_CHECKING:',
-]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+timeout = 60
 
-[tool.mypy]
-files = ["src", "tests"]
-python_version = "3.8"
-warn_unused_configs = true
-strict = true
-enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
-warn_unreachable = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
+[tool.coverage.run]
+patch = ["subprocess"]
+data_file = "/tmp/hextools.coverage"
+# branch = true
 
-[[tool.mypy.overrides]]
-module = "hextools.*"
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-
+[tool.coverage.paths]
+# Tests are run from installed location, map back to the src directory
+source = ["src", "**/site-packages/"]
 
 [tool.ruff]
-src = ["src"]
+line-length = 88
+lint.select = [
+    "B",       # flake8-bugbear - https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
+    "C4",      # flake8-comprehensions - https://docs.astral.sh/ruff/rules/#flake8-comprehensions-c4
+    "E",       # pycodestyle errors - https://docs.astral.sh/ruff/rules/#error-e
+    "F",       # pyflakes rules - https://docs.astral.sh/ruff/rules/#pyflakes-f
+    "N",       # pep8-naming - https://docs.astral.sh/ruff/rules/#pep8-naming-n
+    "W",       # pycodestyle warnings - https://docs.astral.sh/ruff/rules/#warning-w
+    "I",       # isort - https://docs.astral.sh/ruff/rules/#isort-i
+    "UP",      # pyupgrade - https://docs.astral.sh/ruff/rules/#pyupgrade-up
+    "SLF",     # self - https://docs.astral.sh/ruff/settings/#lintflake8-self
+    "PLC2701", # private import - https://docs.astral.sh/ruff/rules/import-private-name/
+    "LOG015",  # root logger call - https://docs.astral.sh/ruff/rules/root-logger-call/
+    "S101",    # assert - https://docs.astral.sh/ruff/rules/assert/
+    "D",       # docstring - https://docs.astral.sh/ruff/rules/#pydocstyle-d
+]
+lint.ignore = [
+    "B901", # Return in a generator is needed for plans
+    "D107", # We squash __init__ docstrings into the class docstring
+    "D102", # We don't need to override docstrings that are inherited from abstract methods
+]
+lint.preview = true # so that preview mode PLC2701 is enabled
 
-[tool.ruff.lint]
-extend-select = [
-  "B",        # flake8-bugbear
-  "I",        # isort
-  # "ARG",      # flake8-unused-arguments
-  "C4",       # flake8-comprehensions
-  "EM",       # flake8-errmsg
-  "ICN",      # flake8-import-conventions
-  "G",        # flake8-logging-format
-  "PGH",      # pygrep-hooks
-  "PIE",      # flake8-pie
-  "PL",       # pylint
-  "PT",       # flake8-pytest-style
-  "PTH",      # flake8-use-pathlib
-  "RET",      # flake8-return
-  # "RUF",      # Ruff-specific
-  "SIM",      # flake8-simplify
-  # "T20",      # flake8-print
-  "UP",       # pyupgrade
-  "YTT",      # flake8-2020
-  "EXE",      # flake8-executable
-  "NPY",      # NumPy specific rules
-  "PD",       # pandas-vet
-]
-ignore = [
-  "PLR09",    # Too many <...>
-  "PLR2004",  # Magic value used in comparison
-  "ISC001",   # Conflicts with formatter
-]
-isort.required-imports = ["from __future__ import annotations"]
-# Uncomment if using a _compat.typing backport
-# typing-modules = ["hextools._compat.typing"]
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["T20"]
-"noxfile.py" = ["T20"]
+# By default, private member access is allowed in tests
+# See https://github.com/DiamondLightSource/python-copier-template/issues/154
+# Remove this line to forbid private member access in tests
+"tests/**/*" = ["SLF001", "S101", "D"]
 
+[tool.ruff.lint.flake8-import-conventions.extend-aliases]
+# We often shorten "Annotated" to "A" for brevity
+"typing.Annotated" = "A"
 
-[tool.pylint]
-py-version = "3.8"
-ignore-paths = [".*/_version.py"]
-reports.output-format = "colorized"
-similarities.ignore-imports = "yes"
-messages_control.disable = [
-  "design",
-  "fixme",
-  "line-too-long",
-  "missing-module-docstring",
-  "wrong-import-position",
-]
+[tool.ruff.lint.pep8-naming]
+# The fixture RE is commonly used in tests
+extend-ignore-names = ["RE"]
+
+[tool.importlinter]
+root_package = "hextools"
+
+[tool.uv.sources]
+ntnda-qt-viewer = { git = "https://github.com/jwlodek/ntnda-qt-viewer" }
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.dependencies]
+python = "*"
+
+[tool.pixi.pypi-dependencies]
+hextools = { path = ".", editable = true }
+
+[tool.pixi.feature.py311.dependencies]
+python = "3.11.*"
+
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
+[tool.pixi.feature.py314.dependencies]
+python = "3.14.*"
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+docs = { features = ["docs"], solve-group = "default" }
+gui = { features = ["gui"], solve-group = "default" }
+iocs = { features = ["iocs"], solve-group = "default" }
+py311 = { features = ["dev", "py311"], solve-group = "py311" }
+py312 = { features = ["dev", "py312"], solve-group = "py312" }
+py313 = { features = ["dev", "py313"], solve-group = "py313" }
+py314 = { features = ["dev", "py314"], solve-group = "py314" }
+
+[tool.pixi.feature.py313.tasks]
+test = "pytest --cov=src/hextools --cov-report=term --cov-report=xml:coverage.xml"
+lint = "pre-commit run --all-files"
+type-check = "pyright src tests"

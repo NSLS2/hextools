@@ -1,3 +1,5 @@
+"""Sphinx configuration for hextools documentation."""
+
 from __future__ import annotations
 
 import importlib.metadata
