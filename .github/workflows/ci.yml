@@ -22,15 +22,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup pixi
-        uses: prefix-dev/setup-pixi@8ca4608ef7f4daeb54f5205b20d0b7cb42f11143  # v0.8.14
-        with:
-          pixi-version: v0.56.0
-          cache: false
-          frozen: true
+      - name: Setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
 
-      - name: Run linting checks
-        run: pixi run --frozen lint
+      - name: Lint
+        run: uv run --frozen pre-commit run --all-files
 
   type-check:
     name: Type Check
@@ -41,15 +37,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup pixi
-        uses: prefix-dev/setup-pixi@8ca4608ef7f4daeb54f5205b20d0b7cb42f11143  # v0.8.14
-        with:
-          pixi-version: v0.56.0
-          cache: false
-          frozen: true
+      - name: Setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
 
       - name: Run type checks
-        run: pixi run -e py313 --frozen pyright src/hextools tests
+        run: uv run --frozen pyright src tests
+
 
   test:
     name: Unit Tests - Python ${{ matrix.python-version }}
@@ -64,17 +57,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup pixi
-        uses: prefix-dev/setup-pixi@8ca4608ef7f4daeb54f5205b20d0b7cb42f11143  # v0.8.14
+      - name: Setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          pixi-version: v0.56.0
-          cache: true
-          frozen: true
+          python-version: ${{ matrix.python-version }}
 
       - name: Run tests for given python version
-        run: pixi run --frozen -e py${PYTHON_VERSION//./} pytest --cov=src/hextools --cov-report=xml --cov-report=term
-        env:
-          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: uv run --frozen pytest --cov=src/hextools --cov-report=xml --cov-report=term
 
       # Uncomment once codecov is enabled.
       # - name: Upload coverage to Codecov

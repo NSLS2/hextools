@@ -162,3 +162,5 @@ run*.sh
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+.vscode/*
