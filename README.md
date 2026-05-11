@@ -1,27 +1,37 @@
 # hextools
 
-[![Actions Status][actions-badge]][actions-link]
-[![Documentation Status][rtd-badge]][rtd-link]
+[![Actions Status][actions-badge]][actions-link] [![PyPI version][pypi-version]][pypi-link]
 
-[![PyPI version][pypi-version]][pypi-link]
-[![Conda-Forge][conda-badge]][conda-link]
-[![PyPI platforms][pypi-platforms]][pypi-link]
+Tools for the NSLS-II HEX beamline at Brookhaven National Laboratory.
 
-[![GitHub Discussion][github-discussions-badge]][github-discussions-link]
+## Overview
 
-<!-- SPHINX-START -->
+`hextools` provides [ophyd-async](https://github.com/bluesky/ophyd-async) device
+definitions for motors and detectors used at the HEX beamline, including:
 
-<!-- prettier-ignore-start -->
-[actions-badge]:            https://github.com/NSLS-II-HEX/hextools/workflows/CI/badge.svg
-[actions-link]:             https://github.com/NSLS-II-HEX/hextools/actions
-[conda-badge]:              https://img.shields.io/conda/vn/conda-forge/hextools
-[conda-link]:               https://github.com/conda-forge/hextools-feedstock
-[github-discussions-badge]: https://img.shields.io/static/v1?label=Discussions&message=Ask&color=blue&logo=github
-[github-discussions-link]:  https://github.com/NSLS-II-HEX/hextools/discussions
-[pypi-link]:                https://pypi.org/project/hextools/
-[pypi-platforms]:           https://img.shields.io/pypi/pyversions/hextools
-[pypi-version]:             https://img.shields.io/pypi/v/hextools
-[rtd-badge]:                https://readthedocs.org/projects/hextools/badge/?version=latest
-[rtd-link]:                 https://hextools.readthedocs.io/en/latest/?badge=latest
+- **Motors** — Filters, slits, monochromators, mirrors, and sample stages
+- **Detectors** — GeRM and Phantom camera support
 
-<!-- prettier-ignore-end -->
+## Installation
+
+```bash
+pip install hextools
+```
+
+## Development
+
+```bash
+git clone https://github.com/NSLS2/hextools.git
+cd hextools
+uv sync
+```
+
+Run tests:
+
+```bash
+uv run pytest
+```
+
+## License
+
+BSD 3-Clause. See [LICENSE](LICENSE) for details.
