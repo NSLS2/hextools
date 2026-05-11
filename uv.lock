@@ -467,7 +467,7 @@ wheels = [
 
 [[package]]
 name = "bluesky-tiled-plugins"
-version = "2.0.2"
+version = "2.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dask" },
@@ -477,9 +477,9 @@ dependencies = [
     { name = "tiled", extra = ["client"] },
     { name = "tzlocal" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2f/2e/700dd9100267bb259b9fdcbfa5e0a958daeda11e95a7773814e93c388bed/bluesky_tiled_plugins-2.0.2.tar.gz", hash = "sha256:1ce996e5b6b46d66a958a9d5790adfd5051577b081f9e46769a9ad138dede9d5", size = 74965, upload-time = "2026-02-13T21:26:28.169Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2b/f0/224a6b136dd030c4719ce02ce0ef4d13fc550ff173dde103dbfbb08a0a22/bluesky_tiled_plugins-2.0.3.tar.gz", hash = "sha256:9fe14777eddfff7bf3b181a0729dc28223219383a21d6a2937051dba9c52608b", size = 79940, upload-time = "2026-05-07T20:42:04.166Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e4/39/aba66d3a9d7b22bdf7a718dfe72b082fc042fda89146e1615f420e50eb3f/bluesky_tiled_plugins-2.0.2-py3-none-any.whl", hash = "sha256:a306ac9bc6445410f9e9b5144d33cda4578abb9113a5c20eba26126dd0c1d1f1", size = 52615, upload-time = "2026-02-13T21:26:26.942Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/61/0b9e435992c6c931f51509ff2fe411852ee1776a6465a96f87ffab2c5420/bluesky_tiled_plugins-2.0.3-py3-none-any.whl", hash = "sha256:96bae120b7e819463e83ae334094037e5de0f7a8adc4e245335b69f4a0a3fda0", size = 57767, upload-time = "2026-05-07T20:42:02.614Z" },
 ]
 
 [[package]]
