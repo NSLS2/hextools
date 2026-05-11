@@ -1,6 +1,7 @@
 # hextools
 
-[![Actions Status][actions-badge]][actions-link] [![PyPI version][pypi-version]][pypi-link]
+[![CI](https://github.com/NSLS2/hextools/actions/workflows/ci.yml/badge.svg)](https://github.com/NSLS2/hextools/actions/workflows/ci.yml) ![PyPI - Version](https://img.shields.io/pypi/v/hextools)
+
 
 Tools for the NSLS-II HEX beamline at Brookhaven National Laboratory.
 
