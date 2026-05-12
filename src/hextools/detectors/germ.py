@@ -82,7 +82,7 @@ class GeRMArmLogic(DetectorArmLogic):
     async def wait_for_idle(self):
         pass
 
-    async def disarm(self):
+    async def disarm(self, on_unstage: bool = False):
         pass
 
 
