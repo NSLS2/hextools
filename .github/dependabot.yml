@@ -6,7 +6,7 @@ updates:
     schedule:
       interval: "weekly"
     groups:
-      github-actions-refresh:
+      github-actions:
         patterns:
           - "*"
 
@@ -15,6 +15,6 @@ updates:
     schedule:
       interval: "weekly"
     groups:
-      uv-lockfile-maintenance:
+      uv-lockfile:
         patterns:
           - "*"
