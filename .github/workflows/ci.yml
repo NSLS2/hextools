@@ -22,10 +22,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Pixi
-        uses: prefix-dev/setup-pixi@v0.8.8
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
         with:
+          pixi-version: v0.71.3
           environments: dev
+          cache: false
+          frozen: true
 
       - name: Lint
         run: pixi run --as-is -e dev pre-commit run --all-files
@@ -39,10 +42,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Pixi
-        uses: prefix-dev/setup-pixi@v0.8.8
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
         with:
+          pixi-version: v0.71.3
           environments: dev
+          cache: false
+          frozen: true
 
       - name: Run type checks
         run: pixi run --as-is -e dev ty check src tests
@@ -65,9 +71,12 @@ jobs:
         run: echo "env=py$(echo '${{ matrix.python-version }}' | tr -d '.')" >> "$GITHUB_OUTPUT"
 
       - name: Setup Pixi
-        uses: prefix-dev/setup-pixi@v0.8.8
+        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
         with:
+          pixi-version: v0.71.3
           environments: ${{ steps.pixi.outputs.env }}
+          cache: false
+          frozen: true
 
       - name: Run tests
         run: pixi run --as-is -e ${{ steps.pixi.outputs.env }} pytest --cov=src/hextools --cov-report=xml --cov-report=term
