@@ -29,8 +29,13 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-  "ophyd-async[ca, pva]>=0.17a2",
-  "ophyd>=1.10.7",
+  "algotom",
+  "ipython",
+  "numpy",
+  "ophyd-async[ca, pva]",
+  "rich>=15.0.0",
+  "scikit-image>=0.26.0",
+  "scipy>=1.17.1",
 ]
 
 [project.optional-dependencies]
@@ -97,10 +102,14 @@ reportMissingImports = false  # Ignore missing stubs in imported modules
 addopts = """
     --tb=native -vv --strict-markers --doctest-modules
     --doctest-glob="*.rst" --doctest-glob="*.md"
-    --ignore=docs/examples
+    --ignore=docs/examples --ignore=src/hextools/profiles
     """
 # https://iscinumpy.gitlab.io/post/bound-version-constraints/#watch-for-warnings
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    "ignore:tagMap is deprecated:DeprecationWarning:ldap3",
+    "ignore:typeMap is deprecated:DeprecationWarning:ldap3",
+]
 # Doctest python code in docs, python code in src docstrings, test functions in tests
 testpaths = "docs src tests"
 log_format = "%(asctime)s,%(msecs)03d %(levelname)s (%(threadName)s) %(message)s"
@@ -162,44 +171,3 @@ extend-ignore-names = ["RE"]
 
 [tool.importlinter]
 root_package = "hextools"
-
-[tool.uv.sources]
-ntnda-qt-viewer = { git = "https://github.com/jwlodek/ntnda-qt-viewer" }
-
-[tool.pixi.workspace]
-channels = ["conda-forge"]
-platforms = ["linux-64"]
-
-[tool.pixi.dependencies]
-python = "*"
-
-[tool.pixi.pypi-dependencies]
-hextools = { path = ".", editable = true }
-
-[tool.pixi.feature.py311.dependencies]
-python = "3.11.*"
-
-[tool.pixi.feature.py312.dependencies]
-python = "3.12.*"
-
-[tool.pixi.feature.py313.dependencies]
-python = "3.13.*"
-
-[tool.pixi.feature.py314.dependencies]
-python = "3.14.*"
-
-[tool.pixi.environments]
-default = { solve-group = "default" }
-dev = { features = ["dev"], solve-group = "default" }
-docs = { features = ["docs"], solve-group = "default" }
-gui = { features = ["gui"], solve-group = "default" }
-iocs = { features = ["iocs"], solve-group = "default" }
-py311 = { features = ["dev", "py311"], solve-group = "py311" }
-py312 = { features = ["dev", "py312"], solve-group = "py312" }
-py313 = { features = ["dev", "py313"], solve-group = "py313" }
-py314 = { features = ["dev", "py314"], solve-group = "py314" }
-
-[tool.pixi.feature.py313.tasks]
-test = "pytest --cov=src/hextools --cov-report=term --cov-report=xml:coverage.xml"
-lint = "pre-commit run --all-files"
-type-check = "pyright src tests"
