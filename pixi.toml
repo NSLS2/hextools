@@ -67,6 +67,7 @@ myst-parser = ">=5.1.0,<6"
 inflection = ">=0.5.1,<0.6"
 pytest-timeout = ">=2.4.0,<3"
 tiled-server = ">=0.2.14,<0.3"
+python-build = ">=1.2.2,<2"
 
 [feature.gui.dependencies]
 pyside6 = ">=6.9.0,<7"
