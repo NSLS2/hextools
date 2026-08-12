@@ -1,50 +1,43 @@
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+"""Motion stages and related utility functions for the HEX beamline."""
+
+import asyncio
+
+from ophyd_async.core import (
+    DeviceMock,
+    callback_on_mock_put,
+    default_mock_class,
+    derived_signal_r,
+    set_mock_put_proceeds,
+    set_mock_value,
+)
 from ophyd_async.epics.core import EpicsDevice
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 
+def get_encoder_value_from_pos(
+    current_position: float, encoder_resolution: float, encoder_pos_at_zero: int
+) -> int:
+    """Calculate the encoder value from a motor position.
 
-class Filter1(EpicsDevice):
+    Parameters
+    ----------
+    current_position : float
+        The current position of the motor.
+    encoder_resolution : float
+        The resolution of the encoder in counts per degree.
+    encoder_pos_at_zero : int
+        The encoder position corresponding to 0 degrees.
 
-    def __init__(self):
-        super().__init__("XF:27ID1A-OP:1{Fltr:1-Ax:", name="filter1")
-        self.upstream = AsyncEpicsMotor("Yu}Mtr", name="upstream")
-        self.downstream = AsyncEpicsMotor("Yd}Mtr", name="downstream")
+    Returns
+    -------
+    int
+        The encoder value corresponding to the given motor position.
+    """
+    return int(current_position / encoder_resolution + encoder_pos_at_zero)
 
-
-class Slits(EpicsDevice):
-
-    def __init__(self, prefix: str, num: int, name: str = ""):
-        super().__init__(f"{prefix}{{Slt:{num}-Ax:", name=name or f"slits{num}")
-        self.inboard = AsyncEpicsMotor("I}Mtr", name="inboard")
-        self.outboard = AsyncEpicsMotor("O}Mtr", name="outboard")
-        self.bottom = AsyncEpicsMotor("B}Mtr", name="bottom")
-        self.top = AsyncEpicsMotor("T}Mtr", name="top")
-        self.horiz_gap = AsyncEpicsMotor("HG}Mtr", name="horiz_gap")
-        self.vert_gap = AsyncEpicsMotor("VG}Mtr", name="vert_gap")
-        self.horiz_center = AsyncEpicsMotor("HC}Mtr", name="horiz_center")
-        self.vert_center = AsyncEpicsMotor("VC}Mtr", name="vert_center")
-
-
-class DCLM(EpicsDevice):
-
-    def __init__(self):
-        super().__init__("XF:27ID1A-OP:1{Mono:DCLM-Ax:", name="dclm")
-        self.xtal2_z = AsyncEpicsMotor("Z2}Mtr", name="xtal2_z")
-        self.cooling_tower_zc = AsyncEpicsMotor("ZC}Mtr", name="cooling_tower_zc")
-        self.system_pitch = AsyncEpicsMotor("P}Mtr", name="system_pitch")
-        self.xtal1_bend_c1a = AsyncEpicsMotor("C1A}Mtr", name="xtal1_bend_c1a")
-        self.xtal1_bend_c1b = AsyncEpicsMotor("C1B}Mtr", name="xtal1_bend_c1b")
-        self.xtal2_bend_c2a = AsyncEpicsMotor("C2A}Mtr", name="xtal2_bend_c2a")
-        self.xtal2_bend_c2b = AsyncEpicsMotor("C2B}Mtr", name="xtal2_bend_c2b")
-        self.xtal2_z_readback = AsyncEpicsMotor("Z2}Mtr.RBV", name="xtal2_z_readback")
-        self.xtal2_roll = AsyncEpicsMotor("C2R}Mtr", name="xtal2_roll")
-        self.xtal1_vertical_trans = AsyncEpicsMotor("C1Y}Mtr", name="xtal1_vertical_trans")
-        self.xtal1_pitch = AsyncEpicsMotor("C1P}Mtr", name="xtal1_pitch")
-        self.xtal2_pitch = AsyncEpicsMotor("C2P}Mtr", name="xtal2_pitch")
-        self.cooled_beam_stop = AsyncEpicsMotor("BS}Mtr", name="cooled_beam_stop")
-        self.fluorescent_screen = AsyncEpicsMotor("FS}Mtr", name="fluorescent_screen")
 
 class OpticsTable(EpicsDevice):
+    """HEX optics table."""
 
     def __init__(self):
         super().__init__("XF:27ID1A-OP:1{OPT:1-Ax:", name="optics_table")
@@ -58,7 +51,80 @@ class OpticsTable(EpicsDevice):
         self.x4 = AsyncEpicsMotor("X4}Mtr", name="x4")
 
 
+# TODO: Get this upstreamed to ophyd_async and remove it from here.
+# It is a general utility that is not specific to HEX.
+class VelocityRespectingMotorMock(DeviceMock[AsyncEpicsMotor]):
+    """Mock behaviour that respects motor velocity and acceleration time."""
+
+    async def connect(self, device: AsyncEpicsMotor) -> None:
+        """Mock signals to simulate a move respecting velocity and acceleration."""
+        set_mock_value(device.velocity, 10)
+        set_mock_value(device.max_velocity, 100)
+        set_mock_value(device.acceleration_time, 1)
+
+        # Motor starts in "done" state (not moving)
+        set_mock_value(device.motor_done_move, 1)
+
+        async def _do_move(target: float):
+            current = await device.user_readback.get_value()
+            velocity = await device.velocity.get_value()
+            acceleration_time = await device.acceleration_time.get_value()
+            move_time = abs(target - current) / velocity + 2 * acceleration_time
+            set_mock_value(device.motor_done_move, 0)
+            elapsed = 0.0
+            while elapsed < move_time:
+                await asyncio.sleep(min(1.0, move_time - elapsed))
+                elapsed += 1.0
+                fraction = min(elapsed / move_time, 1.0)
+                position = current + (target - current) * fraction
+                set_mock_value(device.user_readback, position)
+            set_mock_value(device.user_readback, target)
+            set_mock_value(device.motor_done_move, 1)
+            set_mock_put_proceeds(device.user_setpoint, True)
+
+        def _on_setpoint_write(value):
+            set_mock_put_proceeds(device.user_setpoint, False)
+            asyncio.ensure_future(_do_move(value))
+
+        callback_on_mock_put(device.user_setpoint, _on_setpoint_write)
+
+
+@default_mock_class(VelocityRespectingMotorMock)
+class RotationMotor(AsyncEpicsMotor):
+    """A motor that can be used for rotation scans.
+
+    This class is a subclass of the AsyncEpicsMotor class and is used to represent
+    a motor that can be used for rotation scans. It has additional attributes and
+    methods that are specific to rotation scans.
+    """
+
+    def __init__(self, prefix: str, name: str = ""):
+        super().__init__(prefix, name=name)
+        self.encoder_counts_per_rev = derived_signal_r(
+            self.get_encoder_counts_per_rev,
+            derived_units="counts",
+            derived_precision=0,
+            encoder_resolution=self.encoder_resolution,
+        )
+
+    def get_encoder_counts_per_rev(self, encoder_resolution: float) -> int:
+        """Calculate the number of encoder counts per revolution.
+
+        Parameters
+        ----------
+        encoder_resolution : float
+            The resolution of the encoder in counts per degree.
+
+        Returns
+        -------
+        int
+            The number of encoder counts per revolution.
+        """
+        return int(360.0 * encoder_resolution)
+
+
 class SampleTower(EpicsDevice):
+    """HEX sample tower."""
 
     def __init__(self):
         super().__init__("XF:27ID1A-OP:1{SMPL:1-Ax:", name="sample_tower")
@@ -74,4 +140,3 @@ class SampleTower(EpicsDevice):
         self.inboard_y = AsyncEpicsMotor("Y1}Mtr", name="inboard_y")
         self.outboard_y = AsyncEpicsMotor("Y2}Mtr", name="outboard_y")
         self.downstream_y = AsyncEpicsMotor("Y3}Mtr", name="downstream_y")
-

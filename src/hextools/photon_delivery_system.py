@@ -142,9 +142,25 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
         value : FilterPosition
             The desired filter position to set.
         """
-
         await self.filter_motor.set(self.positions[value].position)
         await wait_for_value(self.in_position, True, timeout=10)
+
+
+class Slits(StandardReadable, EpicsDevice):
+    """Generic slits with inboard, outboard, bottom, and top motors."""
+
+    def __init__(self, prefix: str, num: int, name: str = ""):
+        super().__init__(f"{prefix}{{Slt:{num}-Ax:", name=name or f"slits{num}")
+        with self.add_children_as_readables(Format.CONFIG_SIGNAL):
+            self.inboard = AsyncEpicsMotor("I}Mtr", name="inboard")
+            self.outboard = AsyncEpicsMotor("O}Mtr", name="outboard")
+            self.bottom = AsyncEpicsMotor("B}Mtr", name="bottom")
+            self.top = AsyncEpicsMotor("T}Mtr", name="top")
+
+        # self.horiz_gap = AsyncEpicsMotor("HG}Mtr", name="horiz_gap")
+        # self.vert_gap = AsyncEpicsMotor("VG}Mtr", name="vert_gap")
+        # self.horiz_center = AsyncEpicsMotor("HC}Mtr", name="horiz_center")
+        # self.vert_center = AsyncEpicsMotor("VC}Mtr", name="vert_center")
 
 
 class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
