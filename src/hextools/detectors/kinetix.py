@@ -100,7 +100,7 @@ def set_output_dir(detector, output_dir, filename: str = "proj") -> Path:
         detector_label = getattr(detector, "name", type(detector).__name__)
         raise TypeError(
             f"{detector_label} has no settable path provider; build it with "
-            "lib.detectors.make_kinetix so the plan can direct its output "
+            "hextools.detectors.kinetix.make_kinetix so the plan can direct its output "
             "to output_dir."
         )
     path_provider.set(output_path, filename)
