@@ -1,0 +1,340 @@
+from enum import StrEnum
+
+import algotom.util.calibration as calib
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy.ndimage as ndi
+from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
+from skimage import measure, segmentation
+
+Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
+ImageDataset = np.ndarray[
+    tuple[int, int, int], np.dtype[np.uint16] | np.dtype[np.uint8]
+]
+
+
+def check_run_is_valid(
+    run: BlueskyRunV3,
+    detector_name: str,
+    motor_name: str,
+    projection_stream_name: str = "primary",
+    flatfield_stream_name: str | None = None,
+) -> bool:
+    """Check if a BlueskyRunV3 object is valid for tomography analysis.
+
+    Parameters
+    ----------
+    run : BlueskyRunV3
+        The BlueskyRunV3 object to check.
+
+    Returns
+    -------
+    bool
+        True if the run is valid, False otherwise.
+    """
+
+    def _check_stream_exists_and_contains_detector(
+        stream_name: str, requires_motor: bool = True
+    ):
+        if stream_name not in run:
+            raise KeyError(f"Stream '{stream_name}' not found in the run.")
+        data_stream = run[stream_name]
+        if detector_name not in data_stream:
+            raise KeyError(
+                f"Detector '{detector_name}' not found in the stream '{stream_name}'."
+            )
+        if requires_motor and motor_name not in data_stream:
+            raise KeyError(
+                f"Motor '{motor_name}' not found in the stream '{stream_name}'."
+            )
+
+    _check_stream_exists_and_contains_detector(projection_stream_name)
+
+    if flatfield_stream_name is not None:
+        _check_stream_exists_and_contains_detector(
+            flatfield_stream_name, requires_motor=False
+        )
+
+    return True
+
+
+def check_crop_values_valid(
+    projection_width: int,
+    projection_height: int,
+    left_crop: int,
+    right_crop: int,
+    top_crop: int,
+    bottom_crop: int,
+) -> bool:
+    if left_crop < 0 or right_crop < 0 or top_crop < 0 or bottom_crop < 0:
+        raise ValueError("Crop values must be non-negative.")
+    if left_crop + right_crop >= projection_width:
+        raise ValueError(
+            "The sum of left and right crops must be less than the projection width."
+        )
+    if top_crop + bottom_crop >= projection_height:
+        raise ValueError(
+            "The sum of top and bottom crops must be less than the projection height."
+        )
+    return True
+
+
+def clean_image(binary_image: Image, size_threshold=100):
+    """
+    Clean binary image.
+    """
+    # Clear objects connected to the border and fill holes
+    binary_image = segmentation.clear_border(binary_image)
+    binary_image = ndi.binary_opening(binary_image, iterations=2)
+    binary_image = ndi.binary_fill_holes(binary_image)
+
+    # Label connected regions in the binary image
+    label_image = measure.label(binary_image)
+    properties = measure.regionprops(label_image)
+
+    # Initialize mask to keep objects larger than the size threshold
+    size_mask = np.zeros_like(binary_image, dtype=bool)
+
+    # Filter objects based on size
+    for prop in properties:
+        if prop.area >= size_threshold:
+            size_mask[label_image == prop.label] = True
+    filtered_image = np.logical_and(binary_image, size_mask)
+    return filtered_image
+
+
+class TomographyAlignmentMethod(StrEnum):
+    ELLIPSE = "ellipse"
+    LINEAR = "linear"
+
+
+def crop_and_flatfield_correction(
+    projection_data: ImageDataset,
+    flatfield: Image | None = None,
+    top_crop: int = 500,
+    bottom_crop: int = 500,
+    left_crop: int = 0,
+    right_crop: int = 0,
+) -> tuple[ImageDataset, list[float], list[float]]:
+    """Crop the projection data and apply flat-field correction.
+
+    Parameters
+    ----------
+    projection_data : ImageDataset
+        The 3D array of projection images to be processed.
+    flatfield : Image
+        The flat-field image used for correction.
+    top_crop : int
+        Number of pixels to crop from the top of each image.
+    bottom_crop : int
+        Number of pixels to crop from the bottom of each image.
+    left_crop : int
+        Number of pixels to crop from the left of each image.
+    right_crop : int
+        Number of pixels to crop from the right of each image.
+
+    Returns
+    -------
+
+    """
+    cropped_and_normalized = []
+    x_centers = []
+    y_centers = []
+    for i, proj_img in enumerate(projection_data):
+        # Crop image and perform flat-field correction
+        mat = (
+            proj_img[
+                top_crop : proj_img.shape[0] - bottom_crop,
+                left_crop : proj_img.shape[1] - right_crop,
+            ]
+            / flatfield[
+                top_crop : flatfield.shape[0] - bottom_crop,
+                left_crop : flatfield.shape[1] - right_crop,
+            ]
+        )
+        # Denoise
+        mat = ndi.gaussian_filter(mat, 5)
+        # Normalize the background.
+        # Optional
+        threshold = calib.calculate_threshold(mat, bgr="bright")
+        # Binarize the image
+        mat_bin0 = calib.binarize_image(mat, threshold=ratio * threshold, bgr="bright")
+        mat_bin0 = clean_image(mat_bin0)
+        nmean = np.sum(mat_bin0)
+        if nmean < 20.0:
+            print("\n******************************************************")
+            print("Adjust ratio of threshold or the field of view to get the sphere!")
+            print(f"Current used ratio: {ratio} and threshold: {threshold} ")
+            print("********************************************************")
+            plt.figure(figsize=figsize)
+            plt.imshow(mat, cmap="gray")
+            plt.show()
+            raise ValueError("No binary sphere detected! Please adjust parameters!")
+        # Keep the sphere only
+        sphere_size = calib.get_dot_size(mat_bin0, size_opt="max")
+        mat_bin = calib.select_dot_based_size(mat_bin0, sphere_size)
+        (y_cen, x_cen) = ndi.center_of_mass(mat_bin)
+        x_centers.append(x_cen)
+        y_centers.append(height_cr - y_cen)
+        cropped_and_normalized.append(mat)
+        print(
+            f"  ---> Done image: {i:2} | Angle: {list_angle[i]:3.1f} | Center X: {x_cen:4.2f} | Center Y: {y_cen:4.2f}"
+        )
+        # plt.figure(0)
+        # plt.imshow(mat, cmap="gray")
+        # plt.figure(1)
+        # plt.imshow(mat_bin, cmap="gray")
+    # plt.show()
+    return np.asarray(cropped_and_normalized)
+
+
+def fit_points_to_ellipse(x, y):
+    if len(x) != len(y):
+        raise ValueError("x and y must have the same length!!!")
+    A = np.array([x**2, x * y, y**2, x, y, np.ones_like(x)]).T
+    vh = np.linalg.svd(A, full_matrices=False)[-1]
+    a0, b0, c0, d0, e0, f0 = vh.T[:, -1]
+    denom = b0**2 - 4 * a0 * c0
+    msg = "Can't fit to an ellipse!!!"
+    if denom == 0:
+        raise ValueError(msg)
+    xc = (2 * c0 * d0 - b0 * e0) / denom
+    yc = (2 * a0 * e0 - b0 * d0) / denom
+    roll_angle = np.rad2deg(np.arctan2(c0 - a0 - np.sqrt((a0 - c0) ** 2 + b0**2), b0))
+    if roll_angle > 90.0:
+        roll_angle = -(180 - roll_angle)
+    if roll_angle < -90.0:
+        roll_angle = 180 + roll_angle
+    a_term = (
+        2
+        * (a0 * e0**2 + c0 * d0**2 - b0 * d0 * e0 + denom * f0)
+        * (a0 + c0 + np.sqrt((a0 - c0) ** 2 + b0**2))
+    )
+    if a_term < 0.0:
+        raise ValueError(msg)
+    a_major = -2 * np.sqrt(a_term) / denom
+    b_term = (
+        2
+        * (a0 * e0**2 + c0 * d0**2 - b0 * d0 * e0 + denom * f0)
+        * (a0 + c0 - np.sqrt((a0 - c0) ** 2 + b0**2))
+    )
+    if b_term < 0.0:
+        raise ValueError(msg)
+    b_minor = -2 * np.sqrt(b_term) / denom
+    if a_major < b_minor:
+        a_major, b_minor = b_minor, a_major
+        if roll_angle < 0.0:
+            roll_angle = 90 + roll_angle
+        else:
+            roll_angle = -90 + roll_angle
+    return roll_angle, a_major, b_minor, xc, yc
+
+
+def identify_sign_tilt_angle(
+    x: np.ndarray[tuple[int], np.dtype[np.float32]],
+    y: np.ndarray[tuple[int], np.dtype[np.float32]],
+) -> int:
+    """Find the two points at the furthest distance and their indices."""
+    data_points = np.asarray(list(zip(x, y)))
+    # Find the two points with the maximum distance between them
+    max_dist = 0
+    index1, index2 = 0, 0
+    for i in range(len(data_points)):
+        for j in range(i + 1, len(data_points)):
+            dist = np.linalg.norm(data_points[i] - data_points[j])
+            if dist > max_dist:
+                max_dist = dist
+                index1, index2 = i, j
+    # Perform a linear fit using the two furthest points
+    x_furthest = [data_points[index1][0], data_points[index2][0]]
+    y_furthest = [data_points[index1][1], data_points[index2][1]]
+    coeffs = np.polyfit(x_furthest, y_furthest, 1)
+    slope, intercept = coeffs
+
+    min_index, max_index = min(index1, index2), max(index1, index2)
+    y_dis = []
+    for i in range(min_index, max_index + 1):
+        x_i = data_points[i, 0]
+        y_i = data_points[i, 1]
+        y_fit = slope * x_i + intercept
+        y_dis.append(y_i - y_fit)
+
+    y_median = np.median(np.asarray(y_dis))
+    if y_median < 0:
+        angle_sign = 1
+    else:
+        angle_sign = -1
+
+    return angle_sign
+
+
+def ellipse_fit(x, y):
+    (a, b) = np.polyfit(x, y, 1)[:2]
+    dist_list = np.abs(a * x - y + b) / np.sqrt(a**2 + 1)
+    dist_list = ndi.gaussian_filter1d(dist_list, 2)
+    if np.max(dist_list) < 1.0:
+        raise ValueError("Distances of points to a fitted line is small.")
+
+    try:
+        result = fit_points_to_ellipse(x, y)
+        roll_angle, major_axis, minor_axis, xc, yc = result
+        tilt_angle = np.rad2deg(np.arctan2(minor_axis, major_axis))
+    except ValueError as e:
+        raise ValueError("Failed to fit points to an ellipse: " + str(e)) from e
+
+
+def linear_fit(x, y):
+    (a, b) = np.polyfit(x, y, 1)[:2]
+    dist_list = np.abs(a * x - y + b) / np.sqrt(a**2 + 1)
+    appr_major = np.max(
+        np.asarray(
+            [
+                np.sqrt((x[i] - x[j]) ** 2 + (y[i] - y[j]) ** 2)
+                for i in range(len(x))
+                for j in range(i + 1, len(x))
+            ]
+        )
+    )
+    dist_list = ndi.gaussian_filter1d(dist_list, 2)
+    appr_minor = 2.0 * np.max(dist_list)
+    tilt_angle = np.rad2deg(np.arctan2(appr_minor, appr_major))
+    roll_angle = np.rad2deg(np.arctan(a))
+
+
+def check_alignment(
+    alignment_scan: BlueskyRunV3,
+    detector_name: str = "kinetix1",
+    motor_name: str = "rotation_stage",
+    left_crop: int = 0,
+    right_crop: int = 0,
+    top_crop: int = 500,
+    bottom_crop: int = 500,
+    method: TomographyAlignmentMethod = TomographyAlignmentMethod.ELLIPSE,
+    ratio: float = 1.0,
+    projection_stream_name: str = "primary",
+    flatfield_stream_name: str | None = None,
+):
+    if left_crop < 0 or right_crop < 0 or top_crop < 0 or bottom_crop < 0:
+        raise ValueError("Crop values must be non-negative integers.")
+
+    check_run_is_valid(
+        alignment_scan,
+        detector_name,
+        motor_name,
+        projection_stream_name,
+        flatfield_stream_name,
+    )
+
+    projection_data: ImageDataset = alignment_scan[projection_stream_name][
+        detector_name
+    ].read()
+    angles: np.ndarray[tuple[int], np.dtype[np.float32]] = alignment_scan[
+        projection_stream_name
+    ][motor_name].read()
+    depth, height, width = projection_data.shape
+    if depth < 36:
+        raise ValueError(
+            "The alignment scan must contain at least 36 projections for a reliable fit."
+        )
+
+    check_crop_values_valid(width, height, left_crop, right_crop, top_crop, bottom_crop)

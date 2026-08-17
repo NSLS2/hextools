@@ -22,7 +22,7 @@ from hextools.photon_delivery_system import (
     Filter,
     FilterPosition,
     FilterSetting,
-    Monochromator,
+    DCLM,
     Shutter,
 )
 from hextools.utils import (
@@ -67,7 +67,7 @@ path_provider = NSLS2PathProvider(RE.md)
 with auto_init_devices(timeout=1.0):
     # Photon delivery system
     photon_shutter = Shutter("XF:27ID1A-OP:1{Shtr:1}", name="photon_shutter")
-    dclm = Monochromator("XF:27IDA-OP:1{Mono:DCLM-Ax:", name="dclm")
+    dclm = DCLM("XF:27IDA-OP:1{Mono:DCLM-Ax:", name="dclm")
 
     filter1_upstream = Filter(
         motor_pv="XF:27IDA-OP:1{Fltr:1-Ax:Yu}Mtr",

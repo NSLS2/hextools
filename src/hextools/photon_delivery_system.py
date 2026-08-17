@@ -22,7 +22,7 @@ from ophyd_async.core import (
 from ophyd_async.core import (
     StandardReadableFormat as Format,
 )
-from ophyd_async.epics.adcore import AreaDetector
+from ophyd_async.epics.adcore import AreaDetector, NDStatsIO
 from ophyd_async.epics.core import EpicsDevice, epics_signal_r, epics_signal_rw
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
@@ -142,6 +142,12 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
         value : FilterPosition
             The desired filter position to set.
         """
+        if value not in self.positions:
+            raise ValueError(
+                f"Invalid filter position: {value}. "
+                f"Defined positions are: {list(self.positions.keys())}"
+            )
+
         await self.filter_motor.set(self.positions[value].position)
         await wait_for_value(self.in_position, True, timeout=10)
 
@@ -152,15 +158,10 @@ class Slits(StandardReadable, EpicsDevice):
     def __init__(self, prefix: str, num: int, name: str = ""):
         super().__init__(f"{prefix}{{Slt:{num}-Ax:", name=name or f"slits{num}")
         with self.add_children_as_readables(Format.CONFIG_SIGNAL):
-            self.inboard = AsyncEpicsMotor("I}Mtr", name="inboard")
-            self.outboard = AsyncEpicsMotor("O}Mtr", name="outboard")
-            self.bottom = AsyncEpicsMotor("B}Mtr", name="bottom")
-            self.top = AsyncEpicsMotor("T}Mtr", name="top")
-
-        # self.horiz_gap = AsyncEpicsMotor("HG}Mtr", name="horiz_gap")
-        # self.vert_gap = AsyncEpicsMotor("VG}Mtr", name="vert_gap")
-        # self.horiz_center = AsyncEpicsMotor("HC}Mtr", name="horiz_center")
-        # self.vert_center = AsyncEpicsMotor("VC}Mtr", name="vert_center")
+            self.inboard = AsyncEpicsMotor(prefix + "I}Mtr", name="inboard")
+            self.outboard = AsyncEpicsMotor(prefix + "O}Mtr", name="outboard")
+            self.bottom = AsyncEpicsMotor(prefix + "B}Mtr", name="bottom")
+            self.top = AsyncEpicsMotor(prefix + "T}Mtr", name="top")
 
 
 class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
@@ -211,10 +212,17 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
     # Constants for in/out positions of the monochromator components
     beam_stop_in: Final[float] = 0.0
     beam_stop_out: Final[float] = 48.3
-    crystal_1_in: Final[float] = 0.0
-    crystal_1_out: Final[float] = -36.0
-    fluo_y_direct: Final[float] = 25.0
-    fluo_y_direct_out: Final[float] = 46.0
+    xtal1_in: Final[float] = 0.0
+    xtal1_out: Final[float] = -36.0
+    fs_in: Final[float] = 25.0
+    fs_out: Final[float] = 46.0
+
+    # Constants for the monochromator geometry
+    bragg_factor: Final[float] = 1.977  # Energy in keV for Si(111) at 2d = 6.271 Å
+    bragg_angle_offset: Final[float] = 35.2544  # Bragg angle offset in degrees for Si(111)
+    fixed_beam_offset: Final[float] = 25.0  # Crystal 2 z offset in mm for fixed beam offset
+    fs_distance: Final[float] = 1428.0  # Distance to fluorescence screen in mm
+
 
     def __init__(self, prefix: str, name: str = ""):
 
@@ -241,7 +249,7 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
 
     def _get_beam_mode(self, xtal1_pos: float, beam_stop_pos: float) -> BeamMode:
         """Determine the current beam mode."""
-        xtal1_out = abs(xtal1_pos - self.crystal_1_out) < 0.01
+        xtal1_out = abs(xtal1_pos - self.xtal1_out) < 0.01
         beam_stop_out = abs(beam_stop_pos - self.beam_stop_out) < 0.01
         if xtal1_out and beam_stop_out:
             return BeamMode.WHITE
@@ -249,15 +257,15 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
 
     def _get_energy(self, pitch_angle: float) -> float:
         """Compute the energy of the monochromatic beam based on the pitch angle."""
-        bragg_angle = np.deg2rad(35.2544 - pitch_angle)
-        return 1.977 / np.sin(bragg_angle)
+        bragg_angle = np.deg2rad(self.bragg_angle_offset - pitch_angle)
+        return self.bragg_factor / np.sin(bragg_angle)
 
     @AsyncStatus.wrap
     async def set(self, value: BeamMode):
         if value == BeamMode.WHITE:
-            xtal1_target, bs_target = self.crystal_1_out, self.beam_stop_out
+            xtal1_target, bs_target = self.xtal1_out, self.beam_stop_out
         else:
-            xtal1_target, bs_target = self.crystal_1_in, self.beam_stop_in
+            xtal1_target, bs_target = self.xtal1_in, self.beam_stop_in
         coros = (
             self.xtal1_vertical_trans.set(xtal1_target),
             self.cooled_beam_stop.set(bs_target),
@@ -307,22 +315,22 @@ def change_energy(
     if mode != BeamMode.MONOCHROMATIC:
         raise RuntimeError("Monochromator is not in monochromatic mode.")
 
-    bragg_angle = np.arcsin(1.977 / energy)  # Si(111), 2d = 6.271 Å, energy in keV
-    angle = 35.2544 - np.rad2deg(bragg_angle)  # Bragg angle to motor coordinate
-    z = 25.0 / np.tan(2 * bragg_angle)  # Crystal 2 z for fixed beam offset of 25 mm
+    bragg_angle = np.arcsin(dclm.bragg_factor / energy)  # Si(111), 2d = 6.271 Å, energy in keV
+    angle = dclm.bragg_angle_offset - np.rad2deg(bragg_angle)  # Bragg angle to motor coordinate
+    z = dclm.fixed_beam_offset / np.tan(2 * bragg_angle)  # Crystal 2 z for fixed beam offset of 25 mm
     if fs_camera is not None:
-        fluo_y = 1428.0 * np.tan(
+        fluo_y = dclm.fs_distance * np.tan(
             2 * bragg_angle
         )  # Fluorescence screen y at 1428 mm downstream
     else:
-        fluo_y = dclm.fluo_y_direct
+        fluo_y = dclm.fs_distance
 
     # fmt: off
     yield from bps.mv(
         dclm.xtal2_z, z,
         dclm.xtal2_pitch, angle,
         dclm.xtal1_pitch, angle,
-        dclm.xtal1_vertical_trans, dclm.crystal_1_in,
+        dclm.xtal1_vertical_trans, dclm.xtal1_in,
         dclm.cooled_beam_stop, dclm.beam_stop_in,
         dclm.flourescence_screen, fluo_y,
     )
@@ -334,7 +342,8 @@ def change_energy(
 
     # Create a PeakStats object to monitor the fluorescence screen camera signal
     # and find the position of the crystal 2 pitch that produces a peak.
-    ps = PeakStats(dclm.xtal2_pitch.name, f"{fs_camera.name}_stats1_mean")
+    # TODO: Remove type ignore once mean is added to NDStatsIO
+    ps = PeakStats(dclm.xtal2_pitch.name, fs_camera.get_plugin("stats1", NDStatsIO).mean.name)  # type: ignore
 
     # Perform a scan around the current position of the crystal 2 pitch,
     # and feed the produced events into the PeakStats object to find the peak position.
@@ -350,6 +359,9 @@ def change_energy(
 
     yield from auto_tune(coarse_angle_range, coarse_num_steps)  # Coarse scan
 
+    if ps.com is None:
+        raise RuntimeError("No peak found in coarse scan. Check the fluorescence screen.")
+
     # Move to the peak found by the coarse scan
     yield from bps.mv(dclm.xtal2_pitch, ps.com)
 
@@ -358,9 +370,12 @@ def change_energy(
 
     yield from auto_tune(fine_angle_range, fine_num_steps)  # Fine scan
 
+    if ps.com is None:
+        raise RuntimeError("No peak found in fine scan. Check the fluorescence screen.")
+
     # To minimize issues with backlash, always approach the final position from below.
     yield from bps.mv(dclm.xtal2_pitch, ps.com - 0.05)
     yield from bps.mv(dclm.xtal2_pitch, ps.com)
 
     # Move the fluorescence screen out of the beam path
-    yield from bps.mv(dclm.flourescence_screen, dclm.fluo_y_direct_out)
+    yield from bps.mv(dclm.flourescence_screen, dclm.fs_out)

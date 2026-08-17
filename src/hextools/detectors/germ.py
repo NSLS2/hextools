@@ -3,7 +3,7 @@
 from typing import Annotated as A
 
 from ophyd_async.core import (
-    DetectorArmLogic,
+    DetectorAcquireLogic,
     DetectorDataLogic,
     DetectorTrigger,
     DetectorTriggerLogic,
@@ -70,19 +70,19 @@ class GeRMDetectorIO(EpicsDevice, StandardReadable):
     count: A[SignalRW[bool], PvSuffix(":count")]
 
 
-class GeRMArmLogic(DetectorArmLogic):
+class GeRMAcquireLogic(DetectorAcquireLogic):
     """The arm logic for GeRM detector."""
 
     def __init__(self, driver: GeRMDetectorIO) -> None:
         self._driver = driver
 
-    async def arm(self):
+    async def start_acquiring(self):
         await set_and_wait_for_value(self._driver.count, True, True)
 
     async def wait_for_idle(self):
         pass
 
-    async def disarm(self, on_unstage: bool = False):
+    async def ensure_stopped(self):
         pass
 
 
@@ -125,5 +125,5 @@ class GeRMDetector(StandardDetector):
     def __init__(self, prefix: str, name: str) -> None:
         self.driver = GeRMDetectorIO(prefix, name=name)
         self._trigger_logic = GeRMTriggerLogic(self.driver)
-        self._arm_logic = GeRMArmLogic(self.driver)
+        self._arm_logic = GeRMAcquireLogic(self.driver)
         # self._data_logics = [GeRMDataLogic(self.driver)]

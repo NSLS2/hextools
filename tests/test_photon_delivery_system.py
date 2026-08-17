@@ -6,6 +6,7 @@ import bluesky.plan_stubs as bps
 import numpy as np
 import pytest
 from bluesky.run_engine import RunEngine
+from bluesky.utils import FailedStatus
 from ophyd_async.core import SignalR, callback_on_mock_put, init_devices, set_mock_value
 from ophyd_async.epics.adcore import (
     ADAcquireLogic,
@@ -116,6 +117,14 @@ async def test_filter_description_changes_with_position(
     assert desc == expected_description
 
 
+async def test_filter_rejects_undefined_position(
+    RE: RunEngine, test_filter: Filter
+):
+    with pytest.raises(FailedStatus) as exc_info:
+        RE(bps.mv(test_filter, FilterPosition.POS_3))
+    assert "Invalid filter position" in str(exc_info.value.__cause__)
+
+
 @pytest.fixture
 def dclm() -> DCLM:
     with init_devices(mock=True, child_name_separator="_"):
@@ -126,10 +135,10 @@ def dclm() -> DCLM:
 @pytest.mark.parametrize(
     "mode, expected_xtal1, expected_bs",
     [
-        (BeamMode.WHITE, DCLM.crystal_1_out, DCLM.beam_stop_out),
+        (BeamMode.WHITE, DCLM.xtal1_out, DCLM.beam_stop_out),
         (
             BeamMode.MONOCHROMATIC,
-            DCLM.crystal_1_in,
+            DCLM.xtal1_in,
             DCLM.beam_stop_in,
         ),
     ],
@@ -168,10 +177,10 @@ async def test_change_energy_moves_motors(RE: RunEngine, dclm: DCLM, energy: flo
     )
     assert await dclm.xtal2_z.user_readback.get_value() == pytest.approx(expected_z)
     assert await dclm.flourescence_screen.user_readback.get_value() == pytest.approx(
-        dclm.fluo_y_direct
+        dclm.fs_in
     )
     assert await dclm.xtal1_vertical_trans.user_readback.get_value() == pytest.approx(
-        dclm.crystal_1_in
+        dclm.xtal1_in
     )
     assert await dclm.cooled_beam_stop.user_readback.get_value() == pytest.approx(
         dclm.beam_stop_in
@@ -179,7 +188,7 @@ async def test_change_energy_moves_motors(RE: RunEngine, dclm: DCLM, energy: flo
 
 
 async def test_change_energy_raises_if_not_monochromatic(RE: RunEngine, dclm: DCLM):
-    set_mock_value(dclm.xtal1_vertical_trans.user_readback, dclm.crystal_1_out)
+    set_mock_value(dclm.xtal1_vertical_trans.user_readback, dclm.xtal1_out)
     set_mock_value(dclm.cooled_beam_stop.user_readback, dclm.beam_stop_out)
 
     with pytest.raises(RuntimeError, match="not in monochromatic mode"):
@@ -226,8 +235,56 @@ async def test_change_energy_with_auto_tune(RE: RunEngine, dclm: DCLM):
     )
     # Fluorescence screen moved out after tuning
     assert await dclm.flourescence_screen.user_readback.get_value() == pytest.approx(
-        dclm.fluo_y_direct_out
+        dclm.fs_out
     )
+
+
+async def test_change_energy_no_peak_coarse_scan(RE: RunEngine, dclm: DCLM, mocker):
+    with init_devices(mock=True, child_name_separator="_"):
+        driver = ADBaseIO("TEST:CAM:cam1:")
+        stats1 = NDStatsWithMeanIO("TEST:CAM:Stats1:")
+        fs_camera = AreaDetector(
+            driver,
+            acquire_logic=ADAcquireLogic(driver),
+            plugins={"stats1": stats1},
+        )
+    fs_camera.add_detector_logics(
+        PluginSignalDataLogic(driver=driver, signal=stats1.mean)
+    )
+    set_mock_value(driver.detector_state, ADState.IDLE)
+
+    mock_ps = mocker.patch(
+        "hextools.photon_delivery_system.PeakStats", autospec=True
+    ).return_value
+    mock_ps.com = None
+
+    with pytest.raises(RuntimeError, match="No peak found in coarse scan"):
+        RE(change_energy(dclm, 10.0, fs_camera))
+
+
+async def test_change_energy_no_peak_fine_scan(RE: RunEngine, dclm: DCLM, mocker):
+    with init_devices(mock=True, child_name_separator="_"):
+        driver = ADBaseIO("TEST:CAM:cam1:")
+        stats1 = NDStatsWithMeanIO("TEST:CAM:Stats1:")
+        fs_camera = AreaDetector(
+            driver,
+            acquire_logic=ADAcquireLogic(driver),
+            plugins={"stats1": stats1},
+        )
+    fs_camera.add_detector_logics(
+        PluginSignalDataLogic(driver=driver, signal=stats1.mean)
+    )
+    set_mock_value(driver.detector_state, ADState.IDLE)
+
+    mock_ps = mocker.patch(
+        "hextools.photon_delivery_system.PeakStats", autospec=True
+    ).return_value
+    # Coarse scan succeeds, fine scan fails
+    mock_ps.com = 5.0
+    mock_ps.reset.side_effect = lambda: setattr(mock_ps, "com", None)
+
+    with pytest.raises(RuntimeError, match="No peak found in fine scan"):
+        RE(change_energy(dclm, 10.0, fs_camera))
 
 
 @pytest.mark.parametrize("energy", [8.0, 10.0, 12.0])

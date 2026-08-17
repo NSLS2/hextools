@@ -357,6 +357,8 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
 class PhantomAcquireLogic(ADAcquireLogic):
     """Acquire logic for the Phantom camera."""
 
+    driver: PhantomIO
+
     def __init__(self, driver: PhantomIO):
         super().__init__(driver, driver.acquire)
         self.driver = driver
