@@ -6,6 +6,13 @@ import numpy as np
 import scipy.ndimage as ndi
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 from skimage import measure, segmentation
+from ophyd_async.epics.adcore import AreaDetector
+from ophyd_async.epics.adkinetix import KinetixDetector
+from hextools.detectors.phantom import PhantomDetector
+from hextools.motors import RotationMotor
+from hextools.photon_delivery_system import Shutter
+from bluesky import plans as bp, plan_stubs as bps
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
 ImageDataset = np.ndarray[
@@ -338,3 +345,47 @@ def check_alignment(
         )
 
     check_crop_values_valid(width, height, left_crop, right_crop, top_crop, bottom_crop)
+
+def tomo_alignment_scan(
+    dets: list[KinetixDetector | PhantomDetector],
+    rotation_stage: RotationMotor,
+    front_end_shutter: Shutter,
+    photon_shutter: Shutter,
+    exposure_time: float,
+    num_projections: int = 37,
+    init_angle: float = 0.0,
+    stop_angle: float = 360.0,
+    base_x_offset: float = 0.0,
+    sample_stage_x: AsyncEpicsMotor | None = None,
+):
+    # Check the shutter statuses
+    fe_shutter_open = yield from bps.rd(front_end_shutter.status)
+    photon_shutter_open = yield from bps.rd(photon_shutter.status)
+
+    # FE shutter must already be open. If not, raise an error.
+    # If the photon shutter is closed, open it.
+    if not fe_shutter_open:
+        raise ValueError("Front-end shutter is closed. Please open it before starting the scan.")
+    if not photon_shutter_open:
+        yield from bps.mv(photon_shutter, True)
+
+    # Set the rotation stage to the maximum velocity before starting the scan
+    max_velocity = yield from bps.rd(rotation_stage.max_velocity)
+    yield from bps.mv(rotation_stage.velocity, max_velocity)
+    yield from bps.mv(rotation_stage, init_angle)
+
+    for det in dets:
+        yield from bps.mv(det.driver.acquire_time, exposure_time)
+        yield from bps.mv(det.driver.acquire_period, exposure_time + 0.002) # TODO: Don't hard code this
+
+    # Optionally, take a single flat image
+    flat_uid: str | None = None
+    if abs(base_x_offset) > 0.0 and sample_stage_x is not None:
+        yield from bps.mvr(sample_stage_x, base_x_offset)
+        flat_uid = yield from bp.count(dets, num=1)
+        yield from bps.mvr(sample_stage_x, -base_x_offset)
+
+    _md ={}
+    if flat_uid is not None:
+        _md["flat_uid"] = flat_uid
+    yield from bp.scan(dets, rotation_stage, init_angle, stop_angle, num_projections, md=_md)

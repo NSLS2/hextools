@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61", "setuptools_scm[toml]>=7"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "hextools"
@@ -89,8 +89,17 @@ Issues = "https://github.com/NSLS-II-HEX/hextools/issues"
 Discussions = "https://github.com/NSLS-II-HEX/hextools/discussions"
 Changelog = "https://github.com/NSLS-II-HEX/hextools/releases"
 
-[tool.setuptools_scm]
-write_to = "src/hextools/_version.py"
+[tool.hatch]
+version.source = "vcs"
+
+[tool.hatch.build]
+artifacts = ["src/hextools/_version.py"]
+
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/hextools/_version.py"
 
 [tool.pyright]
 typeCheckingMode = "standard"

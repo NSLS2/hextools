@@ -10,6 +10,7 @@ from bluesky.run_engine import (
 from bluesky.utils import ProgressBarManager
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
+from bluesky_tiled_plugins import TiledWriter
 from nslsii.ophyd_async.providers import NSLS2PathProvider
 from ophyd_async.epics.adcore import ADWriterFactory
 from ophyd_async.epics.adkinetix import KinetixDetector
@@ -51,6 +52,11 @@ if not is_running_in_ci():
 else:
     tiled_writing_client = tiled_reading_client = c = simple()
 
+
+# Subscribe the tiled writer to the RunEngine
+RE.subscribe(TiledWriter(tiled_writing_client))
+
+# Subscribe the best effort callback
 bec = BestEffortCallback()
 RE.subscribe(bec)
 
@@ -66,7 +72,8 @@ path_provider = NSLS2PathProvider(RE.md)
 
 with auto_init_devices(timeout=1.0):
     # Photon delivery system
-    photon_shutter = Shutter("XF:27ID1A-OP:1{Shtr:1}", name="photon_shutter")
+    fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front_end_shutter")
+    photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon_shutter")
     dclm = DCLM("XF:27IDA-OP:1{Mono:DCLM-Ax:", name="dclm")
 
     filter1_upstream = Filter(

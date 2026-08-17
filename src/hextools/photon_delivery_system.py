@@ -23,7 +23,7 @@ from ophyd_async.core import (
     StandardReadableFormat as Format,
 )
 from ophyd_async.epics.adcore import AreaDetector, NDStatsIO
-from ophyd_async.epics.core import EpicsDevice, epics_signal_r, epics_signal_rw
+from ophyd_async.epics.core import EpicsDevice, epics_signal_r, epics_signal_rw, epics_triggerable_command
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 
@@ -34,8 +34,8 @@ class Shutter(EpicsDevice, AsyncMovable[bool]):
 
         super().__init__(prefix, name=name)
         self.status = epics_signal_r(bool, f"{prefix}Pos-Sts")
-        self.open_cmd = epics_signal_rw(bool, f"{prefix}Cmd:Opn-Cmd")
-        self.close_cmd = epics_signal_rw(bool, f"{prefix}Cmd:Cls-Cmd")
+        self.open_cmd = epics_triggerable_command(f"{prefix}Cmd:Opn-Cmd")
+        self.close_cmd = epics_triggerable_command(f"{prefix}Cmd:Cls-Cmd")
 
     @AsyncStatus.wrap
     async def set(self, value: bool):
@@ -44,7 +44,8 @@ class Shutter(EpicsDevice, AsyncMovable[bool]):
         else:
             cmd_sig = self.close_cmd
 
-        await set_and_wait_for_other_value(cmd_sig, True, self.status, value)
+        await cmd_sig.trigger()
+        await wait_for_value(self.status, value, timeout=10)
 
 
 class BeamMode(StrictEnum):
