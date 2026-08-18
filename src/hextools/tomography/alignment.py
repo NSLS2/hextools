@@ -4,15 +4,16 @@ import algotom.util.calibration as calib
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.ndimage as ndi
+from bluesky import plan_stubs as bps
+from bluesky import plans as bp
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
-from skimage import measure, segmentation
-from ophyd_async.epics.adcore import AreaDetector
 from ophyd_async.epics.adkinetix import KinetixDetector
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+from skimage import measure, segmentation
+
 from hextools.detectors.phantom import PhantomDetector
 from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
-from bluesky import plans as bp, plan_stubs as bps
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
 ImageDataset = np.ndarray[
@@ -110,7 +111,7 @@ def clean_image(binary_image: Image, size_threshold=100):
     return filtered_image
 
 
-class TomographyAlignmentMethod(StrEnum):
+class TomoAlignMethod(StrEnum):
     ELLIPSE = "ellipse"
     LINEAR = "linear"
 
@@ -310,41 +311,38 @@ def linear_fit(x, y):
 
 def check_alignment(
     alignment_scan: BlueskyRunV3,
-    detector_name: str = "kinetix1",
-    motor_name: str = "rotation_stage",
+    dets: list[KinetixDetector | PhantomDetector],
+    motor: RotationMotor,
     left_crop: int = 0,
     right_crop: int = 0,
     top_crop: int = 500,
     bottom_crop: int = 500,
-    method: TomographyAlignmentMethod = TomographyAlignmentMethod.ELLIPSE,
+    method: TomoAlignMethod = TomoAlignMethod.ELLIPSE,
     ratio: float = 1.0,
     projection_stream_name: str = "primary",
-    flatfield_stream_name: str | None = None,
+    flatfield_stream_name: str = "primary",
 ):
-    if left_crop < 0 or right_crop < 0 or top_crop < 0 or bottom_crop < 0:
+    if any(crop < 0 for crop in [left_crop, right_crop, top_crop, bottom_crop]):
         raise ValueError("Crop values must be non-negative integers.")
 
     check_run_is_valid(
         alignment_scan,
-        detector_name,
-        motor_name,
+        [det.name for det in dets],
+        motor.name,
         projection_stream_name,
         flatfield_stream_name,
     )
 
-    projection_data: ImageDataset = alignment_scan[projection_stream_name][
-        detector_name
-    ].read()
-    angles: np.ndarray[tuple[int], np.dtype[np.float32]] = alignment_scan[
-        projection_stream_name
-    ][motor_name].read()
-    depth, height, width = projection_data.shape
-    if depth < 36:
-        raise ValueError(
-            "The alignment scan must contain at least 36 projections for a reliable fit."
-        )
+    data = alignment_scan[projection_stream_name].read()
+    for det in dets:
+        depth, height, width = data[det.name].shape
+        if depth < 36:
+            raise ValueError(
+                "The alignment scan must contain at least 36 projections for a reliable fit."
+            )
 
     check_crop_values_valid(width, height, left_crop, right_crop, top_crop, bottom_crop)
+
 
 def tomo_alignment_scan(
     dets: list[KinetixDetector | PhantomDetector],
@@ -365,7 +363,9 @@ def tomo_alignment_scan(
     # FE shutter must already be open. If not, raise an error.
     # If the photon shutter is closed, open it.
     if not fe_shutter_open:
-        raise ValueError("Front-end shutter is closed. Please open it before starting the scan.")
+        raise ValueError(
+            "Front-end shutter is closed. Please open it before starting the scan."
+        )
     if not photon_shutter_open:
         yield from bps.mv(photon_shutter, True)
 
@@ -376,7 +376,9 @@ def tomo_alignment_scan(
 
     for det in dets:
         yield from bps.mv(det.driver.acquire_time, exposure_time)
-        yield from bps.mv(det.driver.acquire_period, exposure_time + 0.002) # TODO: Don't hard code this
+        yield from bps.mv(
+            det.driver.acquire_period, exposure_time + 0.002
+        )  # TODO: Don't hard code this
 
     # Optionally, take a single flat image
     flat_uid: str | None = None
@@ -385,7 +387,9 @@ def tomo_alignment_scan(
         flat_uid = yield from bp.count(dets, num=1)
         yield from bps.mvr(sample_stage_x, -base_x_offset)
 
-    _md ={}
+    _md = {}
     if flat_uid is not None:
         _md["flat_uid"] = flat_uid
-    yield from bp.scan(dets, rotation_stage, init_angle, stop_angle, num_projections, md=_md)
+    yield from bp.scan(
+        dets, rotation_stage, init_angle, stop_angle, num_projections, md=_md
+    )

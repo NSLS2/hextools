@@ -117,9 +117,7 @@ async def test_filter_description_changes_with_position(
     assert desc == expected_description
 
 
-async def test_filter_rejects_undefined_position(
-    RE: RunEngine, test_filter: Filter
-):
+async def test_filter_rejects_undefined_position(RE: RunEngine, test_filter: Filter):
     with pytest.raises(FailedStatus) as exc_info:
         RE(bps.mv(test_filter, FilterPosition.POS_3))
     assert "Invalid filter position" in str(exc_info.value.__cause__)

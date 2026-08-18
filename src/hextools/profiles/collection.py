@@ -8,9 +8,9 @@ from bluesky.run_engine import (
     autoawait_in_bluesky_event_loop,
 )
 from bluesky.utils import ProgressBarManager
+from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
-from bluesky_tiled_plugins import TiledWriter
 from nslsii.ophyd_async.providers import NSLS2PathProvider
 from ophyd_async.epics.adcore import ADWriterFactory
 from ophyd_async.epics.adkinetix import KinetixDetector
@@ -20,10 +20,10 @@ from tiled.client import from_uri, simple
 
 from hextools.detectors.phantom import PhantomDetector
 from hextools.photon_delivery_system import (
+    DCLM,
     Filter,
     FilterPosition,
     FilterSetting,
-    DCLM,
     Shutter,
 )
 from hextools.utils import (

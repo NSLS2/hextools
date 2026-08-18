@@ -60,7 +60,7 @@ class VelocityRespectingMotorMock(DeviceMock[AsyncEpicsMotor]):
         """Mock signals to simulate a move respecting velocity and acceleration."""
         set_mock_value(device.velocity, 10)
         set_mock_value(device.max_velocity, 100)
-        set_mock_value(device.acceleration_time, 1)
+        set_mock_value(device.acceleration_time, 0.01)
 
         # Motor starts in "done" state (not moving)
         set_mock_value(device.motor_done_move, 1)

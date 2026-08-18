@@ -16,14 +16,17 @@ from ophyd_async.core import (
     StandardReadable,
     StrictEnum,
     derived_signal_r,
-    set_and_wait_for_other_value,
     wait_for_value,
 )
 from ophyd_async.core import (
     StandardReadableFormat as Format,
 )
 from ophyd_async.epics.adcore import AreaDetector, NDStatsIO
-from ophyd_async.epics.core import EpicsDevice, epics_signal_r, epics_signal_rw, epics_triggerable_command
+from ophyd_async.epics.core import (
+    EpicsDevice,
+    epics_signal_r,
+    epics_triggerable_command,
+)
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 
@@ -220,10 +223,13 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
 
     # Constants for the monochromator geometry
     bragg_factor: Final[float] = 1.977  # Energy in keV for Si(111) at 2d = 6.271 Å
-    bragg_angle_offset: Final[float] = 35.2544  # Bragg angle offset in degrees for Si(111)
-    fixed_beam_offset: Final[float] = 25.0  # Crystal 2 z offset in mm for fixed beam offset
+    bragg_angle_offset: Final[float] = (
+        35.2544  # Bragg angle offset in degrees for Si(111)
+    )
+    fixed_beam_offset: Final[float] = (
+        25.0  # Crystal 2 z offset in mm for fixed beam offset
+    )
     fs_distance: Final[float] = 1428.0  # Distance to fluorescence screen in mm
-
 
     def __init__(self, prefix: str, name: str = ""):
 
@@ -316,9 +322,15 @@ def change_energy(
     if mode != BeamMode.MONOCHROMATIC:
         raise RuntimeError("Monochromator is not in monochromatic mode.")
 
-    bragg_angle = np.arcsin(dclm.bragg_factor / energy)  # Si(111), 2d = 6.271 Å, energy in keV
-    angle = dclm.bragg_angle_offset - np.rad2deg(bragg_angle)  # Bragg angle to motor coordinate
-    z = dclm.fixed_beam_offset / np.tan(2 * bragg_angle)  # Crystal 2 z for fixed beam offset of 25 mm
+    bragg_angle = np.arcsin(
+        dclm.bragg_factor / energy
+    )  # Si(111), 2d = 6.271 Å, energy in keV
+    angle = dclm.bragg_angle_offset - np.rad2deg(
+        bragg_angle
+    )  # Bragg angle to motor coordinate
+    z = dclm.fixed_beam_offset / np.tan(
+        2 * bragg_angle
+    )  # Crystal 2 z for fixed beam offset of 25 mm
     if fs_camera is not None:
         fluo_y = dclm.fs_distance * np.tan(
             2 * bragg_angle
