@@ -16,18 +16,20 @@ from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
 
 Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
+BinaryImage = np.ndarray[tuple[int, int], np.dtype[np.bool]]
 ImageDataset = np.ndarray[
     tuple[int, int, int], np.dtype[np.uint16] | np.dtype[np.uint8]
 ]
 
 
-def check_run_is_valid(
+def ensure_run_is_valid(
     run: BlueskyRunV3,
-    detector_name: str,
+    det_names: list[str],
     motor_name: str,
-    projection_stream_name: str = "primary",
-    flatfield_stream_name: str | None = None,
-) -> bool:
+    proj_stream: str = "primary",
+    ff_run: BlueskyRunV3 | None = None,
+    ff_stream: str | None = None,
+) -> None:
     """Check if a BlueskyRunV3 object is valid for tomography analysis.
 
     Parameters
@@ -35,36 +37,36 @@ def check_run_is_valid(
     run : BlueskyRunV3
         The BlueskyRunV3 object to check.
 
-    Returns
-    -------
-    bool
-        True if the run is valid, False otherwise.
+    Raises
+    ------
+    KeyError
+        If stream, detector, or motor datasets are not available
     """
 
     def _check_stream_exists_and_contains_detector(
-        stream_name: str, requires_motor: bool = True
+        run: BlueskyRunV3, stream_name: str, requires_motor: bool = True
     ):
         if stream_name not in run:
             raise KeyError(f"Stream '{stream_name}' not found in the run.")
         data_stream = run[stream_name]
-        if detector_name not in data_stream:
-            raise KeyError(
-                f"Detector '{detector_name}' not found in the stream '{stream_name}'."
-            )
+        for det_name in det_names:
+            if det_name not in data_stream:
+                raise KeyError(
+                    f"Detector '{det_name}' not found in the stream '{stream_name}'."
+                )
         if requires_motor and motor_name not in data_stream:
             raise KeyError(
                 f"Motor '{motor_name}' not found in the stream '{stream_name}'."
             )
 
-    _check_stream_exists_and_contains_detector(projection_stream_name)
+    _check_stream_exists_and_contains_detector(run, proj_stream)
 
-    if flatfield_stream_name is not None:
+    if ff_stream is not None:
+        if ff_run is None:
+            ff_run = run
         _check_stream_exists_and_contains_detector(
-            flatfield_stream_name, requires_motor=False
+            ff_run, ff_stream, requires_motor=False
         )
-
-    return True
-
 
 def check_crop_values_valid(
     projection_width: int,
@@ -87,14 +89,14 @@ def check_crop_values_valid(
     return True
 
 
-def clean_image(binary_image: Image, size_threshold=100):
+def clean_image(binary_image: BinaryImage, size_threshold=100):
     """
     Clean binary image.
     """
     # Clear objects connected to the border and fill holes
-    binary_image = segmentation.clear_border(binary_image)
-    binary_image = ndi.binary_opening(binary_image, iterations=2)
-    binary_image = ndi.binary_fill_holes(binary_image)
+    cleared: BinaryImage = segmentation.clear_border(binary_image)
+    cleared = ndi.binary_opening(cleared, iterations=2)
+    cleared = ndi.binary_fill_holes(cleared)
 
     # Label connected regions in the binary image
     label_image = measure.label(binary_image)
@@ -325,7 +327,7 @@ def check_alignment(
     if any(crop < 0 for crop in [left_crop, right_crop, top_crop, bottom_crop]):
         raise ValueError("Crop values must be non-negative integers.")
 
-    check_run_is_valid(
+    ensure_run_is_valid(
         alignment_scan,
         [det.name for det in dets],
         motor.name,

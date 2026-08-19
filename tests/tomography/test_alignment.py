@@ -24,10 +24,12 @@ from ophyd_async.epics.adcore import (
     NDPluginFileIO,
 )
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+from pytest_mock import MockerFixture
 
 from hextools.motors import RotationMotor
+
 from hextools.photon_delivery_system import Shutter
-from hextools.tomography.alignment import identify_sign_tilt_angle, tomo_alignment_scan
+from hextools.tomography.alignment import ensure_run_is_valid, identify_sign_tilt_angle, tomo_alignment_scan
 from bluesky import plans as bp, plan_stubs as bps
 
 
@@ -75,6 +77,31 @@ from bluesky import plans as bp, plan_stubs as bps
 def test_identify_sign_tilt_angle(x, y, expected_sign):
     assert identify_sign_tilt_angle(x, y) == expected_sign
 
+
+@pytest.mark.parametrize(
+    ("available_streams", "det_names", "motor_name", "proj_stream", "ff_stream", "expected_valid", "expected_msg"),
+    [
+        ({}, ["det"], "motor", "primary", None, False, "Stream 'primary' not found in the run"),
+        ({"primary": ["motor"]}, ["det"], "motor", "primary", None, False, "Detector 'det' not found in the stream"),
+        ({"primary": ["det"]}, ["det"], "motor", "primary", None, False, "Motor 'motor' not found in the stream"),
+        ({"primary": ["det", "motor"]}, ["det"], "motor", "primary", "ff", False, "Stream 'ff' not found in the run"),
+        ({"primary": ["det", "motor"]}, ["det"], "motor", "primary", None, True, "Detector 'det' not found in the stream"),
+        ({"primary": ["det", "motor"], "ff": ["det"]}, ["det"], "motor", "primary", "ff", True, "Detector 'det' not found in the stream"),
+    ]
+)
+def test_ensure_run_is_valid(mocker: MockerFixture, available_streams: dict[str, list[str]], det_names: list[str], motor_name: str, proj_stream: str, ff_stream: str, expected_valid: bool, expected_msg: str):
+
+    mock_run = mocker.MagicMock()
+    mock_run.__getitem__.side_effect = available_streams.__getitem__
+    mock_run.get.side_effect = available_streams.get
+    mock_run.__contains__.side_effect = available_streams.__contains__
+    mock_run.keys.side_effect = available_streams.keys
+
+    if not expected_valid:
+        with pytest.raises(KeyError, match=expected_msg):
+            ensure_run_is_valid(mock_run, det_names, motor_name, proj_stream=proj_stream, ff_stream=ff_stream)
+    else:
+        ensure_run_is_valid(mock_run, det_names, motor_name, proj_stream=proj_stream, ff_stream=ff_stream)
 # @pytest.mark.parametrize(
 #     ("top", "bottom", "left", "right"),
 #     [
@@ -156,11 +183,11 @@ def kinetix_det_factory(
 
 
 async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
-    RE: RunEngine, two_shutters: tuple[Shutter, Shutter], rotation_motor: RotationMotor
+    RE: RunEngine, two_shutters: tuple[Shutter, Shutter], motors: tuple[RotationMotor, AsyncEpicsMotor]
 ):
 
     fe_shutter, photon_shutter = two_shutters
-
+    rotation_motor, _ = motors
     assert not any(
         await asyncio.gather(
             fe_shutter.status.get_value(), photon_shutter.status.get_value()
