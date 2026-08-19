@@ -29,7 +29,11 @@ from pytest_mock import MockerFixture
 from hextools.motors import RotationMotor
 
 from hextools.photon_delivery_system import Shutter
-from hextools.tomography.alignment import ensure_run_is_valid, identify_sign_tilt_angle, tomo_alignment_scan
+from hextools.tomography.alignment import (
+    ensure_run_is_valid,
+    identify_sign_tilt_angle,
+    tomo_alignment_scan,
+)
 from bluesky import plans as bp, plan_stubs as bps
 
 
@@ -79,17 +83,82 @@ def test_identify_sign_tilt_angle(x, y, expected_sign):
 
 
 @pytest.mark.parametrize(
-    ("available_streams", "det_names", "motor_name", "proj_stream", "ff_stream", "expected_valid", "expected_msg"),
+    (
+        "available_streams",
+        "det_names",
+        "motor_name",
+        "proj_stream",
+        "ff_stream",
+        "expected_valid",
+        "expected_msg",
+    ),
     [
-        ({}, ["det"], "motor", "primary", None, False, "Stream 'primary' not found in the run"),
-        ({"primary": ["motor"]}, ["det"], "motor", "primary", None, False, "Detector 'det' not found in the stream"),
-        ({"primary": ["det"]}, ["det"], "motor", "primary", None, False, "Motor 'motor' not found in the stream"),
-        ({"primary": ["det", "motor"]}, ["det"], "motor", "primary", "ff", False, "Stream 'ff' not found in the run"),
-        ({"primary": ["det", "motor"]}, ["det"], "motor", "primary", None, True, "Detector 'det' not found in the stream"),
-        ({"primary": ["det", "motor"], "ff": ["det"]}, ["det"], "motor", "primary", "ff", True, "Detector 'det' not found in the stream"),
-    ]
+        (
+            {},
+            ["det"],
+            "motor",
+            "primary",
+            None,
+            False,
+            "Stream 'primary' not found in the run",
+        ),
+        (
+            {"primary": ["motor"]},
+            ["det"],
+            "motor",
+            "primary",
+            None,
+            False,
+            "Detector 'det' not found in the stream",
+        ),
+        (
+            {"primary": ["det"]},
+            ["det"],
+            "motor",
+            "primary",
+            None,
+            False,
+            "Motor 'motor' not found in the stream",
+        ),
+        (
+            {"primary": ["det", "motor"]},
+            ["det"],
+            "motor",
+            "primary",
+            "ff",
+            False,
+            "Stream 'ff' not found in the run",
+        ),
+        (
+            {"primary": ["det", "motor"]},
+            ["det"],
+            "motor",
+            "primary",
+            None,
+            True,
+            "Detector 'det' not found in the stream",
+        ),
+        (
+            {"primary": ["det", "motor"], "ff": ["det"]},
+            ["det"],
+            "motor",
+            "primary",
+            "ff",
+            True,
+            "Detector 'det' not found in the stream",
+        ),
+    ],
 )
-def test_ensure_run_is_valid(mocker: MockerFixture, available_streams: dict[str, list[str]], det_names: list[str], motor_name: str, proj_stream: str, ff_stream: str, expected_valid: bool, expected_msg: str):
+def test_ensure_run_is_valid(
+    mocker: MockerFixture,
+    available_streams: dict[str, list[str]],
+    det_names: list[str],
+    motor_name: str,
+    proj_stream: str,
+    ff_stream: str,
+    expected_valid: bool,
+    expected_msg: str,
+):
 
     mock_run = mocker.MagicMock()
     mock_run.__getitem__.side_effect = available_streams.__getitem__
@@ -99,9 +168,23 @@ def test_ensure_run_is_valid(mocker: MockerFixture, available_streams: dict[str,
 
     if not expected_valid:
         with pytest.raises(KeyError, match=expected_msg):
-            ensure_run_is_valid(mock_run, det_names, motor_name, proj_stream=proj_stream, ff_stream=ff_stream)
+            ensure_run_is_valid(
+                mock_run,
+                det_names,
+                motor_name,
+                proj_stream=proj_stream,
+                ff_stream=ff_stream,
+            )
     else:
-        ensure_run_is_valid(mock_run, det_names, motor_name, proj_stream=proj_stream, ff_stream=ff_stream)
+        ensure_run_is_valid(
+            mock_run,
+            det_names,
+            motor_name,
+            proj_stream=proj_stream,
+            ff_stream=ff_stream,
+        )
+
+
 # @pytest.mark.parametrize(
 #     ("top", "bottom", "left", "right"),
 #     [
@@ -111,6 +194,7 @@ def test_ensure_run_is_valid(mocker: MockerFixture, available_streams: dict[str,
 #     ]
 # )
 # def test_check_alignment_fails_with_invalid_crop(top, bottom, left, right):
+
 
 @pytest.fixture
 def shutter_factory() -> Callable[[str], Shutter]:
@@ -183,7 +267,9 @@ def kinetix_det_factory(
 
 
 async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
-    RE: RunEngine, two_shutters: tuple[Shutter, Shutter], motors: tuple[RotationMotor, AsyncEpicsMotor]
+    RE: RunEngine,
+    two_shutters: tuple[Shutter, Shutter],
+    motors: tuple[RotationMotor, AsyncEpicsMotor],
 ):
 
     fe_shutter, photon_shutter = two_shutters
@@ -276,14 +362,12 @@ async def test_tomo_alignment_scan(
     assert await photon_shutter.status.get_value()
 
     for doc_type in ["start", "descriptor", "stream_resource", "stop"]:
-        assert (
-            len(docs[doc_type]) == 2
-            if expecting_flat_run
-            else 1
-        )
+        assert len(docs[doc_type]) == 2 if expecting_flat_run else 1
 
     for doc_type in ["stream_datum", "event"]:
-        expected_num_events = num_projections + 1 if expecting_flat_run else num_projections
+        expected_num_events = (
+            num_projections + 1 if expecting_flat_run else num_projections
+        )
         assert len(docs[doc_type]) == expected_num_events
 
     assert await ktx1.driver.acquire_time.get_value() == exposure_time
@@ -312,4 +396,3 @@ async def test_tomo_alignment_scan(
             assert send_motor_to_init_msg.command == "set"
             assert send_motor_to_init_msg.obj == rotation_motor
             assert send_motor_to_init_msg.args == np.float64(init_angle)
-

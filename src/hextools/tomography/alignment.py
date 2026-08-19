@@ -68,6 +68,7 @@ def ensure_run_is_valid(
             ff_run, ff_stream, requires_motor=False
         )
 
+
 def check_crop_values_valid(
     projection_width: int,
     projection_height: int,
