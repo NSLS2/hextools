@@ -30,7 +30,11 @@ from hextools.motors import RotationMotor
 
 from hextools.photon_delivery_system import Shutter
 from hextools.tomography.alignment import (
+    BinaryImage,
+    check_crop_values_valid,
+    clean_image,
     ensure_run_is_valid,
+    fit_points_to_ellipse,
     identify_sign_tilt_angle,
     tomo_alignment_scan,
 )
@@ -185,15 +189,135 @@ def test_ensure_run_is_valid(
         )
 
 
+@pytest.mark.parametrize(
+    ("input_image", "size_threshold", "expected_output"),
+    [
+        # All-zero image returns all-zero
+        (
+            np.zeros((50, 50), dtype=bool),
+            100,
+            np.zeros((50, 50), dtype=bool),
+        ),
+        # Single large blob in center survives cleaning
+        (
+            np.pad(
+                np.ones((30, 30), dtype=bool),
+                pad_width=10,
+                constant_values=False,
+            ),
+            100,
+            np.pad(
+                np.ones((30, 30), dtype=bool),
+                pad_width=10,
+                constant_values=False,
+            ),
+        ),
+        # Small object below threshold is removed
+        (
+            np.pad(
+                np.ones((3, 3), dtype=bool),
+                pad_width=10,
+                constant_values=False,
+            ),
+            100,
+            np.zeros((23, 23), dtype=bool),
+        ),
+        # Object touching border is removed
+        (
+            np.pad(
+                np.ones((20, 20), dtype=bool),
+                pad_width=((0, 10), (10, 10)),
+                constant_values=False,
+            ),
+            10,
+            np.zeros((30, 40), dtype=bool),
+        ),
+    ],
+)
+def test_clean_image(input_image, size_threshold: int, expected_output: BinaryImage):
+    result = clean_image(input_image, size_threshold=size_threshold)
+    np.testing.assert_array_equal(result, expected_output)
+
+
 # @pytest.mark.parametrize(
-#     ("top", "bottom", "left", "right"),
+#     ("width", "height", "left", "right", "top", "bottom"),
 #     [
-#         (0, 0, 0, -1),
-#         (-1, 0, -2, 0),
-#         (-100, 20, 40, 100)
-#     ]
+#         (100, 100, 10, 10, 10, 10),
+#         (1000, 2000, 0, 0, 500, 500),
+#         (200, 200, 99, 0, 0, 99),
+#     ],
 # )
-# def test_check_alignment_fails_with_invalid_crop(top, bottom, left, right):
+# def test_check_crop_values_valid(width, height, left, right, top, bottom):
+#     assert check_crop_values_valid(width, height, left, right, top, bottom)
+
+
+# @pytest.mark.parametrize(
+#     ("width", "height", "left", "right", "top", "bottom", "match"),
+#     [
+#         (100, 100, -1, 0, 0, 0, "non-negative"),
+#         (100, 100, 0, -5, 0, 0, "non-negative"),
+#         (100, 100, 0, 0, -1, 0, "non-negative"),
+#         (100, 100, 0, 0, 0, -1, "non-negative"),
+#         (100, 100, 50, 50, 0, 0, "less than the projection width"),
+#         (100, 100, 0, 0, 60, 50, "less than the projection height"),
+#     ],
+# )
+# def test_check_crop_values_invalid(width, height, left, right, top, bottom, match):
+#     with pytest.raises(ValueError, match=match):
+#         check_crop_values_valid(width, height, left, right, top, bottom)
+
+
+@pytest.mark.parametrize(
+    ("x", "y", "expected_error_msg"),
+    [
+        # Mismatched lengths
+        (np.array([1.0, 2.0]), np.array([1.0]), "same length"),
+        # Collinear points -> denom == 0 (parabola/degenerate conic)
+        (np.linspace(-5, 5, 20), np.linspace(-5, 5, 20), "Can't fit to an ellipse"),
+        # Hyperbola branch -> a_term < 0
+        (np.cosh(np.linspace(-2, 2, 50)), np.sinh(np.linspace(-2, 2, 50)), "Can't fit to an ellipse"),
+        # Opposite hyperbola orientation -> b_term < 0
+        (np.sinh(np.linspace(-2, 2, 50)), np.cosh(np.linspace(-2, 2, 50)), "Can't fit to an ellipse"),
+    ],
+)
+def test_fit_points_to_ellipse_invalid(x, y, expected_error_msg):
+    with pytest.raises(ValueError, match=expected_error_msg):
+        fit_points_to_ellipse(x, y)
+
+
+def test_fit_points_to_ellipse_on_circle():
+    theta = np.linspace(0, 2 * np.pi, 100, endpoint=False)
+    x = 10.0 * np.cos(theta) + 50.0
+    y = 10.0 * np.sin(theta) + 50.0
+    roll_angle, a_major, b_minor, xc, yc = fit_points_to_ellipse(x, y)
+    np.testing.assert_allclose(xc, 50.0, atol=0.1)
+    np.testing.assert_allclose(yc, 50.0, atol=0.1)
+    np.testing.assert_allclose(a_major, b_minor, atol=0.5)
+
+
+def test_fit_points_to_ellipse_on_known_ellipse():
+    theta = np.linspace(0, 2 * np.pi, 200, endpoint=False)
+    a, b = 20.0, 10.0
+    x = a * np.cos(theta)
+    y = b * np.sin(theta)
+    roll_angle, a_major, b_minor, xc, yc = fit_points_to_ellipse(x, y)
+    np.testing.assert_allclose(a_major, 2 * a, atol=0.5)
+    np.testing.assert_allclose(b_minor, 2 * b, atol=0.5)
+    np.testing.assert_allclose(xc, 0.0, atol=0.1)
+    np.testing.assert_allclose(yc, 0.0, atol=0.1)
+
+
+def test_identify_sign_tilt_angle():
+    # Test with points forming a downward-opening parabola
+    x = np.array([-2, -1, 0, 1, 2])
+    y = -x**2
+    sign = identify_sign_tilt_angle(x, y)
+    assert sign == 1
+
+    # Test with points forming an upward-opening parabola
+    y = x**2
+    sign = identify_sign_tilt_angle(x, y)
+    assert sign == -1
 
 
 @pytest.fixture
