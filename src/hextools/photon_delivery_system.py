@@ -47,7 +47,7 @@ class Shutter(EpicsDevice, AsyncMovable[bool]):
         else:
             cmd_sig = self.close_cmd
 
-        await cmd_sig.trigger()
+        await cmd_sig.execute()
         await wait_for_value(self.status, value, timeout=10)
 
 
@@ -347,7 +347,7 @@ def change_energy(
         dclm.cooled_beam_stop, dclm.beam_stop_in,
         dclm.flourescence_screen, fluo_y,
     )
-    # fmt: on``
+    # fmt: on
 
     # No feedback available without a camera, so just move the motors and return.
     if fs_camera is None:
@@ -368,6 +368,7 @@ def change_energy(
             angle - angle_range,
             angle + angle_range,
             num_steps,
+            md={"plan_name": "change_energy_auto_tune"},
         )
 
     yield from auto_tune(coarse_angle_range, coarse_num_steps)  # Coarse scan
