@@ -322,6 +322,10 @@ def change_energy(
     if mode != BeamMode.MONOCHROMATIC:
         raise RuntimeError("Monochromator is not in monochromatic mode.")
 
+    if not np.isfinite(energy) or energy <= dclm.bragg_factor:
+        raise ValueError(
+            f"Energy must be finite and greater than {dclm.bragg_factor} keV."
+        )
     bragg_angle = np.arcsin(
         dclm.bragg_factor / energy
     )  # Si(111), 2d = 6.271 Å, energy in keV
@@ -336,7 +340,7 @@ def change_energy(
             2 * bragg_angle
         )  # Fluorescence screen y at 1428 mm downstream
     else:
-        fluo_y = dclm.fs_distance
+        fluo_y = dclm.fs_in
 
     # fmt: off
     yield from bps.mv(

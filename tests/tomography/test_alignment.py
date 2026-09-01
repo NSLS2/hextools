@@ -31,8 +31,8 @@ from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
 from hextools.tomography.alignment import (
     BinaryImage,
-    check_crop_values_valid,
-    clean_image,
+from hextools.tomography.alignment import (
+    BinaryImage
     ensure_run_is_valid,
     fit_points_to_ellipse,
     identify_sign_tilt_angle,
@@ -307,7 +307,7 @@ def test_fit_points_to_ellipse_on_known_ellipse():
     np.testing.assert_allclose(yc, 0.0, atol=0.1)
 
 
-def test_identify_sign_tilt_angle():
+def test_identify_sign_tilt_angle_parabolas():
     # Test with points forming a downward-opening parabola
     x = np.array([-2, -1, 0, 1, 2])
     y = -x**2
@@ -486,7 +486,7 @@ async def test_tomo_alignment_scan(
     assert await photon_shutter.status.get_value()
 
     for doc_type in ["start", "descriptor", "stream_resource", "stop"]:
-        assert len(docs[doc_type]) == 2 if expecting_flat_run else 1
+        assert len(docs[doc_type]) == (2 if expecting_flat_run else 1)
 
     for doc_type in ["stream_datum", "event"]:
         expected_num_events = (

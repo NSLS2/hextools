@@ -32,7 +32,7 @@ dependencies = [
   "algotom",
   "ipython",
   "numpy",
-  "ophyd-async[ca, pva]",
+  "ophyd-async[ca, pva]>=0.21.1,<0.22",
   "rich>=15.0.0",
   "scikit-image>=0.26.0",
   "scipy>=1.17.1",
