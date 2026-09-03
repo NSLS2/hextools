@@ -185,7 +185,9 @@ class DoubleObjCamera(StandardReadable, EpicsDevice, AsyncMovable[CameraObjectiv
             prefix + "ObjSel}Start:Home-Cmd", name="home_obj_selector"
         )
         self._obj_selector_home_sts = epics_signal_r(
-            HomeStatus, prefix + "ObjSel}Sts:HomeCmplt-Sts", name="obj_selector_home_sts"
+            HomeStatus,
+            prefix + "ObjSel}Sts:HomeCmplt-Sts",
+            name="obj_selector_home_sts",
         )
         self._at_right_objective = epics_signal_r(
             bool, prefix + "ObjSel}AtRightObj", name="at_right_objective"
