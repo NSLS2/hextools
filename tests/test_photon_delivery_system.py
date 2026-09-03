@@ -164,7 +164,7 @@ async def test_monochromator_beam_mode_switch(
 
 def _raw_filter_config() -> dict:
     source = resources.files("hextools").joinpath("filters.yml")
-    return yaml.safe_load(source.read_text(encoding="utf-8"))
+    return yaml.safe_load(source.read_text(encoding="utf-8"))["filters"]
 
 
 def test_load_filters_returns_all_entries_in_order():
@@ -215,10 +215,12 @@ def test_load_filters_maps_every_enum_position():
 
 def test_load_filters_requires_one_position_per_enum(monkeypatch):
     bad_config = {
-        "filter_bad": {
-            "motor_pv": "TEST:MTR",
-            "in_position_switch": "TEST:IN_POS",
-            "positions": {"upper_limit": 1.0, "pass_through": 2.0},
+        "filters": {
+            "filter_bad": {
+                "motor_pv": "TEST:MTR",
+                "in_position_switch": "TEST:IN_POS",
+                "positions": {"upper_limit": 1.0, "pass_through": 2.0},
+            }
         }
     }
     monkeypatch.setattr(yaml, "safe_load", lambda *_a, **_k: bad_config)

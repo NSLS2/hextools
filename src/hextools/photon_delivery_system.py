@@ -181,7 +181,7 @@ def load_filters() -> list[Filter]:
     config = yaml.safe_load(source.read_text(encoding="utf-8"))
 
     filters: list[Filter] = []
-    for name, spec in config.items():
+    for name, spec in config["filters"].items():
         positions_spec = spec["positions"]
         if len(positions_spec) != len(FilterPosition):
             raise ValueError(
