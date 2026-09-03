@@ -1,9 +1,8 @@
 """General utility functions for hextools."""
 
 import asyncio
-from collections.abc import MutableMapping
 import os
-from contextlib import redirect_stdout
+from collections.abc import MutableMapping
 from datetime import datetime
 from typing import Any
 
@@ -105,7 +104,13 @@ def initialize_run_engine() -> RunEngine:
         RedisJSONDict(open_redis_client(redis_ssl=True), "")  # type: ignore (TODO: Loosen type of RE.md to Mapping from dict)
     )
 
+
 def print_proposal_info(md: MutableMapping[str, Any]):
+    """Print the proposal information from the RunEngine metadata.
+
+    md : MutableMapping[str, Any]
+        The metadata dictionary from the RunEngine.
+    """
     proposal_md = md.get("proposal", {})
     if proposal_md:
         rprint(f"Proposal title: [italic]{proposal_md['title']}[/italic]\n")

@@ -411,7 +411,10 @@ def change_energy(
     # Create a PeakStats object to monitor the fluorescence screen camera signal
     # and find the position of the crystal 2 pitch that produces a peak.
     # TODO: Remove type ignore once mean is added to NDStatsIO
-    ps = PeakStats(dclm.xtal2_pitch.name, fs_camera.get_plugin_by_name("stats1", NDStatsIO).mean.name)  # type: ignore
+    ps = PeakStats(
+        dclm.xtal2_pitch.name,
+        fs_camera.get_plugin_by_name("stats1", NDStatsIO).mean.name,
+    )  # type: ignore
 
     # Perform a scan around the current position of the crystal 2 pitch,
     # and feed the produced events into the PeakStats object to find the peak position.
@@ -429,7 +432,9 @@ def change_energy(
     yield from auto_tune(coarse_angle_range, coarse_num_steps)  # Coarse scan
 
     if ps.com is None:
-        raise RuntimeError("No peak found in coarse scan. Check the fluorescence screen.")
+        raise RuntimeError(
+            "No peak found in coarse scan. Check the fluorescence screen."
+        )
 
     # Move to the peak found by the coarse scan
     yield from bps.mv(dclm.xtal2_pitch, ps.com)

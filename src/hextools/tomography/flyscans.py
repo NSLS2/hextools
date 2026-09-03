@@ -1,3 +1,5 @@
+"""Tomography plans for HEX beamline."""
+
 from bluesky import plan_stubs as bps
 from ophyd_async.core import DetectorTrigger, StandardFlyable, TriggerInfo
 from ophyd_async.epics.adkinetix import KinetixDetector
@@ -25,7 +27,7 @@ def tomo_flyscan(
     time_based: bool = True,
     stream_name: str = "primary",
 ):
-    """Simple hardware triggered flyscan tomography
+    """Run a tomography flyscan with the specified parameters.
 
     Parameters
     ----------
@@ -44,7 +46,8 @@ def tomo_flyscan(
     stop_position : float (optional)
         stopping point in degrees
     lead_angle : float (optional)
-        the angle in degrees to be used to move motor to -lead_angle before 'start_deg' and +lead_angle after 'stop_deg'
+        the angle in degrees to be used to move motor to -lead_angle before
+        'start_deg' and +lead_angle after 'stop_deg'
     reset_speed : float
         speed of the rotary motor during reset movements, in deg/s
     use_shutter : bool

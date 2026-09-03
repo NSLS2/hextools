@@ -7,7 +7,6 @@ from ophyd_async.core import (
     AsyncStatus,
     DeviceMock,
     StandardReadable,
-    StandardReadableFormat as Format,
     StrictEnum,
     callback_on_mock_put,
     default_mock_class,
@@ -16,7 +15,14 @@ from ophyd_async.core import (
     set_mock_value,
     wait_for_value,
 )
-from ophyd_async.epics.core import EpicsDevice, epics_signal_r, epics_triggerable_command
+from ophyd_async.core import (
+    StandardReadableFormat as Format,
+)
+from ophyd_async.epics.core import (
+    EpicsDevice,
+    epics_signal_r,
+    epics_triggerable_command,
+)
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 
@@ -153,11 +159,15 @@ class SampleTower(StandardReadable, EpicsDevice):
 
 
 class CameraObjective(StrictEnum):
+    """Represents the camera objective in use."""
+
     LEFT_4MM = "left_4mm"
     RIGHT_2MM = "right_2mm"
 
 
 class HomeStatus(StrictEnum):
+    """Represents the home status of a motor."""
+
     NOT_HOMED = "Not homed"
     HOMED = "Homed"
 
@@ -174,11 +184,21 @@ class DoubleObjCamera(StandardReadable, EpicsDevice, AsyncMovable[CameraObjectiv
         self.home_obj_selector = epics_triggerable_command(
             prefix + "ObjSel}Start:Home-Cmd", name="home_obj_selector"
         )
-        self._obj_selector_home_sts = epics_signal_r(HomeStatus, "ObjSel}Sts:HomeCmplt-Sts", name="obj_selector_home_sts")
-        self._at_right_objective = epics_signal_r(bool, "ObjSel}AtRightObj", name="at_right_objective")
-        self._at_left_objective = epics_signal_r(bool, "ObjSel}AtLeftObj", name="at_left_objective")
-        self._goto_right_objective = epics_triggerable_command("ObjSel}Cmd:GotoRight-Cmd", name="goto_right_objective")
-        self._goto_left_objective = epics_triggerable_command("ObjSel}Cmd:GotoLeft-Cmd", name="goto_left_objective")
+        self._obj_selector_home_sts = epics_signal_r(
+            HomeStatus, "ObjSel}Sts:HomeCmplt-Sts", name="obj_selector_home_sts"
+        )
+        self._at_right_objective = epics_signal_r(
+            bool, "ObjSel}AtRightObj", name="at_right_objective"
+        )
+        self._at_left_objective = epics_signal_r(
+            bool, "ObjSel}AtLeftObj", name="at_left_objective"
+        )
+        self._goto_right_objective = epics_triggerable_command(
+            "ObjSel}Cmd:GotoRight-Cmd", name="goto_right_objective"
+        )
+        self._goto_left_objective = epics_triggerable_command(
+            "ObjSel}Cmd:GotoLeft-Cmd", name="goto_left_objective"
+        )
 
     @AsyncStatus.wrap
     async def set(self, value: CameraObjective):
@@ -194,9 +214,11 @@ class DoubleObjCamera(StandardReadable, EpicsDevice, AsyncMovable[CameraObjectiv
         RuntimeError
             If the camera objective selector is not homed.
         """
-
         if await self._obj_selector_home_sts.get_value() != HomeStatus.HOMED:
-            raise RuntimeError("Camera objective selector is not homed. Please home it before moving to a specific objective.")
+            raise RuntimeError(
+                "Camera objective selector is not homed. "
+                "Please home it before moving to a specific objective."
+            )
 
         if value == CameraObjective.LEFT_4MM:
             await self._goto_left_objective.execute()

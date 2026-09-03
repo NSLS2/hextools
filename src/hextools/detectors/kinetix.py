@@ -1,1 +1,1 @@
-from ophyd_async.epics.adkinetix import KinetixDetector, KinetixReadoutMode
+"""Kinetix detector support for HEX beamline."""

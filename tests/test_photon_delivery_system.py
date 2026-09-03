@@ -9,7 +9,13 @@ import pytest
 import yaml
 from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
-from ophyd_async.core import SignalR, callback_on_mock_execute, callback_on_mock_put, init_devices, set_mock_value
+from ophyd_async.core import (
+    SignalR,
+    callback_on_mock_execute,
+    callback_on_mock_put,
+    init_devices,
+    set_mock_value,
+)
 from ophyd_async.epics.adcore import (
     ADAcquireLogic,
     ADBaseIO,
@@ -226,8 +232,6 @@ def test_load_filters_requires_one_position_per_enum(monkeypatch):
     monkeypatch.setattr(yaml, "safe_load", lambda *_a, **_k: bad_config)
     with pytest.raises(ValueError, match="exactly 7 positions"):
         load_filters()
-
-
 
 
 @pytest.mark.parametrize("energy", [8.0, 10.0, 12.0])

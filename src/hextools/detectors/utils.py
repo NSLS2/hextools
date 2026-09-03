@@ -1,3 +1,5 @@
+"""Detector utility functions for HEX beamline."""
+
 from ophyd_async.epics.adkinetix import KinetixReadoutMode
 
 _KINETIX_MAX_SENSOR_SIZE = 3200
@@ -78,7 +80,7 @@ def compute_max_kinetix_framerate(
     readout_mode: KinetixReadoutMode,
     roi_height: int = _KINETIX_MAX_SENSOR_SIZE,
 ) -> float:
-    """Given the readout mode, ROI size, and binning of the Kinetix detector, return its maximum framerate in Hz.
+    """Return the Kinetix maximum framerate in Hz for the given mode and ROI.
 
     The Kinetix uses digital binning (post-readout), so binning does not affect
     the readout speed. The frame rate is determined by roi_height (rows read from
@@ -88,7 +90,8 @@ def compute_max_kinetix_framerate(
         raise ValueError(f"Unknown readout mode: {readout_mode}")
     if not 1 <= roi_height <= _KINETIX_MAX_SENSOR_SIZE:
         raise ValueError(
-            f"roi_height must be between 1 and {_KINETIX_MAX_SENSOR_SIZE}, got {roi_height}"
+            f"roi_height must be between 1 and "
+            f"{_KINETIX_MAX_SENSOR_SIZE}, got {roi_height}"
         )
 
     return _interpolate_framerate(_KINETIX_FRAMERATES[readout_mode], roi_height)
@@ -103,7 +106,7 @@ def calculate_scan_time(
     max_velocity: float | None = None,
     travel_distance: float | None = None,
 ) -> float:
-    """Calculate the total scan time based on the number of images, exposure time, and acquire period.
+    """Calculate the total scan time from image count, exposure, and period.
 
     Parameters
     ----------
@@ -112,7 +115,8 @@ def calculate_scan_time(
     exposure_time : float
         The exposure time for each image in seconds.
     acquire_period : float, optional
-        The time between the start of one acquisition and the start of the next, in seconds. If 0, it will be set to exposure_time + overhead.
+        The time between the start of one acquisition and the start of the next,
+        in seconds. If 0, it will be set to exposure_time + overhead.
 
     Returns
     -------
@@ -121,7 +125,8 @@ def calculate_scan_time(
     """
     if (max_velocity is None) == (travel_distance is None):
         raise ValueError(
-            "Both max_velocity and travel_distance must be provided together or not at all."
+            "Both max_velocity and travel_distance must be provided"
+            " together or not at all."
         )
     elif max_velocity is not None and travel_distance is not None:
         scan_time_max_velocity = travel_distance / max_velocity
@@ -143,7 +148,7 @@ def calculate_scan_time(
 def calculate_zero_encoder_value(
     current_encoder: int, current_deg: float, counts_per_rev: int
 ):
-    """Calculate the zero encoder value based on the current encoder value, current degree, and counts per revolution.
+    """Calculate the zero encoder value from encoder, degree, and counts/rev.
 
     Parameters
     ----------

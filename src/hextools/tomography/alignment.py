@@ -1,3 +1,5 @@
+"""Tomography alignment tools for HEX beamline."""
+
 from enum import StrEnum
 
 import algotom.util.calibration as calib
@@ -62,9 +64,7 @@ def ensure_run_is_valid(
     _check_stream_exists_and_contains_detector(proj_stream)
 
     if ff_stream is not None:
-        _check_stream_exists_and_contains_detector(
-            ff_stream, requires_motor=False
-        )
+        _check_stream_exists_and_contains_detector(ff_stream, requires_motor=False)
 
 
 def check_crop_values_valid(
@@ -75,6 +75,7 @@ def check_crop_values_valid(
     top_crop: int,
     bottom_crop: int,
 ) -> bool:
+    """Check if the crop values are valid for the given projection dimensions."""
     if left_crop < 0 or right_crop < 0 or top_crop < 0 or bottom_crop < 0:
         raise ValueError("Crop values must be non-negative.")
     if left_crop + right_crop >= projection_width:
@@ -89,9 +90,7 @@ def check_crop_values_valid(
 
 
 def clean_image(binary_image, size_threshold=100):
-    """
-    Clean binary image.
-    """
+    """Clean binary image."""
     # Clear objects connected to the border and fill holes
     binary_image = segmentation.clear_border(binary_image)
     binary_image = ndi.binary_opening(binary_image, iterations=2)
@@ -113,6 +112,8 @@ def clean_image(binary_image, size_threshold=100):
 
 
 class TomoAlignMethod(StrEnum):
+    """Methods for tomography alignment."""
+
     ELLIPSE = "ellipse"
     LINEAR = "linear"
 
@@ -148,9 +149,6 @@ def crop_and_flatfield_correction(
         Ratio for thresholding during binarization.
     figsize : tuple[int, int]
         Size of the figure for displaying images.
-    Returns
-    -------
-
     """
     cropped_and_normalized = []
     x_centers = []
@@ -195,7 +193,9 @@ def crop_and_flatfield_correction(
         y_centers.append((bottom_crop - top_crop) - y_cen)  # type: ignore
         cropped_and_normalized.append(mat)
         print(
-            f"  ---> Done image: {i:2} | Angle: {projection_angles[i]:3.1f} | Center X: {x_cen:4.2f} | Center Y: {y_cen:4.2f}"
+            f"  ---> Done image: {i:2} "
+            f"| Angle: {projection_angles[i]:3.1f} "
+            f"| Center X: {x_cen:4.2f} | Center Y: {y_cen:4.2f}"
         )
         # plt.figure(0)
         # plt.imshow(mat, cmap="gray")
@@ -209,10 +209,11 @@ def fit_points_to_ellipse(
     x: np.ndarray[tuple[int], np.dtype[np.int32]],
     y: np.ndarray[tuple[int], np.dtype[np.int32]],
 ) -> tuple[float, float, float, float, float]:
+    """Fit points to an ellipse and return the roll and tilt angles."""
     if len(x) != len(y):
         raise ValueError("x and y must have the same length!!!")
-    A = np.array([x**2, x * y, y**2, x, y, np.ones_like(x)]).T
-    vh = np.linalg.svd(A, full_matrices=False)[-1]
+    a = np.array([x**2, x * y, y**2, x, y, np.ones_like(x)]).T
+    vh = np.linalg.svd(a, full_matrices=False)[-1]
     a0, b0, c0, d0, e0, f0 = vh.T[:, -1]
     denom = b0**2 - 4 * a0 * c0
     msg = "Can't fit to an ellipse!!!"
@@ -256,11 +257,8 @@ def identify_sign_tilt_angle(
     x: np.ndarray[tuple[int], np.dtype[np.float32]],
     y: np.ndarray[tuple[int], np.dtype[np.float32]],
 ) -> int:
-    """
-    Find the two points at the furthest distance and their indices, 
-    perform linear fit using these points.
-    """
-    data_points = np.asarray(list(zip(x, y)))
+    """Find the two furthest-apart points and linear-fit through them."""
+    data_points = np.asarray(list(zip(x, y, strict=True)))
     max_dist = 0
     index1, index2 = 0, 0
     for i in range(len(data_points)):
@@ -293,6 +291,7 @@ def identify_sign_tilt_angle(
 
 
 def ellipse_fit(x, y):
+    """Fit points to an ellipse and return the roll and tilt angles."""
     (a, b) = np.polyfit(x, y, 1)[:2]
     dist_list = np.abs(a * x - y + b) / np.sqrt(a**2 + 1)
     dist_list = ndi.gaussian_filter1d(dist_list, 2)
@@ -304,9 +303,11 @@ def ellipse_fit(x, y):
         tilt_angle = np.rad2deg(np.arctan2(minor_axis, major_axis))
     except ValueError as e:
         raise ValueError("Failed to fit points to an ellipse: " + str(e)) from e
+    return roll_angle, tilt_angle
 
 
 def linear_fit(x, y):
+    """Perform a linear fit to the given x and y data points."""
     (a, b) = np.polyfit(x, y, 1)[:2]
     dist_list = np.abs(a * x - y + b) / np.sqrt(a**2 + 1)
     appr_major = np.max(
@@ -338,6 +339,7 @@ def check_alignment(
     proj_stream: str = "primary",
     flatfield_stream_name: str = "primary",
 ):
+    """Check the alignment of a tomography scan."""
     if any(crop < 0 for crop in [left_crop, right_crop, top_crop, bottom_crop]):
         raise ValueError("Crop values must be non-negative integers.")
 
@@ -357,7 +359,8 @@ def check_alignment(
         depth, height, width = data[det.name].shape
         if depth < 36:
             raise ValueError(
-                "The alignment scan must contain at least 36 projections for a reliable fit."
+                "The alignment scan must contain at least"
+                "36 projections for a reliable fit."
             )
 
     check_crop_values_valid(width, height, left_crop, right_crop, top_crop, bottom_crop)
@@ -375,6 +378,31 @@ def tomo_alignment_scan(
     base_x_offset: float = 0.0,
     sample_stage_x: AsyncEpicsMotor | None = None,
 ):
+    """Tomography alignment scan.
+
+    Parameters
+    ----------
+    dets : list[KinetixDetector | PhantomDetector]
+        List of detectors to use for the scan.
+    rotation_stage : RotationMotor
+        The rotation stage motor.
+    front_end_shutter : Shutter
+        The front-end shutter.
+    photon_shutter : Shutter
+        The photon shutter.
+    exposure_time : float
+        Exposure time for each projection in seconds.
+    num_projections : int, optional
+        Number of projections to acquire, by default 37.
+    init_angle : float, optional
+        Initial angle for the rotation stage, by default 0.0.
+    stop_angle : float, optional
+        Final angle for the rotation stage, by default 360.0.
+    base_x_offset : float, optional
+        Base X offset for the sample stage, by default 0.0.
+    sample_stage_x : AsyncEpicsMotor | None, optional
+        The sample stage X motor, by default None.
+    """
     # Check the shutter statuses
     fe_shutter_open = yield from bps.rd(front_end_shutter.status)
     photon_shutter_open = yield from bps.rd(photon_shutter.status)
@@ -403,7 +431,9 @@ def tomo_alignment_scan(
     flat_uid = None
     if abs(base_x_offset) > 0.0 and sample_stage_x is not None:
         yield from bps.mvr(sample_stage_x, base_x_offset)
-        flat_uid = yield from bp.count(dets, md={"description": "Flat-field image for tomography alignment"})
+        flat_uid = yield from bp.count(
+            dets, md={"description": "Flat-field image for tomography alignment"}
+        )
         yield from bps.mvr(sample_stage_x, -base_x_offset)
 
     _md = {

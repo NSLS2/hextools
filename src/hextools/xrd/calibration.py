@@ -2,8 +2,9 @@
 
 from collections.abc import Generator
 
-from bluesky import plan_stubs as bps, plans as bp, preprocessors as bpp
 from bluesky import Msg
+from bluesky import plan_stubs as bps
+from bluesky import plans as bp
 from ophyd_async.epics.adcore import AreaDetector
 from ophyd_async.epics.adcore._io import ADBaseIOT
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
@@ -21,15 +22,18 @@ def xrd_calibration(
     start_position: float | None = None,
     description: str = "Energy-geometry calibration",
 ) -> Generator[Msg, None, None]:
-
+    """Perform an XRD calibration scan."""
     if start_position is None:
-        start_position: float  = yield from bps.rd(motor)
+        start_position: float = yield from bps.rd(motor)
 
     yield from bps.abs_set(
-        detector.driver.acquire_time, exposure_time,
-        detector.driver.acquire_period, 0.0,
-        detector.driver.num_images, 1,
-        wait=True
+        detector.driver.acquire_time,
+        exposure_time,
+        detector.driver.acquire_period,
+        0.0,
+        detector.driver.num_images,
+        1,
+        wait=True,
     )
 
     try:
@@ -39,7 +43,14 @@ def xrd_calibration(
             "description": description,
             "plan_name": "xrd_calibration",
         }
-        yield from bp.scan([detector], motor, start_position, start_position + gap * (num_steps - 1), num_steps, md=_md)
+        yield from bp.scan(
+            [detector],
+            motor,
+            start_position,
+            start_position + gap * (num_steps - 1),
+            num_steps,
+            md=_md,
+        )
     finally:
         yield from bps.mv(photon_shutter, False)
         yield from bps.mv(motor, start_position)

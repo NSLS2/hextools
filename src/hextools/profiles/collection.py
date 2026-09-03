@@ -8,11 +8,13 @@ import os
 # to hang on exit with "double free or corruption".
 os.environ.pop("PYEPICS_LIBCA", None)
 
+from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
 )
+from bluesky.suspenders import SuspendFloor
 from bluesky.utils import ProgressBarManager
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
@@ -23,8 +25,6 @@ from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from tiled.client import from_uri, simple
-from bluesky.suspenders import SuspendFloor
-from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
 
 from hextools.detectors.phantom import PhantomDetector
 from hextools.machine import NSLS2StorageRing
@@ -32,8 +32,6 @@ from hextools.motors import DoubleObjCamera, OpticsTable, SampleTower, WideFOVCa
 from hextools.photon_delivery_system import (
     DCLM,
     Filter,
-    FilterPosition,
-    FilterSetting,
     Shutter,
     load_filters,
 )
@@ -43,7 +41,7 @@ from hextools.utils import (
     initialize_run_engine,
     is_running_in_ci,
     print_proposal_info,
-    print_version_info
+    print_version_info,
 )
 
 # Environment variables for Redis host and ophyd_async detector state preservation
@@ -119,57 +117,74 @@ with auto_init_devices(timeout=1.0):
         for filter in filters:
             ipython.user_ns[filter.name] = filter
 
-
     # PandABox
     panda1 = HDFPanda("XF:27ID1-ES{PANDA:1}", path_provider, name="panda1")
 
     # Kinetix and Phantom detectors
     kinetix1 = KinetixDetector(
-        "XF:27ID1-BI{Kinetix-Det:1}", ADWriterFactory.hdf(path_provider), name="kinetix1"
+        "XF:27ID1-BI{Kinetix-Det:1}",
+        ADWriterFactory.hdf(path_provider),
+        name="kinetix1",
     )
     kinetix2 = KinetixDetector(
-        "XF:27ID1-BI{Kinetix-Det:2}", ADWriterFactory.hdf(path_provider), name="kinetix2"
+        "XF:27ID1-BI{Kinetix-Det:2}",
+        ADWriterFactory.hdf(path_provider),
+        name="kinetix2",
     )
     kinetix3 = KinetixDetector(
-        "XF:27ID1-BI{Kinetix-Det:3}", ADWriterFactory.hdf(path_provider), name="kinetix3"
+        "XF:27ID1-BI{Kinetix-Det:3}",
+        ADWriterFactory.hdf(path_provider),
+        name="kinetix3",
     )
     kinetix4 = KinetixDetector(
-        "XF:27ID1-BI{Kinetix-Det:4}", ADWriterFactory.hdf(path_provider), name="kinetix4"
+        "XF:27ID1-BI{Kinetix-Det:4}",
+        ADWriterFactory.hdf(path_provider),
+        name="kinetix4",
     )
 
     # Optique-Peter microscope optics
-    double_obj_camera = DoubleObjCamera("XF:27IDF-OP:1{OPT:1-Ax:", name="double_obj_camera")
+    double_obj_camera = DoubleObjCamera(
+        "XF:27IDF-OP:1{OPT:1-Ax:", name="double_obj_camera"
+    )
     wide_fov_camera = WideFOVCamera("XF:27IDF-OP:1{OPT:2-Ax:", name="wide_fov_camera")
 
     phantom1 = PhantomDetector(
-        "XF:27ID1-ES{Phantom-Det:1}", ADWriterFactory.hdf(path_provider), name="phantom1"
+        "XF:27ID1-ES{Phantom-Det:1}",
+        ADWriterFactory.hdf(path_provider),
+        name="phantom1",
     )
-
 
     diamond_window_camera = VimbaDetector(
-        "XF:27IDA-BI{FAM:1-Cam:1}cam1:", ADWriterFactory.hdf(path_provider), name="diamond_window_camera"
+        "XF:27IDA-BI{FAM:1-Cam:1}cam1:",
+        ADWriterFactory.hdf(path_provider),
+        name="diamond_window_camera",
     )
     sample_camera = VimbaDetector(
-        "XF:27ID1-ES{Sample-Cam:1}cam1:", ADWriterFactory.hdf(path_provider), name="sample_camera"
+        "XF:27ID1-ES{Sample-Cam:1}cam1:",
+        ADWriterFactory.hdf(path_provider),
+        name="sample_camera",
     )
 
-    fs_window_stats = NDStatsIO("XF:27IDA-BI{FS:1-Cam:1}Stats1:", name="fs_window_stats")
+    fs_window_stats = NDStatsIO(
+        "XF:27IDA-BI{FS:1-Cam:1}Stats1:", name="fs_window_stats"
+    )
     fs_window = VimbaDetector(
         "XF:27IDA-BI{FS:1-Cam:1}cam1:",
         ADWriterFactory.hdf(path_provider),
         name="fs_window",
-        plugins = {
-            "stats1": fs_window_stats
-        }
+        plugins={"stats1": fs_window_stats},
     )
     # TODO: Remove this once the StandardDetector -> StandardReadble change is merged.
     # TODO: Use mean rather than total, once available.
-    fs_window.add_detector_logics(PluginSignalDataLogic(fs_window.driver, fs_window_stats.total))
-
-    f_hutch_camera = VimbaDetector(
-        "XF:27IDA-BI{GigE-Cam:5}cam1:", ADWriterFactory.hdf(path_provider), name="f_hutch_camera"
+    fs_window.add_detector_logics(
+        PluginSignalDataLogic(fs_window.driver, fs_window_stats.total)
     )
 
+    f_hutch_camera = VimbaDetector(
+        "XF:27IDA-BI{GigE-Cam:5}cam1:",
+        ADWriterFactory.hdf(path_provider),
+        name="f_hutch_camera",
+    )
 
     # TODO: Perkin elmer.
 
@@ -179,10 +194,12 @@ with auto_init_devices(timeout=1.0):
 RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
 
 # Configure baseline supplemental data to include in the metadata of every run.
-sd = bpp.SupplementalData(baseline=[
-    storage_ring.beam_current,
-    sample_tower,
-    dclm,
-    optics_table,
-])
+sd = bpp.SupplementalData(
+    baseline=[
+        storage_ring.beam_current,
+        sample_tower,
+        dclm,
+        optics_table,
+    ]
+)
 RE.preprocessors.append(sd)
