@@ -47,7 +47,7 @@ class OpticsTable(StandardReadable, EpicsDevice):
 
     def __init__(self, prefix: str, name="optics_table"):
         super().__init__(prefix, name=name)
-        with self.add_children_as_readables(Format.CONFIG_SIGNAL):
+        with self.add_children_as_readables(Format.CHILD):
             self.x2 = AsyncEpicsMotor(prefix + "X2}Mtr", name="x2")
             self.y2 = AsyncEpicsMotor(prefix + "Y2}Mtr", name="y2")
             self.rx3 = AsyncEpicsMotor(prefix + "RX3}Mtr", name="rx3")
@@ -137,7 +137,7 @@ class SampleTower(StandardReadable, EpicsDevice):
 
     def __init__(self, prefix: str, name: str = "sample_tower"):
         super().__init__(prefix, name=name)
-        with self.add_children_as_readables(Format.HINTED_UNCACHED_SIGNAL):
+        with self.add_children_as_readables(Format.CHILD):
             self.y = AsyncEpicsMotor(prefix + "Y}Mtr", name="y")
             self.pitch = AsyncEpicsMotor(prefix + "Rx}Mtr", name="pitch")
             self.roll = AsyncEpicsMotor(prefix + "Rz}Mtr", name="roll")
@@ -213,6 +213,6 @@ class WideFOVCamera(StandardReadable, EpicsDevice):
 
     def __init__(self, prefix: str, name: str = "wide_fov_camera"):
         super().__init__(prefix, name=name)
-        with self.add_children_as_readables(Format.HINTED_UNCACHED_SIGNAL):
+        with self.add_children_as_readables(Format.CHILD):
             self.focus = AsyncEpicsMotor(prefix + "Focus}Mtr", name="focus")
             self.rotation = AsyncEpicsMotor(prefix + "CamRot}Mtr", name="rotation")
