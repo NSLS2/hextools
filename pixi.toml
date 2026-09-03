@@ -72,6 +72,8 @@ tiled-server = ">=0.2.14,<0.3"
 python-build = ">=1.2.2,<2"
 pyside6 = ">=6.11.1,<7"
 yamale = ">=6.1.0,<7"
+hdf5plugin = ">=6.0.0,<8"
+h5py = ">=3.16.0,<4"
 
 [feature.gui.dependencies]
 pyside6 = ">=6.9.0,<7"
