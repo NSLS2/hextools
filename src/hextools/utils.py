@@ -1,6 +1,7 @@
 """General utility functions for hextools."""
 
 import asyncio
+from collections.abc import MutableMapping
 import os
 from contextlib import redirect_stdout
 from datetime import datetime
@@ -104,11 +105,19 @@ def initialize_run_engine() -> RunEngine:
         RedisJSONDict(open_redis_client(redis_ssl=True), "")  # type: ignore (TODO: Loosen type of RE.md to Mapping from dict)
     )
 
+def print_proposal_info(md: MutableMapping[str, Any]):
+    proposal_md = md.get("proposal", {})
+    if proposal_md:
+        rprint(f"Proposal title: [italic]{proposal_md['title']}[/italic]\n")
+        rprint(
+            f"Proposal type: [italic]{proposal_md['type']}[/italic], "
+            f"Proposal PI: [italic]{proposal_md['pi_name']}[/italic]\n"
+        )
+
 
 def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
     """Start a beamtime for the given proposal ID."""
-    with open(os.devnull, "w") as f, redirect_stdout(f):
-        md = sync_experiment(proposal_id, "XPD", redis_ssl=True)
+    md = sync_experiment(proposal_id, "HEX", redis_ssl=True)
 
     rprint(
         f"Started beamtime for proposal ID [bold][blue]{proposal_id}[/blue][/bold].\n"
@@ -117,13 +126,7 @@ def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
         "Current time: [italic]"
         f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}[/italic]\n"
     )
-    proposal_md = md.get("proposal", {})
-    if proposal_md and verbose:
-        rprint(f"Proposal title: [italic]{proposal_md['title']}[/italic]\n")
-        rprint(
-            f"Proposal type: [italic]{proposal_md['type']}[/italic], "
-            f"Proposal PI: [italic]{proposal_md['pi_name']}[/italic]\n"
-        )
+    print_proposal_info(md)
 
 
 def auto_init_devices(timeout: float = 1.0):
@@ -144,8 +147,8 @@ def auto_init_devices(timeout: float = 1.0):
         for name in devices:
             dots = "." * (40 - len(name))
             if name in failed:
-                rprint(f"  {name} {dots} [bold red][not connected][/bold red]")
+                rprint(f"  {name} {dots} [bold red]Disconnected[/bold red]")
             else:
-                rprint(f"  {name} {dots} [bold green][connected][/bold green]")
+                rprint(f"  {name} {dots} [bold green]Ok[/bold green]")
 
     return DeviceProcessor(process_devices)

@@ -3,14 +3,20 @@
 import asyncio
 
 from ophyd_async.core import (
+    AsyncMovable,
+    AsyncStatus,
     DeviceMock,
+    StandardReadable,
+    StandardReadableFormat as Format,
+    StrictEnum,
     callback_on_mock_put,
     default_mock_class,
     derived_signal_r,
     set_mock_put_proceeds,
     set_mock_value,
+    wait_for_value,
 )
-from ophyd_async.epics.core import EpicsDevice
+from ophyd_async.epics.core import EpicsDevice, epics_signal_r, epics_triggerable_command
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 
@@ -36,19 +42,22 @@ def get_encoder_value_from_pos(
     return int(current_position / encoder_resolution + encoder_pos_at_zero)
 
 
-class OpticsTable(EpicsDevice):
+class OpticsTable(StandardReadable, EpicsDevice):
     """HEX optics table."""
 
-    def __init__(self):
-        super().__init__("XF:27ID1A-OP:1{OPT:1-Ax:", name="optics_table")
-        self.x2 = AsyncEpicsMotor("X2}Mtr", name="x2")
-        self.y2 = AsyncEpicsMotor("Y2}Mtr", name="y2")
-        self.rx3 = AsyncEpicsMotor("RX3}Mtr", name="rx3")
-        self.ry3 = AsyncEpicsMotor("RY3}Mtr", name="ry3")
-        self.x3 = AsyncEpicsMotor("X3}Mtr", name="x3")
-        self.y3 = AsyncEpicsMotor("Y3}Mtr", name="y3")
-        self.ry4 = AsyncEpicsMotor("RY4}Mtr", name="ry4")
-        self.x4 = AsyncEpicsMotor("X4}Mtr", name="x4")
+    def __init__(self, prefix: str, name="optics_table"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.CONFIG_SIGNAL):
+            self.x2 = AsyncEpicsMotor(prefix + "X2}Mtr", name="x2")
+            self.y2 = AsyncEpicsMotor(prefix + "Y2}Mtr", name="y2")
+            self.rx3 = AsyncEpicsMotor(prefix + "RX3}Mtr", name="rx3")
+            self.ry3 = AsyncEpicsMotor(prefix + "RY3}Mtr", name="ry3")
+            self.x3 = AsyncEpicsMotor(prefix + "X3}Mtr", name="x3")
+            self.y3 = AsyncEpicsMotor(prefix + "Y3}Mtr", name="y3")
+            self.ry4 = AsyncEpicsMotor(prefix + "RY4}Mtr", name="ry4")
+            self.x4 = AsyncEpicsMotor(prefix + "X4}Mtr", name="x4")
+            self.a1 = AsyncEpicsMotor(prefix + "A1}Mtr", name="a1")
+            self.z0 = AsyncEpicsMotor(prefix + "Z0}Mtr", name="z0")
 
 
 # TODO: Get this upstreamed to ophyd_async and remove it from here.
@@ -123,20 +132,87 @@ class RotationMotor(AsyncEpicsMotor):
         return int(360.0 * encoder_resolution)
 
 
-class SampleTower(EpicsDevice):
+class SampleTower(StandardReadable, EpicsDevice):
     """HEX sample tower."""
 
-    def __init__(self):
-        super().__init__("XF:27ID1A-OP:1{SMPL:1-Ax:", name="sample_tower")
-        self.y = AsyncEpicsMotor("Y}Mtr", name="y")
-        self.pitch = AsyncEpicsMotor("Rx}Mtr", name="pitch")
-        self.roll = AsyncEpicsMotor("Rz}Mtr", name="roll")
+    def __init__(self, prefix: str, name: str = "sample_tower"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.HINTED_UNCACHED_SIGNAL):
+            self.y = AsyncEpicsMotor(prefix + "Y}Mtr", name="y")
+            self.pitch = AsyncEpicsMotor(prefix + "Rx}Mtr", name="pitch")
+            self.roll = AsyncEpicsMotor(prefix + "Rz}Mtr", name="roll")
 
         # Real motors that combine to give y, pitch, and roll.
-        self.x1 = AsyncEpicsMotor("X1}Mtr", name="x1")
-        self.x2 = AsyncEpicsMotor("X2}Mtr", name="x2")
-        self.z1 = AsyncEpicsMotor("Z1}Mtr", name="z1")
-        self.z2 = AsyncEpicsMotor("Z2}Mtr", name="z2")
-        self.inboard_y = AsyncEpicsMotor("Y1}Mtr", name="inboard_y")
-        self.outboard_y = AsyncEpicsMotor("Y2}Mtr", name="outboard_y")
-        self.downstream_y = AsyncEpicsMotor("Y3}Mtr", name="downstream_y")
+        self.x1 = AsyncEpicsMotor(prefix + "X1}Mtr", name="x1")
+        self.x2 = AsyncEpicsMotor(prefix + "X2}Mtr", name="x2")
+        self.z1 = AsyncEpicsMotor(prefix + "Z1}Mtr", name="z1")
+        self.z2 = AsyncEpicsMotor(prefix + "Z2}Mtr", name="z2")
+        self.inboard_y = AsyncEpicsMotor(prefix + "Y1}Mtr", name="inboard_y")
+        self.outboard_y = AsyncEpicsMotor(prefix + "Y2}Mtr", name="outboard_y")
+        self.downstream_y = AsyncEpicsMotor(prefix + "Y3}Mtr", name="downstream_y")
+
+
+class CameraObjective(StrictEnum):
+    LEFT_4MM = "left_4mm"
+    RIGHT_2MM = "right_2mm"
+
+
+class HomeStatus(StrictEnum):
+    NOT_HOMED = "Not homed"
+    HOMED = "Homed"
+
+
+class DoubleObjCamera(StandardReadable, EpicsDevice, AsyncMovable[CameraObjective]):
+    """HEX double objective camera."""
+
+    def __init__(self, prefix: str, name: str = "double_obj_camera"):
+        super().__init__(prefix, name=name)
+        self.rotation = AsyncEpicsMotor(prefix + "CamRot}Mtr", name="rotation")
+        self.left_focus = AsyncEpicsMotor(prefix + "Focus1}Mtr", name="left_focus")
+        self.right_focus = AsyncEpicsMotor(prefix + "Focus2}Mtr", name="right_focus")
+        self.obj_selector = AsyncEpicsMotor(prefix + "ObjSel}Mtr", name="obj_selector")
+        self.home_obj_selector = epics_triggerable_command(
+            prefix + "ObjSel}Start:Home-Cmd", name="home_obj_selector"
+        )
+        self._obj_selector_home_sts = epics_signal_r(HomeStatus, "ObjSel}Sts:HomeCmplt-Sts", name="obj_selector_home_sts")
+        self._at_right_objective = epics_signal_r(bool, "ObjSel}AtRightObj", name="at_right_objective")
+        self._at_left_objective = epics_signal_r(bool, "ObjSel}AtLeftObj", name="at_left_objective")
+        self._goto_right_objective = epics_triggerable_command("ObjSel}Cmd:GotoRight-Cmd", name="goto_right_objective")
+        self._goto_left_objective = epics_triggerable_command("ObjSel}Cmd:GotoLeft-Cmd", name="goto_left_objective")
+
+    @AsyncStatus.wrap
+    async def set(self, value: CameraObjective):
+        """Move the camera to the specified objective.
+
+        Parameters
+        ----------
+        value : CameraObjective
+            The objective to move the camera to.
+
+        Raises
+        ------
+        RuntimeError
+            If the camera objective selector is not homed.
+        """
+
+        if await self._obj_selector_home_sts.get_value() != HomeStatus.HOMED:
+            raise RuntimeError("Camera objective selector is not homed. Please home it before moving to a specific objective.")
+
+        if value == CameraObjective.LEFT_4MM:
+            await self._goto_left_objective.execute()
+            rb_check = self._at_left_objective
+        else:
+            await self._goto_right_objective.execute()
+            rb_check = self._at_right_objective
+
+        await wait_for_value(rb_check, True, timeout=None)
+
+
+class WideFOVCamera(StandardReadable, EpicsDevice):
+    """HEX wide field of view camera."""
+
+    def __init__(self, prefix: str, name: str = "wide_fov_camera"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.HINTED_UNCACHED_SIGNAL):
+            self.focus = AsyncEpicsMotor(prefix + "Focus}Mtr", name="focus")
+            self.rotation = AsyncEpicsMotor(prefix + "CamRot}Mtr", name="rotation")
