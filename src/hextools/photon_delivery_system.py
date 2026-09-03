@@ -410,7 +410,6 @@ def change_energy(
 
     # Create a PeakStats object to monitor the fluorescence screen camera signal
     # and find the position of the crystal 2 pitch that produces a peak.
-    # TODO: Remove type ignore once mean is added to NDStatsIO
     ps = PeakStats(
         dclm.xtal2_pitch.name,
         fs_camera.get_plugin_by_name("stats1", NDStatsIO).total.name,

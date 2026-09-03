@@ -1,7 +1,6 @@
 import asyncio
 import time
 from importlib import resources
-from typing import Annotated as A
 
 import bluesky.plan_stubs as bps
 import numpy as np
@@ -10,7 +9,6 @@ import yaml
 from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
 from ophyd_async.core import (
-    SignalR,
     callback_on_mock_execute,
     callback_on_mock_put,
     init_devices,
@@ -24,7 +22,6 @@ from ophyd_async.epics.adcore import (
     NDStatsIO,
     PluginSignalDataLogic,
 )
-from ophyd_async.epics.core import PvSuffix
 
 from hextools.photon_delivery_system import (
     DCLM,
@@ -268,8 +265,8 @@ async def test_change_energy_raises_if_not_monochromatic(RE: RunEngine, dclm: DC
         RE(change_energy(dclm, 10.0))
 
 
-class NDStatsWithMeanIO(NDStatsIO):
-    mean: A[SignalR[float], PvSuffix("MeanValue_RBV")]
+# class NDStatsWithMeanIO(NDStatsIO):
+#     mean: A[SignalR[float], PvSuffix("MeanValue_RBV")]
 
 
 async def test_change_energy_with_auto_tune(RE: RunEngine, dclm: DCLM):
@@ -280,14 +277,14 @@ async def test_change_energy_with_auto_tune(RE: RunEngine, dclm: DCLM):
 
     with init_devices(mock=True, child_name_separator="_"):
         driver = ADBaseIO("TEST:CAM:cam1:")
-        stats1 = NDStatsWithMeanIO("TEST:CAM:Stats1:")
+        stats1 = NDStatsIO("TEST:CAM:Stats1:")
         fs_camera = AreaDetector(
             driver,
             acquire_logic=ADAcquireLogic(driver),
             plugins={"stats1": stats1},
         )
     fs_camera.add_detector_logics(
-        PluginSignalDataLogic(driver=driver, signal=stats1.mean)
+        PluginSignalDataLogic(driver=driver, signal=stats1.total)
     )
     set_mock_value(driver.detector_state, ADState.IDLE)
 
@@ -296,7 +293,7 @@ async def test_change_energy_with_auto_tune(RE: RunEngine, dclm: DCLM):
         if value:
             pos = await dclm.xtal2_pitch.user_readback.get_value()
             intensity = float(np.exp(-((pos - expected_angle) ** 2) / (2 * sigma**2)))
-            set_mock_value(stats1.mean, intensity)
+            set_mock_value(stats1.total, intensity)
 
     callback_on_mock_put(driver.acquire, on_acquire)
 
@@ -315,14 +312,14 @@ async def test_change_energy_with_auto_tune(RE: RunEngine, dclm: DCLM):
 async def test_change_energy_no_peak_coarse_scan(RE: RunEngine, dclm: DCLM, mocker):
     with init_devices(mock=True, child_name_separator="_"):
         driver = ADBaseIO("TEST:CAM:cam1:")
-        stats1 = NDStatsWithMeanIO("TEST:CAM:Stats1:")
+        stats1 = NDStatsIO("TEST:CAM:Stats1:")
         fs_camera = AreaDetector(
             driver,
             acquire_logic=ADAcquireLogic(driver),
             plugins={"stats1": stats1},
         )
     fs_camera.add_detector_logics(
-        PluginSignalDataLogic(driver=driver, signal=stats1.mean)
+        PluginSignalDataLogic(driver=driver, signal=stats1.total)
     )
     set_mock_value(driver.detector_state, ADState.IDLE)
 
@@ -338,14 +335,14 @@ async def test_change_energy_no_peak_coarse_scan(RE: RunEngine, dclm: DCLM, mock
 async def test_change_energy_no_peak_fine_scan(RE: RunEngine, dclm: DCLM, mocker):
     with init_devices(mock=True, child_name_separator="_"):
         driver = ADBaseIO("TEST:CAM:cam1:")
-        stats1 = NDStatsWithMeanIO("TEST:CAM:Stats1:")
+        stats1 = NDStatsIO("TEST:CAM:Stats1:")
         fs_camera = AreaDetector(
             driver,
             acquire_logic=ADAcquireLogic(driver),
             plugins={"stats1": stats1},
         )
     fs_camera.add_detector_logics(
-        PluginSignalDataLogic(driver=driver, signal=stats1.mean)
+        PluginSignalDataLogic(driver=driver, signal=stats1.total)
     )
     set_mock_value(driver.detector_state, ADState.IDLE)
 
