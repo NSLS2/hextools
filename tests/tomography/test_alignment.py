@@ -31,8 +31,9 @@ from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
 from hextools.tomography.alignment import (
     BinaryImage,
+)
 from hextools.tomography.alignment import (
-    BinaryImage
+    BinaryImage,
     ensure_run_is_valid,
     fit_points_to_ellipse,
     identify_sign_tilt_angle,
@@ -367,7 +368,7 @@ def kinetix_det_factory(
                 ADWriterFactory.tiff(static_path_provider),
                 name=f"kinetix{num}",
             )
-            tiff_plugin = ktx.get_plugin("tiff", NDPluginFileIO)
+            tiff_plugin = ktx.get_plugin_by_name("tiff", NDPluginFileIO)
 
         set_mock_value(ktx.driver.array_size_x, 3200)
         set_mock_value(ktx.driver.array_size_y, 3200)

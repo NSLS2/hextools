@@ -9,7 +9,7 @@ import pytest
 import yaml
 from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
-from ophyd_async.core import SignalR, callback_on_mock_put, init_devices, set_mock_value
+from ophyd_async.core import SignalR, callback_on_mock_execute, callback_on_mock_put, init_devices, set_mock_value
 from ophyd_async.epics.adcore import (
     ADAcquireLogic,
     ADBaseIO,
@@ -50,11 +50,11 @@ async def test_shutter_open_close_behavior(
 ):
     set_mock_value(shutter.status, False)
 
-    callback_on_mock_put(
+    callback_on_mock_execute(
         shutter.open_cmd,
         lambda *_: asyncio.ensure_future(_delayed_readback(shutter, True, delay)),
     )
-    callback_on_mock_put(
+    callback_on_mock_execute(
         shutter.close_cmd,
         lambda *_: asyncio.ensure_future(_delayed_readback(shutter, False, delay)),
     )

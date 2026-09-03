@@ -399,14 +399,18 @@ def tomo_alignment_scan(
             det.driver.acquire_period, exposure_time + 0.002
         )  # TODO: Don't hard code this
 
-    yield from bps.open_run()
-
     # Optionally, take a single flat image
+    flat_uid = None
     if abs(base_x_offset) > 0.0 and sample_stage_x is not None:
         yield from bps.mvr(sample_stage_x, base_x_offset)
-        flat_uid = yield from bps.trigger_and_read(dets, name="flatfield")
+        flat_uid = yield from bp.count(dets, md={"description": "Flat-field image for tomography alignment"})
         yield from bps.mvr(sample_stage_x, -base_x_offset)
 
+    _md = {
+        "description": "Tomography alignment scan",
+    }
+    if flat_uid is not None:
+        _md["flat_uid"] = flat_uid
     yield from bp.scan(
         dets, rotation_stage, init_angle, stop_angle, num_projections, md=_md
     )

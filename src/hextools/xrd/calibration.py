@@ -11,7 +11,6 @@ from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from hextools.photon_delivery_system import Shutter
 
 
-@bpp.finalize_decorator(bps.mv(photon_shutter, False))
 def xrd_calibration(
     detector: AreaDetector[ADBaseIOT],
     exposure_time: float,
@@ -33,10 +32,14 @@ def xrd_calibration(
         wait=True
     )
 
-    yield from bps.mv(photon_shutter, True)
+    try:
+        yield from bps.mv(photon_shutter, True)
 
-    _md = {
-        "description": description,
-        "plan_name": "xrd_calibration",
-    }
-    yield from bp.scan([detector], motor, start_position, start_position + gap * (num_steps - 1), num_steps)
+        _md = {
+            "description": description,
+            "plan_name": "xrd_calibration",
+        }
+        yield from bp.scan([detector], motor, start_position, start_position + gap * (num_steps - 1), num_steps, md=_md)
+    finally:
+        yield from bps.mv(photon_shutter, False)
+        yield from bps.mv(motor, start_position)
