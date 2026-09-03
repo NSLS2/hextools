@@ -185,19 +185,19 @@ class DoubleObjCamera(StandardReadable, EpicsDevice, AsyncMovable[CameraObjectiv
             prefix + "ObjSel}Start:Home-Cmd", name="home_obj_selector"
         )
         self._obj_selector_home_sts = epics_signal_r(
-            HomeStatus, "ObjSel}Sts:HomeCmplt-Sts", name="obj_selector_home_sts"
+            HomeStatus, prefix + "ObjSel}Sts:HomeCmplt-Sts", name="obj_selector_home_sts"
         )
         self._at_right_objective = epics_signal_r(
-            bool, "ObjSel}AtRightObj", name="at_right_objective"
+            bool, prefix + "ObjSel}AtRightObj", name="at_right_objective"
         )
         self._at_left_objective = epics_signal_r(
-            bool, "ObjSel}AtLeftObj", name="at_left_objective"
+            bool, prefix + "ObjSel}AtLeftObj", name="at_left_objective"
         )
         self._goto_right_objective = epics_triggerable_command(
-            "ObjSel}Cmd:GotoRight-Cmd", name="goto_right_objective"
+            prefix + "ObjSel}Cmd:GotoRight-Cmd", name="goto_right_objective"
         )
         self._goto_left_objective = epics_triggerable_command(
-            "ObjSel}Cmd:GotoLeft-Cmd", name="goto_left_objective"
+            prefix + "ObjSel}Cmd:GotoLeft-Cmd", name="goto_left_objective"
         )
 
     @AsyncStatus.wrap

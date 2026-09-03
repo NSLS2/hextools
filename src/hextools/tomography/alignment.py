@@ -19,7 +19,7 @@ from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
 
 Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
-BinaryImage = np.ndarray[tuple[int, int], np.dtype[np.bool]]
+BinaryImage = np.ndarray[tuple[int, int], np.dtype[bool]]
 ImageDataset = np.ndarray[
     tuple[int, int, int], np.dtype[np.uint16] | np.dtype[np.uint8]
 ]
