@@ -310,16 +310,16 @@ def test_fit_points_to_ellipse_on_known_ellipse():
 
 
 def test_identify_sign_tilt_angle_parabolas():
-    # Test with points forming a downward-opening parabola
+    # Downward-opening parabola: points bulge above the chord -> negative sign
     x = np.array([-2, -1, 0, 1, 2])
     y = -(x**2)
     sign = identify_sign_tilt_angle(x, y)
-    assert sign == 1
+    assert sign == -1
 
-    # Test with points forming an upward-opening parabola
+    # Upward-opening parabola: points sag below the chord -> positive sign
     y = x**2
     sign = identify_sign_tilt_angle(x, y)
-    assert sign == -1
+    assert sign == 1
 
 
 @pytest.fixture
