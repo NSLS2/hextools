@@ -2,6 +2,12 @@
 
 import os
 
+# Remove PYEPICS_LIBCA set by the conda epics-base activation script.
+# It points to conda's libca.so which conflicts with epicscorelibs' libca.so
+# (used by aioca/ophyd-async), causing PV connections to fail and the process
+# to hang on exit with "double free or corruption".
+os.environ.pop("PYEPICS_LIBCA", None)
+
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
     RunEngine,
