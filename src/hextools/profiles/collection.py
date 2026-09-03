@@ -17,14 +17,18 @@ from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from tiled.client import from_uri, simple
+from bluesky.suspenders import SuspendFloor
+from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
 
 from hextools.detectors.phantom import PhantomDetector
+from hextools.machine import NSLS2StorageRing
 from hextools.photon_delivery_system import (
     DCLM,
     Filter,
     FilterPosition,
     FilterSetting,
     Shutter,
+    load_filters,
 )
 from hextools.utils import (
     ProposalIDPrompt,
@@ -71,80 +75,24 @@ if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
 path_provider = NSLS2PathProvider(RE.md)
 
 with auto_init_devices(timeout=1.0):
-    # Photon delivery system
+    # Shutters (Front-end and photon)
     fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front_end_shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon_shutter")
+
+    # Storage ring information
+    storage_ring = NSLS2StorageRing()
+
+    # Monochromator DCLM (Double Crystal Laue Monochromator)
     dclm = DCLM("XF:27IDA-OP:1{Mono:DCLM-Ax:", name="dclm")
 
-    filter1_upstream = Filter(
-        motor_pv="XF:27IDA-OP:1{Fltr:1-Ax:Yu}Mtr",
-        in_pos_switch_pv="XF:27IDA-OP:0{Fltr:1_US}Sw:InPos-Sts",
-        positions={
-            FilterPosition.UPPER_LIMIT: FilterSetting(68.0),
-            FilterPosition.PASS_THROUGH: FilterSetting(66.6),
-            FilterPosition.POS_1: FilterSetting(41.5, "12 mm SiC"),
-            FilterPosition.POS_2: FilterSetting(6.5, "9 mm SiC"),
-            FilterPosition.POS_3: FilterSetting(-28.5, "6 mm SiC"),
-            FilterPosition.POS_4: FilterSetting(-58.0, "3 mm SiC"),
-            FilterPosition.LOWER_LIMIT: FilterSetting(-63.2),
-        },
-    )
+    # Generate filter objects from the configuration file
+    filters = load_filters()
 
-    filter1_downstream = Filter(
-        motor_pv="XF:27IDA-OP:1{Fltr:1-Ax:Yd}Mtr",
-        in_pos_switch_pv="XF:27IDA-OP:0{Fltr:1_DS}Sw:InPos-Sts",
-        positions={
-            FilterPosition.UPPER_LIMIT: FilterSetting(62.8),
-            FilterPosition.PASS_THROUGH: FilterSetting(60.3),
-            FilterPosition.POS_1: FilterSetting(35.3, "4 mm Cu"),
-            FilterPosition.POS_2: FilterSetting(0.3, "2 mm Cu"),
-            FilterPosition.POS_3: FilterSetting(-34.7, "24 mm SiC"),
-            FilterPosition.POS_4: FilterSetting(-69.7, "12 mm SiC"),
-            FilterPosition.LOWER_LIMIT: FilterSetting(-73.5),
-        },
-    )
+    # Add filters directly to namespace for convenience in interactive sessions
+    if ipython is not None:
+        for filter in filters:
+            ipython.user_ns[filter.name] = filter
 
-    filter2 = Filter(
-        motor_pv="XF:27IDA-OP:1{Fltr:2-Ax:Y}Mtr",
-        in_pos_switch_pv="XF:27IDA-OP:0{Fltr:2}Sw:InPos-Sts",
-        positions={
-            FilterPosition.UPPER_LIMIT: FilterSetting(72.2),
-            FilterPosition.PASS_THROUGH: FilterSetting(70.2),
-            FilterPosition.POS_1: FilterSetting(45.2, "2 mm Cu"),
-            FilterPosition.POS_2: FilterSetting(10.2, "1.5 mm Cu"),
-            FilterPosition.POS_3: FilterSetting(-24.8, "1 mm Cu"),
-            FilterPosition.POS_4: FilterSetting(-58.0, "0.5 mm Cu"),
-            FilterPosition.LOWER_LIMIT: FilterSetting(-61.2),
-        },
-    )
-
-    filter3 = Filter(
-        motor_pv="XF:27IDA-OP:1{Fltr:3-Ax:Y}Mtr",
-        in_pos_switch_pv="XF:27IDA-OP:0{Fltr:3}Sw:InPos-Sts",
-        positions={
-            FilterPosition.UPPER_LIMIT: FilterSetting(66.6),
-            FilterPosition.PASS_THROUGH: FilterSetting(66.0),
-            FilterPosition.POS_1: FilterSetting(40.0),
-            FilterPosition.POS_2: FilterSetting(5.0),
-            FilterPosition.POS_3: FilterSetting(-30.0),
-            FilterPosition.POS_4: FilterSetting(-63.0),
-            FilterPosition.LOWER_LIMIT: FilterSetting(-64.9),
-        },
-    )
-
-    filter4 = Filter(
-        motor_pv="XF:27IDA-OP:1{Fltr:4-Ax:Y}Mtr",
-        in_pos_switch_pv="XF:27IDA-OP:0{Fltr:4}Sw:InPos-Sts",
-        positions={
-            FilterPosition.UPPER_LIMIT: FilterSetting(71.8),
-            FilterPosition.PASS_THROUGH: FilterSetting(70.0),
-            FilterPosition.POS_1: FilterSetting(45.0),
-            FilterPosition.POS_2: FilterSetting(10.0),
-            FilterPosition.POS_3: FilterSetting(-25.0),
-            FilterPosition.POS_4: FilterSetting(-57.0),
-            FilterPosition.LOWER_LIMIT: FilterSetting(-59.8),
-        },
-    )
 
     panda1 = HDFPanda("XF:27ID1-ES{PANDA:1}", path_provider, name="panda1")
 
@@ -175,3 +123,14 @@ with auto_init_devices(timeout=1.0):
     )
 
     # TODO: Perkin elmer.
+
+
+# Install a suspender to pause the RunEngine if the beam current drops below 100 mA
+# and resume when it rises above 300 mA.
+RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=300))
+
+# Configure baseline supplemental data to include in the metadata of every run.
+sd = bpp.SupplementalData(baseline=[
+    storage_ring.beam_current,
+])
+RE.preprocessors.append(sd)

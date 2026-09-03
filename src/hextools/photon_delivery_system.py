@@ -3,9 +3,11 @@
 import asyncio
 from dataclasses import dataclass
 from enum import IntEnum
+from importlib import resources
 from typing import Final
 
 import numpy as np
+import yaml
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky.callbacks.fitting import PeakStats
@@ -154,6 +156,55 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
 
         await self.filter_motor.set(self.positions[value].position)
         await wait_for_value(self.in_position, True, timeout=10)
+
+
+FILTERS_CONFIG_RESOURCE: str = "filters.yml"
+
+
+def load_filters() -> list[Filter]:
+    """Create Filter devices from the packaged YAML configuration file.
+
+    The ``filters.yml`` file bundled with the ``hextools`` package is used.
+    Each top-level key defines a filter with its ``motor_pv``,
+    ``in_position_switch`` PV, and a ``positions`` mapping. The ``positions``
+    mapping must contain exactly one entry per :class:`FilterPosition`, keyed by
+    the lowercased enum name (``upper_limit``, ``pass_through``, ``pos_1`` ..
+    ``pos_4``, ``lower_limit``). Each value is either a number (the motor
+    position) or a mapping with ``position`` and optional ``description`` keys.
+
+    Returns
+    -------
+    list[Filter]
+        One configured Filter device per top-level entry, named after its key.
+    """
+    source = resources.files(__package__).joinpath(FILTERS_CONFIG_RESOURCE)
+    config = yaml.safe_load(source.read_text(encoding="utf-8"))
+
+    filters: list[Filter] = []
+    for name, spec in config.items():
+        positions_spec = spec["positions"]
+        if len(positions_spec) != len(FilterPosition):
+            raise ValueError(
+                f"Filter {name!r} must define exactly {len(FilterPosition)} "
+                f"positions (one per FilterPosition), got {len(positions_spec)}."
+            )
+        positions: dict[FilterPosition, FilterSetting] = {}
+        for key, value in positions_spec.items():
+            filter_position = FilterPosition[key.upper()]
+            if isinstance(value, dict):
+                setting = FilterSetting(value["position"], value.get("description"))
+            else:
+                setting = FilterSetting(value)
+            positions[filter_position] = setting
+        filters.append(
+            Filter(
+                motor_pv=spec["motor_pv"],
+                positions=positions,
+                in_pos_switch_pv=spec["in_position_switch"],
+                name=name,
+            )
+        )
+    return filters
 
 
 class Slits(StandardReadable, EpicsDevice):
