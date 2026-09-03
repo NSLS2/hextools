@@ -24,7 +24,7 @@ jobs:
         with:
           pixi-version: v0.71.3
           cache: false
-          frozen: true
+          frozen: false
 
       - name: Run pixi update
         run: |
