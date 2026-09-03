@@ -86,7 +86,6 @@ def tomo_flyscan(
         stop_position=stop_position,
         encoder_resolution=encoder_res,
         max_motor_velocity=max_velocity,
-        encoder_pos_at_zero=motor.encoder_pos_at_zero,
         acq_time_overhead=overhead,
         time_based=time_based,
     )

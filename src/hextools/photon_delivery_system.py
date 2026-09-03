@@ -177,7 +177,7 @@ def load_filters() -> list[Filter]:
     list[Filter]
         One configured Filter device per top-level entry, named after its key.
     """
-    source = resources.files(__package__).joinpath(FILTERS_CONFIG_RESOURCE)
+    source = resources.files(__name__).joinpath(FILTERS_CONFIG_RESOURCE)
     config = yaml.safe_load(source.read_text(encoding="utf-8"))
 
     filters: list[Filter] = []
@@ -413,8 +413,8 @@ def change_energy(
     # TODO: Remove type ignore once mean is added to NDStatsIO
     ps = PeakStats(
         dclm.xtal2_pitch.name,
-        fs_camera.get_plugin_by_name("stats1", NDStatsIO).mean.name,
-    )  # type: ignore
+        fs_camera.get_plugin_by_name("stats1", NDStatsIO).total.name,
+    )
 
     # Perform a scan around the current position of the crystal 2 pitch,
     # and feed the produced events into the PeakStats object to find the peak position.
@@ -431,25 +431,27 @@ def change_energy(
 
     yield from auto_tune(coarse_angle_range, coarse_num_steps)  # Coarse scan
 
-    if ps.com is None:
+    peak: float | None = ps.com  # ty: ignore[unresolved-attribute]
+    if peak is None:
         raise RuntimeError(
             "No peak found in coarse scan. Check the fluorescence screen."
         )
 
     # Move to the peak found by the coarse scan
-    yield from bps.mv(dclm.xtal2_pitch, ps.com)
+    yield from bps.mv(dclm.xtal2_pitch, peak)
 
     # Clear coarse scan events so the fine scan computes from its own data only
     ps.reset()
 
     yield from auto_tune(fine_angle_range, fine_num_steps)  # Fine scan
 
-    if ps.com is None:
+    peak = ps.com  # ty: ignore[unresolved-attribute]
+    if peak is None:
         raise RuntimeError("No peak found in fine scan. Check the fluorescence screen.")
 
     # To minimize issues with backlash, always approach the final position from below.
-    yield from bps.mv(dclm.xtal2_pitch, ps.com - 0.05)
-    yield from bps.mv(dclm.xtal2_pitch, ps.com)
+    yield from bps.mv(dclm.xtal2_pitch, peak - 0.05)
+    yield from bps.mv(dclm.xtal2_pitch, peak)
 
     # Move the fluorescence screen out of the beam path
     yield from bps.mv(dclm.flourescence_screen, dclm.fs_out)

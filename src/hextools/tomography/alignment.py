@@ -107,7 +107,7 @@ def clean_image(binary_image, size_threshold=100):
     for prop in properties:
         if prop.area >= size_threshold:
             size_mask[label_image == prop.label] = True
-    filtered_image = np.logical_and(binary_image, size_mask)  # type: ignore
+    filtered_image = np.logical_and(binary_image, size_mask)
     return filtered_image
 
 
@@ -190,7 +190,7 @@ def crop_and_flatfield_correction(
         mat_bin = calib.select_dot_based_size(mat_bin0, sphere_size)
         (y_cen, x_cen) = ndi.center_of_mass(mat_bin)
         x_centers.append(x_cen)
-        y_centers.append((bottom_crop - top_crop) - y_cen)  # type: ignore
+        y_centers.append((bottom_crop - top_crop) - y_cen)
         cropped_and_normalized.append(mat)
         print(
             f"  ---> Done image: {i:2} "

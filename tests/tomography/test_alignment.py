@@ -464,7 +464,7 @@ async def test_tomo_alignment_scan(
         else:
             messages_by_type[msg.command] = [msg]
 
-    RE.msg_hook = msg_hook  # type:ignore
+    RE.msg_hook = msg_hook
 
     runs: RunEngineResult = RE(
         tomo_alignment_scan(
@@ -479,8 +479,8 @@ async def test_tomo_alignment_scan(
             base_x_offset=base_x_offset,
             sample_stage_x=None if not include_sample_stage_x else sample_stage_x,
         ),
-        cache_docs,  # type:ignore
-    )
+        cache_docs,  # type: ignore
+    )  # type: ignore
 
     expecting_flat_run = base_x_offset > 0.0 and include_sample_stage_x
 

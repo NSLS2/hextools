@@ -27,7 +27,10 @@ jobs:
           frozen: true
 
       - name: Run pixi update
-        run: pixi update
+        run: |
+          echo "Automated monthly \`pixi update\` of the lockfile." > diff.md
+          echo "" >> diff.md
+          pixi update --json | pixi exec pixi-diff-to-markdown >> diff.md
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
@@ -35,4 +38,4 @@ jobs:
           commit-message: "Update pixi lockfile"
           title: "Update pixi lockfile"
           branch: pixi-update
-          body: "Automated monthly `pixi update` of the lockfile."
+          body-path: diff.md
