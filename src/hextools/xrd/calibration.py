@@ -24,7 +24,7 @@ def xrd_calibration(
 ) -> Generator[Msg, None, None]:
     """Perform an XRD calibration scan."""
     if start_position is None:
-        start_position: float = yield from bps.rd(motor)
+        start_position: float = yield from bps.rd(motor.user_readback)
 
     yield from bps.abs_set(
         detector.driver.acquire_time,
