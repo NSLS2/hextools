@@ -1,0 +1,119 @@
+[workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = ">=3.11,<3.14"
+algotom = ">=1.7.0,<2"
+ipython = ">=9.16.1,<10"
+bluesky-base = ">=1.15.1,<2"
+tiled-client = ">=0.2.14,<0.3"
+bluesky-tiled-plugins = ">=2.0.9,<3"
+rich = ">=15.0.0,<16"
+pyyaml = ">=6.0.3,<7"
+numpy = ">=2.4.6,<3"
+# ophyd-async = ">=0.21.1,<0.22"
+scipy = ">=1.17.1,<2"
+scikit-image = ">=0.26.0,<0.27"
+# nslsii = ">=0.11.9,<0.12"
+
+[pypi-dependencies]
+hextools = { path = ".", editable = true }
+nslsii = { git = "https://github.com/NSLS2/nslsii", rev = "main" }
+ophyd-async = { git = "https://github.com/jwlodek/ophyd-async", rev = "add-codec-and-process-plugin-allow-for-filtering" }
+
+[feature.profile.dependencies]
+redis-json-dict = ">=0.2.2,<0.3"
+
+[feature.qs.dependencies]
+bluesky-queueserver = ">=0.0.25,<0.0.26"
+bluesky-queueserver-api = ">=0.0.13,<0.0.14"
+bluesky-httpserver = ">=0.0.12,<0.0.13"
+
+
+[feature.qs.tasks]
+# This section needs some development work to understand the best way to
+# thread the required configuration through both the task and files checked into
+# the profile.  These will interact with the ansible roles for pushing out the
+# systemd units
+qs-backend = "start-re-manager --profile-dir=."
+qs-server = "uvicorn --host localhost --port 60610 bluesky_httpserver.server:app"
+
+[feature.terminal.dependencies]
+matplotlib = ">=3.10.9,<4"
+qtpy = ">=2.4.3,<3"
+pyside6 = ">=6.9.0,<7"
+
+[feature.terminal.tasks.start]
+cmd = "unset SESSION_MANAGER PYTHONPATH PYTHONUSERBASE && MPLBACKEND=qtagg ipython -i src/hextools/profiles/{{ profile }}.py"
+args = [
+  { arg = "mock", default = "false", choices = ["true", "false"] },
+  { arg = "profile", default = "collection" },
+]
+env = { HEXTOOLS_RUNNING_IN_CI = "{% if mock == 'true' %}YES{% endif %}" }
+
+[feature.py311.dependencies]
+python = "3.11.*"
+
+[feature.py312.dependencies]
+python = "3.12.*"
+
+[feature.py313.dependencies]
+python = "3.13.*"
+
+[feature.dev.dependencies]
+pre-commit = ">=4.6.1,<5"
+pytest = ">=9.1.1,<10"
+pytest-cov = ">=7.1.0,<8"
+pytest-mock = ">=3.15.1,<4"
+ruff = ">=0.16.2,<0.17"
+ty = ">=0.0.69,<0.0.70"
+pytest-asyncio = ">=1.4.0,<2"
+import-linter = ">=2.13,<3"
+myst-parser = ">=5.1.0,<6"
+inflection = ">=0.5.1,<0.6"
+pytest-timeout = ">=2.4.0,<3"
+tiled-server = ">=0.2.14,<0.3"
+python-build = ">=1.2.2,<2"
+pyside6 = ">=6.11.1,<7"
+yamale = ">=6.1.0,<7"
+hdf5plugin = ">=6.0.0,<8"
+h5py = ">=3.16.0,<4"
+
+# Runs the profile in mock mode; lives here because mock mode needs dev-only
+# packages (uvicorn via tiled-server). Sets its own env because task env does not
+# propagate through `depends-on`. Run with `pixi run -e terminal-dev start-mock`.
+[feature.dev.tasks.start-mock]
+cmd = "unset SESSION_MANAGER PYTHONPATH PYTHONUSERBASE && MPLBACKEND=qtagg ipython -i src/hextools/profiles/{{ profile }}.py"
+args = [{ arg = "profile", default = "collection" }]
+env = { HEXTOOLS_RUNNING_IN_CI = "YES", BEAMLINE_ACRONYM = "HEX" }
+
+[feature.gui.dependencies]
+pyside6 = ">=6.9.0,<7"
+qtpy = ">=2.4.3,<3"
+
+
+[feature.gui.tasks]
+qserver-gui = "queue-monitor --http-server-uri https://xf27id1-hex-qs1.nsls2.bnl.gov:443"
+
+[environments]
+# Base environments
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
+# Profile environments
+terminal = {features = ["profile", "terminal"], solve-group = "profile"}
+# Terminal environment plus dev packages (uvicorn, etc.) for mock runs.
+terminal-dev = { features = ["profile", "terminal", "dev"] }
+qs = { features = ["profile", "qs"], solve-group = "profile" }
+gui = { features = ["profile", "gui"], solve-group = "profile" }
+
+# Python version specific environments for CI
+py311 = { features = ["dev", "py311"], solve-group = "py311" }
+py312 = { features = ["dev", "py312"], solve-group = "py312" }
+py313 = { features = ["dev", "py313"], solve-group = "py313" }
+
+[feature.py313.tasks]
+tests = "pytest --cov=src/hextools --cov-report=term"
+lint = "pre-commit run --all-files"
+type-check = "ty check src tests"

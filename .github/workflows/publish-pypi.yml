@@ -21,18 +21,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Setup Python
-        uses: actions/setup-python@v7
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
         with:
-          python-version: '3.13'
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+          environments: dev
 
       - name: Build sdist and wheel
         run: >
           export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) &&
-          uv build
+          pixi run --as-is -e dev python -m build
 
       - name: Upload sdist and wheel as artifacts
         uses: actions/upload-artifact@v7
@@ -45,8 +42,8 @@ jobs:
 
       - name: Install produced wheel
         run: |
-          uv pip install dist/*.whl --system
+          pixi run --as-is -e dev pip install dist/*.whl --force-reinstall --no-deps
 
       - name: Verify installation
         run: |
-          python -m hextools --version
+          pixi run --as-is -e dev python -m hextools --version

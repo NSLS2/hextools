@@ -6,6 +6,7 @@ repos:
     hooks:
       - id: check-added-large-files
       - id: check-yaml
+        exclude: ^schemas/
       - id: check-merge-conflict
       - id: end-of-file-fixer
 

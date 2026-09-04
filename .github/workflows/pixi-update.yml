@@ -1,0 +1,41 @@
+---
+name: Pixi Update
+
+on:
+  schedule:
+    - cron: "0 0 1 * *"
+  workflow_dispatch:
+
+jobs:
+  update:
+    name: Update Pixi Lockfile
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: true
+      
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
+        with:
+          pixi-version: v0.71.3
+          cache: false
+          frozen: false
+
+      - name: Run pixi update
+        run: |
+          echo "Automated monthly \`pixi update\` of the lockfile." > diff.md
+          echo "" >> diff.md
+          pixi update --json | pixi exec pixi-diff-to-markdown >> diff.md
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "Update pixi lockfile"
+          title: "Update pixi lockfile"
+          branch: pixi-update
+          body-path: diff.md

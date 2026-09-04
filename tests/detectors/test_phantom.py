@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
 
 import bluesky.plans as bp
@@ -16,11 +17,11 @@ from ophyd_async.core import (
     init_devices,
     set_mock_value,
 )
-from ophyd_async.epics.adcore import ADBaseDataType
+from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFileIO
 
 import hextools.detectors.phantom
 from hextools.detectors.phantom import (
-    PhantomArmLogic,
+    PhantomAcquireLogic,
     PhantomDetector,
     PhantomIO,
     PhantomPixelDataFormat,
@@ -42,16 +43,16 @@ def phantom_trigger_logic(phantom_io: PhantomIO):
 
 @pytest.fixture
 def phantom_arm_logic(phantom_io: PhantomIO):
-    return PhantomArmLogic(phantom_io)
+    return PhantomAcquireLogic(phantom_io)
 
 
 @pytest.fixture
 def phantom_detector_factory():
     def _factory(write_path: Path):
         return PhantomDetector(
-            prefix="TEST:PHANTOM",
-            path_provider=StaticPathProvider(
-                StaticFilenameProvider("scan"), write_path
+            "TEST:PHANTOM",
+            ADWriterFactory.hdf(
+                StaticPathProvider(StaticFilenameProvider("scan"), write_path),
             ),
             name="phantom",
         )
@@ -64,7 +65,9 @@ def phantom_detector(RE, phantom_detector_factory, tmp_path: Path) -> PhantomDet
     with init_devices(mock=True):
         phantom = phantom_detector_factory(tmp_path)
 
-    set_mock_value(phantom.writer.file_path_exists, True)
+    assert isinstance(phantom.hdf, NDPluginFileIO)
+
+    set_mock_value(phantom.hdf.file_path_exists, True)
     return phantom
 
 
@@ -140,7 +143,7 @@ async def test_trigger_logic_setup_download(
 
 
 async def test_arm_logic_arm_timeout_waiting_for_trigger(
-    phantom_arm_logic: PhantomArmLogic, monkeypatch
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
         hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
@@ -159,13 +162,13 @@ async def test_arm_logic_arm_timeout_waiting_for_trigger(
         with pytest.raises(
             RuntimeError, match="Acquisition stopped while waiting for event trigger!"
         ):
-            await phantom_arm_logic.arm()
+            await phantom_arm_logic.start_acquiring()
     finally:
         stop_task.cancel()
 
 
 async def test_arm_logic_arm_timeout_saving_to_cine(
-    phantom_arm_logic: PhantomArmLogic, monkeypatch
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
         hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
@@ -183,11 +186,11 @@ async def test_arm_logic_arm_timeout_saving_to_cine(
         TimeoutError,
         match="Received event trigger, but writing to cine was not completed!",
     ):
-        await phantom_arm_logic.arm()
+        await phantom_arm_logic.start_acquiring()
 
 
 async def test_arm_logic_arm_post_trig_frames_incorrect(
-    phantom_arm_logic: PhantomArmLogic, monkeypatch
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
         hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
@@ -207,10 +210,12 @@ async def test_arm_logic_arm_post_trig_frames_incorrect(
         ValueError,
         match="Expected number of post trig frames .* does not match actual number .*",
     ):
-        await phantom_arm_logic.arm()
+        await phantom_arm_logic.start_acquiring()
 
 
-async def test_arm_logic_arm_success(phantom_arm_logic: PhantomArmLogic, monkeypatch):
+async def test_arm_logic_arm_success(
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
+):
     monkeypatch.setattr(
         hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
     )  # Set a short timeout for the test
@@ -225,12 +230,12 @@ async def test_arm_logic_arm_success(phantom_arm_logic: PhantomArmLogic, monkeyp
         phantom_arm_logic.driver.array_counter, 10
     )  # Matches post_trig_frames
 
-    await phantom_arm_logic.arm()  # Should complete without exceptions
+    await phantom_arm_logic.start_acquiring()  # Should complete without exceptions
     assert await phantom_arm_logic.driver.download.get_value()
 
 
 async def test_arm_logic_wait_for_idle_timeout(
-    phantom_arm_logic: PhantomArmLogic, monkeypatch
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
         hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
@@ -246,7 +251,7 @@ async def test_arm_logic_wait_for_idle_timeout(
 
 
 async def test_arm_logic_wait_for_idle_success(
-    phantom_arm_logic: PhantomArmLogic, monkeypatch
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
         hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.5
@@ -310,7 +315,10 @@ async def test_detector_describe(
 
 
 async def test_detector_full_stack(
-    RE, phantom_detector_factory, tiled_client, monkeypatch
+    RE: RunEngine,
+    phantom_detector_factory: Callable[[Path], PhantomDetector],
+    tiled_client,
+    monkeypatch,
 ):
 
     monkeypatch.setenv(
@@ -322,10 +330,12 @@ async def test_detector_full_stack(
     tiled_writer = TiledWriter(c)
     docs_cache: dict[str, list] = {}
 
+    assert phantom.hdf is not None
+
     RE.subscribe(tiled_writer)
     RE.subscribe(lambda name, doc: docs_cache.setdefault(name, []).append(doc))
 
-    set_mock_value(phantom.writer.file_path_exists, True)
+    set_mock_value(phantom.hdf.file_path_exists, True)
     set_mock_value(
         phantom.driver.select_pixel_data_format, PhantomPixelDataFormat.P_TEN
     )
@@ -343,10 +353,11 @@ async def test_detector_full_stack(
             set_mock_value(phantom.driver.complete_and_valid, 1)
 
     def _on_download(value, **kwargs):
+        assert phantom.hdf is not None
         if value:
             for count in range(1, 12):
                 set_mock_value(phantom.driver.download_count, count)
-                set_mock_value(phantom.writer.num_captured, count)
+                set_mock_value(phantom.hdf.num_captured, count)
 
         with h5py.File(tmp_path / "scan.h5", "w") as f:
             f.create_dataset(

@@ -1,0 +1,76 @@
+---
+# Filter configuration for the HEX beamline's photon delivery system.
+#
+# Consumed by hextools.photon_delivery_system.load_filters().
+#
+# Schema
+# ------
+# Each top-level key is the device name of a filter and maps to:
+#   motor_pv:            EPICS PV of the filter motor.
+#   in_position_switch:  EPICS PV of the in-position status switch.
+#   positions:           Mapping with exactly one entry per FilterPosition.
+#                        Keys must be the FilterPosition enum names, lowercased:
+#                        upper_limit, pass_through, pos_1, pos_2, pos_3, pos_4,
+#                        lower_limit. Each value is either:
+#                          - a number: the motor position (no description), or
+#                          - a mapping: {position: <number>, description: <text>}.
+filters:
+  filter1_upstream:
+    motor_pv: XF:27IDA-OP:1{Fltr:1-Ax:Yu}Mtr
+    in_position_switch: XF:27IDA-OP:0{Fltr:1_US}Sw:InPos-Sts
+    positions:
+      upper_limit: 68.0
+      pass_through: 66.6
+      pos_1: {position: 41.5, description: 12 mm SiC}
+      pos_2: {position: 6.5, description: 9 mm SiC}
+      pos_3: {position: -28.5, description: 6 mm SiC}
+      pos_4: {position: -58.0, description: 3 mm SiC}
+      lower_limit: -63.2
+
+  filter1_downstream:
+    motor_pv: XF:27IDA-OP:1{Fltr:1-Ax:Yd}Mtr
+    in_position_switch: XF:27IDA-OP:0{Fltr:1_DS}Sw:InPos-Sts
+    positions:
+      upper_limit: 62.8
+      pass_through: 60.3
+      pos_1: {position: 35.3, description: 4 mm Cu}
+      pos_2: {position: 0.3, description: 2 mm Cu}
+      pos_3: {position: -34.7, description: 24 mm SiC}
+      pos_4: {position: -69.7, description: 12 mm SiC}
+      lower_limit: -73.5
+
+  filter2:
+    motor_pv: XF:27IDA-OP:1{Fltr:2-Ax:Y}Mtr
+    in_position_switch: XF:27IDA-OP:0{Fltr:2}Sw:InPos-Sts
+    positions:
+      upper_limit: 72.2
+      pass_through: 70.2
+      pos_1: {position: 45.2, description: 2 mm Cu}
+      pos_2: {position: 10.2, description: 1.5 mm Cu}
+      pos_3: {position: -24.8, description: 1 mm Cu}
+      pos_4: {position: -58.0, description: 0.5 mm Cu}
+      lower_limit: -61.2
+
+  filter3:
+    motor_pv: XF:27IDA-OP:1{Fltr:3-Ax:Y}Mtr
+    in_position_switch: XF:27IDA-OP:0{Fltr:3}Sw:InPos-Sts
+    positions:
+      upper_limit: 66.6
+      pass_through: 66.0
+      pos_1: 40.0
+      pos_2: 5.0
+      pos_3: -30.0
+      pos_4: -63.0
+      lower_limit: -64.9
+
+  filter4:
+    motor_pv: XF:27IDA-OP:1{Fltr:4-Ax:Y}Mtr
+    in_position_switch: XF:27IDA-OP:0{Fltr:4}Sw:InPos-Sts
+    positions:
+      upper_limit: 71.8
+      pass_through: 70.0
+      pos_1: 45.0
+      pos_2: 10.0
+      pos_3: -25.0
+      pos_4: -57.0
+      lower_limit: -59.8

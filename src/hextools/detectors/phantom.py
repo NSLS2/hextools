@@ -9,7 +9,6 @@ from ophyd_async.core import (
     DetectorTriggerLogic,
     DeviceVector,
     OnOff,
-    PathProvider,
     SignalR,
     SignalRW,
     StrictEnum,
@@ -21,13 +20,14 @@ from ophyd_async.core import (
     set_and_wait_for_other_value,
 )
 from ophyd_async.epics.adcore import (
-    ADArmLogic,
+    ADAcquireLogic,
     ADBaseDataType,
     ADBaseIO,
     ADHDFDataLogic,
     ADMultipartDataLogic,
-    ADWriterType,
+    ADWriterFactory,
     AreaDetector,
+    NDFileHDF5IO,
     NDPluginBaseIO,
 )
 from ophyd_async.epics.core import PvSuffix, epics_signal_rw_rbv
@@ -354,14 +354,16 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         return TriggerInfo(collections_per_event=(dl_end - dl_start + 1))
 
 
-class PhantomArmLogic(ADArmLogic):
-    """Arm logic for the Phantom camera."""
+class PhantomAcquireLogic(ADAcquireLogic):
+    """Acquire logic for the Phantom camera."""
+
+    driver: PhantomIO
 
     def __init__(self, driver: PhantomIO):
         super().__init__(driver, driver.acquire)
         self.driver = driver
 
-    async def arm(self):
+    async def start_acquiring(self):
         """Start the acquisition and the image data download.
 
         Start the acquisition, wait for the event trigger,
@@ -480,26 +482,24 @@ class PhantomArmLogic(ADArmLogic):
 class PhantomDetector(AreaDetector[PhantomIO]):
     """Detector class for Phantom cameras."""
 
+    hdf: NDFileHDF5IO | None = None
+
     def __init__(
         self,
         prefix: str,
-        path_provider: PathProvider | None = None,
+        *writer_factories: ADWriterFactory,
         driver_suffix="cam1:",
-        writer_type: ADWriterType | None = ADWriterType.HDF,
-        writer_suffix: str | None = None,
         plugins: dict[str, NDPluginBaseIO] | None = None,
         config_sigs: Sequence[SignalR] = (),
         name: str = "",
     ) -> None:
         driver = PhantomIO(prefix + driver_suffix)
         super().__init__(
-            prefix=prefix,
-            driver=driver,
-            arm_logic=PhantomArmLogic(driver),
+            driver,
+            prefix,
+            *writer_factories,
+            acquire_logic=PhantomAcquireLogic(driver),
             trigger_logic=PhantomTriggerLogic(driver),
-            path_provider=path_provider,
-            writer_type=writer_type,
-            writer_suffix=writer_suffix,
             plugins=plugins,
             config_sigs=config_sigs,
             name=name,
@@ -508,4 +508,6 @@ class PhantomDetector(AreaDetector[PhantomIO]):
         # Override default data type signal in datalogic description
         for data_logic in self._data_logics:
             if isinstance(data_logic, (ADHDFDataLogic, ADMultipartDataLogic)):
-                data_logic.description.data_type_signal = self.driver.download_data_type
+                data_logic.array_description.data_type_signal = (
+                    self.driver.download_data_type
+                )

@@ -1,0 +1,27 @@
+---
+
+filters: map(include('filter'))
+
+---
+
+filter:
+  motor_pv: str()
+  in_position_switch: str()
+  positions:
+    upper_limit: include('position')
+    pass_through: include('position')
+    pos_1: include('position')
+    pos_2: include('position')
+    pos_3: include('position')
+    pos_4: include('position')
+    lower_limit: include('position')
+
+---
+
+position: any(num(), include('position_with_description'))
+
+---
+
+position_with_description:
+  position: num()
+  description: str()
