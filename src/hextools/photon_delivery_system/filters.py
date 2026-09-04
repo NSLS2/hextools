@@ -74,7 +74,7 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
             )
         super().__init__(name=name)
 
-def _get_description(self, in_pos: bool, motor_pos: float) -> str:
+    def _get_description(self, in_pos: bool, motor_pos: float) -> str:
         """Get the description of the current filter setting based on motor position.
 
         Parameters
