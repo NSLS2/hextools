@@ -21,6 +21,7 @@ from ophyd_async.core import (
 from ophyd_async.epics.core import (
     EpicsDevice,
     epics_signal_r,
+    epics_signal_rw,
     epics_triggerable_command,
 )
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
@@ -56,11 +57,11 @@ class OpticsTable(StandardReadable, EpicsDevice):
         with self.add_children_as_readables(Format.CHILD):
             self.x2 = AsyncEpicsMotor(prefix + "X2}Mtr", name="x2")
             self.y2 = AsyncEpicsMotor(prefix + "Y2}Mtr", name="y2")
-            self.rx3 = AsyncEpicsMotor(prefix + "RX3}Mtr", name="rx3")
-            self.ry3 = AsyncEpicsMotor(prefix + "RY3}Mtr", name="ry3")
+            self.rx3 = AsyncEpicsMotor(prefix + "Rx3}Mtr", name="rx3")
+            self.ry3 = AsyncEpicsMotor(prefix + "Ry3}Mtr", name="ry3")
             self.x3 = AsyncEpicsMotor(prefix + "X3}Mtr", name="x3")
             self.y3 = AsyncEpicsMotor(prefix + "Y3}Mtr", name="y3")
-            self.ry4 = AsyncEpicsMotor(prefix + "RY4}Mtr", name="ry4")
+            self.ry4 = AsyncEpicsMotor(prefix + "Ry4}Mtr", name="ry4")
             self.x4 = AsyncEpicsMotor(prefix + "X4}Mtr", name="x4")
             self.a1 = AsyncEpicsMotor(prefix + "A1}Mtr", name="a1")
             self.z0 = AsyncEpicsMotor(prefix + "Z0}Mtr", name="z0")
@@ -161,8 +162,8 @@ class SampleTower(StandardReadable, EpicsDevice):
 class CameraObjective(StrictEnum):
     """Represents the camera objective in use."""
 
-    LEFT_4MM = "left_4mm"
-    RIGHT_2MM = "right_2mm"
+    RIGHT_2MM = "Right Objective"
+    LEFT_4MM = "Left Objective"
 
 
 class HomeStatus(StrictEnum):
@@ -172,7 +173,7 @@ class HomeStatus(StrictEnum):
     HOMED = "Homed"
 
 
-class DoubleObjCamera(StandardReadable, EpicsDevice, AsyncMovable[CameraObjective]):
+class FOV_2_4_mm_Camera(StandardReadable, EpicsDevice, AsyncMovable[CameraObjective | str]):
     """HEX double objective camera."""
 
     def __init__(self, prefix: str, name: str = "double_obj_camera"):
@@ -189,21 +190,18 @@ class DoubleObjCamera(StandardReadable, EpicsDevice, AsyncMovable[CameraObjectiv
             prefix + "ObjSel}Sts:HomeCmplt-Sts",
             name="obj_selector_home_sts",
         )
+        self.objective = epics_signal_rw(CameraObjective, prefix + "ObjSel}Objective", name="objective")
+
         self._at_right_objective = epics_signal_r(
             bool, prefix + "ObjSel}AtRightObj", name="at_right_objective"
         )
         self._at_left_objective = epics_signal_r(
             bool, prefix + "ObjSel}AtLeftObj", name="at_left_objective"
         )
-        self._goto_right_objective = epics_triggerable_command(
-            prefix + "ObjSel}Cmd:GotoRight-Cmd", name="goto_right_objective"
-        )
-        self._goto_left_objective = epics_triggerable_command(
-            prefix + "ObjSel}Cmd:GotoLeft-Cmd", name="goto_left_objective"
-        )
+
 
     @AsyncStatus.wrap
-    async def set(self, value: CameraObjective):
+    async def set(self, value: CameraObjective | str):
         """Move the camera to the specified objective.
 
         Parameters
@@ -222,20 +220,32 @@ class DoubleObjCamera(StandardReadable, EpicsDevice, AsyncMovable[CameraObjectiv
                 "Please home it before moving to a specific objective."
             )
 
-        if value == CameraObjective.LEFT_4MM:
-            await self._goto_left_objective.execute()
-            rb_check = self._at_left_objective
-        else:
-            await self._goto_right_objective.execute()
-            rb_check = self._at_right_objective
+        # Attempt to auto-deduce the CameraObjective from a string input.
+        if isinstance(value, str):
+            for possible_value in CameraObjective:
+                if value.upper() in possible_value.name:
+                    value = possible_value
+                    break
 
+        if not isinstance(value, CameraObjective):
+            raise ValueError(
+                f"Invalid objective value: {value}. "
+                "Must be a CameraObjective or a string matching" \
+                "one of its names."
+            )
+
+        await self.objective.set(value)
+        if value == CameraObjective.RIGHT_2MM:
+            rb_check = self._at_right_objective
+        else:
+            rb_check = self._at_left_objective
         await wait_for_value(rb_check, True, timeout=None)
 
 
-class WideFOVCamera(StandardReadable, EpicsDevice):
+class FOV_20_40_mm_Camera(StandardReadable, EpicsDevice):
     """HEX wide field of view camera."""
 
-    def __init__(self, prefix: str, name: str = "wide_fov_camera"):
+    def __init__(self, prefix: str, name: str = "fov_20_40_mm_camera"):
         super().__init__(prefix, name=name)
         with self.add_children_as_readables(Format.CHILD):
             self.focus = AsyncEpicsMotor(prefix + "Focus}Mtr", name="focus")

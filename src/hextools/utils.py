@@ -154,7 +154,7 @@ def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
     print_proposal_info(md)
 
 
-def auto_init_devices(timeout: float = 1.0):
+def auto_init_devices(timeout: float = 1.0, verbose: bool = False) -> DeviceProcessor:
     """Create a DeviceProcessor that connects devices, printing status for each.
 
     Parameters
@@ -179,10 +179,12 @@ def auto_init_devices(timeout: float = 1.0):
             name: device.connect(mock, timeout) for name, device in devices.items()
         }
         failed: set[str] = set()
+        reasons: dict[str, str] = {}
         try:
             await wait_for_connection(**coros)
         except NotConnectedError as e:
             failed = set(e.sub_errors.keys())
+            reasons = {name: str(err) for name, err in e.sub_errors.items()}
 
         for name in devices:
             dots = "." * (40 - len(name))
@@ -193,5 +195,7 @@ def auto_init_devices(timeout: float = 1.0):
             else:
                 status = rf"\[[bold green]{'OK'.center(6)}[/bold green]]"
             console.print(f"  {name} {dots} {status}")
+        if verbose:
+            console.print("\n".join(f"{name}: {reason}" for name, reason in reasons.items()) if reasons else "")
 
     return DeviceProcessor(_process_devices)
