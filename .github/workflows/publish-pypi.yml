@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Pixi
-        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.0
         with:
           environments: dev
 
