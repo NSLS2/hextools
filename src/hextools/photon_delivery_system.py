@@ -177,7 +177,7 @@ def load_filters() -> list[Filter]:
     list[Filter]
         One configured Filter device per top-level entry, named after its key.
     """
-    source = resources.files(__name__).joinpath(FILTERS_CONFIG_RESOURCE)
+    source = resources.files(__package__ or "hextools").joinpath(FILTERS_CONFIG_RESOURCE)
     config = yaml.safe_load(source.read_text(encoding="utf-8"))
 
     filters: list[Filter] = []

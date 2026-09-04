@@ -20,6 +20,7 @@ from ophyd_async.core import (
 from pygments.token import Token
 from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
+from rich.console import Console
 
 
 async def merge_async_iterables(*aiterables):
@@ -98,6 +99,11 @@ def initialize_run_engine() -> RunEngine:
                 "cycle": (
                     f"{datetime.today().year}-{int(datetime.today().month / 4) + 1}"
                 ),
+                "proposal": {
+                    "title": "Mock mode proposal",
+                    "type": "Mock Commissioning",
+                    "pi_name": os.getenv("USER", "Unknown"),
+                }
             }
         )
     return RunEngine(
@@ -113,10 +119,11 @@ def print_proposal_info(md: MutableMapping[str, Any]):
     """
     proposal_md = md.get("proposal", {})
     if proposal_md:
-        rprint(f"Proposal title: [italic]{proposal_md['title']}[/italic]\n")
         rprint(
-            f"Proposal type: [italic]{proposal_md['type']}[/italic], "
-            f"Proposal PI: [italic]{proposal_md['pi_name']}[/italic]\n"
+            "Active proposal:\n"
+            f"  Proposal title: [italic]{proposal_md['title']}[/italic]\n"
+            f"  Proposal type: [italic]{proposal_md['type']}[/italic]\n"
+            f"  Proposal PI: [italic]{proposal_md['pi_name']}[/italic]\n"
         )
 
 
@@ -135,10 +142,25 @@ def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
 
 
 def auto_init_devices(timeout: float = 1.0):
-    """Create a DeviceProcessor that connects devices, printing status for each."""
-    mock = is_running_in_ci()
+    """Create a DeviceProcessor that connects devices, printing status for each.
+    
+    Parameters
+    ----------
+    timeout : float
+        The timeout in seconds for each device connection attempt.
 
-    async def process_devices(devices: dict[str, Device]):
+    Returns
+    -------
+    DeviceProcessor
+        A DeviceProcessor that connects devices and prints their connection status.
+    """
+
+    mock = is_running_in_ci()
+    # highlight=False stops rich from coloring dot-runs as ellipses.
+    console = Console(highlight=False)
+    console.print("\n[bold]Initializing devices...[/bold]\n")
+
+    async def _process_devices(devices: dict[str, Device]):
         for name, device in devices.items():
             device.set_name(name, child_name_separator="_")
         coros = {
@@ -149,11 +171,15 @@ def auto_init_devices(timeout: float = 1.0):
             await wait_for_connection(**coros)
         except NotConnectedError as e:
             failed = set(e.sub_errors.keys())
+
         for name in devices:
             dots = "." * (40 - len(name))
+            # Center both labels to the same width so the brackets line up.
+            # Escaped brackets stay uncolored; only the label text is styled.
             if name in failed:
-                rprint(f"  {name} {dots} [bold red]Disconnected[/bold red]")
+                status = rf"\[[bold red]{'DC'.center(6)}[/bold red]]"
             else:
-                rprint(f"  {name} {dots} [bold green]Ok[/bold green]")
+                status = rf"\[[bold green]{'OK'.center(6)}[/bold green]]"
+            console.print(f"  {name} {dots} {status}")
 
-    return DeviceProcessor(process_devices)
+    return DeviceProcessor(_process_devices)

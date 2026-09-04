@@ -77,10 +77,12 @@ yamale = ">=6.1.0,<7"
 hdf5plugin = ">=6.0.0,<8"
 h5py = ">=3.16.0,<4"
 
-# Runs `start` in mock mode; lives here because mock mode needs dev-only
-# packages (uvicorn via tiled-server). Run with `pixi run -e terminal-dev start-mock`.
+# Runs the profile in mock mode; lives here because mock mode needs dev-only
+# packages (uvicorn via tiled-server). Sets its own env because task env does not
+# propagate through `depends-on`. Run with `pixi run -e terminal-dev start-mock`.
 [feature.dev.tasks.start-mock]
-depends-on = [{ task = "start", args = ["true"] }]
+cmd = "unset SESSION_MANAGER PYTHONPATH PYTHONUSERBASE && MPLBACKEND=qtagg ipython -i src/hextools/profiles/$(printenv BS_PROFILE || echo collection).py"
+env = { HEXTOOLS_RUNNING_IN_CI = "YES", BEAMLINE_ACRONYM = "HEX" }
 
 [feature.gui.dependencies]
 pyside6 = ">=6.9.0,<7"
