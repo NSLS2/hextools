@@ -14,7 +14,6 @@ from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
 )
-from bluesky.suspenders import SuspendFloor
 from bluesky.utils import ProgressBarManager
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
@@ -33,6 +32,7 @@ from hextools.photon_delivery_system import (
     DCLM,
     Filter,
     Shutter,
+    Slits,
     load_filters,
 )
 from hextools.utils import (
@@ -96,6 +96,10 @@ with auto_init_devices(timeout=1.0):
     # Shutters (Front-end and photon)
     fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front_end_shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon_shutter")
+
+    # Slits
+    wb_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="wb_slits")
+    pb_slits = Slits("XF:27IDA-OP:1{Slt:2-Ax:", name="pb_slits")
 
     # Storage ring information
     storage_ring = NSLS2StorageRing()
@@ -191,12 +195,14 @@ with auto_init_devices(timeout=1.0):
 
 # Install a suspender to pause the RunEngine if the beam current drops below 100 mA
 # and resume when it rises above 300 mA.
-RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
+# RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
 
 # Configure baseline supplemental data to include in the metadata of every run.
 sd = bpp.SupplementalData(
     baseline=[
         storage_ring.beam_current,
+        wb_slits,
+        pb_slits,
         sample_tower,
         dclm,
         optics_table,

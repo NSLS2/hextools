@@ -4,9 +4,10 @@ import asyncio
 import os
 from collections.abc import MutableMapping
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from bluesky.run_engine import RunEngine
+from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from IPython.terminal.prompts import Prompts
 from nslsii.sync_experiment import sync_experiment
@@ -21,6 +22,18 @@ from pygments.token import Token
 from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
 from rich.console import Console
+
+NSVarT = TypeVar("NSVarT")
+
+
+def get_obj_from_ipython_ns(var_name: str, var_type: type[NSVarT]) -> NSVarT | None:
+    """Get an obj from the IPython ns if it exists and is of the correct type."""
+    ipython = get_ipython()
+    if ipython is not None:
+        obj = ipython.user_ns.get(var_name)
+        if isinstance(obj, var_type):
+            return obj
+    return None
 
 
 async def merge_async_iterables(*aiterables):
