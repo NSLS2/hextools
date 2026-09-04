@@ -23,7 +23,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.0
         with:
           pixi-version: v0.79.0
           environments: dev
@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.0
         with:
           pixi-version: v0.79.0
           environments: dev
@@ -71,7 +71,7 @@ jobs:
         run: echo "env=py$(echo '${{ matrix.python-version }}' | tr -d '.')" >> "$GITHUB_OUTPUT"
 
       - name: Setup Pixi
-        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.0
         with:
           pixi-version: v0.79.0
           environments: ${{ steps.pixi.outputs.env }}

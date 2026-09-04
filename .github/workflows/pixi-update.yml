@@ -20,7 +20,7 @@ jobs:
           persist-credentials: true
       
       - name: Setup pixi
-        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
+        uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e  # v0.10.0
         with:
           pixi-version: v0.79.0
           cache: false
@@ -33,7 +33,7 @@ jobs:
           pixi update --json | pixi exec pixi-diff-to-markdown >> diff.md
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "Update pixi lockfile"
           title: "Update pixi lockfile"
