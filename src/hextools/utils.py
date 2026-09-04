@@ -103,7 +103,7 @@ def initialize_run_engine() -> RunEngine:
                     "title": "Mock mode proposal",
                     "type": "Mock Commissioning",
                     "pi_name": os.getenv("USER", "Unknown"),
-                }
+                },
             }
         )
     return RunEngine(
@@ -143,7 +143,7 @@ def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
 
 def auto_init_devices(timeout: float = 1.0):
     """Create a DeviceProcessor that connects devices, printing status for each.
-    
+
     Parameters
     ----------
     timeout : float
@@ -154,7 +154,6 @@ def auto_init_devices(timeout: float = 1.0):
     DeviceProcessor
         A DeviceProcessor that connects devices and prints their connection status.
     """
-
     mock = is_running_in_ci()
     # highlight=False stops rich from coloring dot-runs as ellipses.
     console = Console(highlight=False)
