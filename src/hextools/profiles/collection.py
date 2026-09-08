@@ -151,7 +151,7 @@ with auto_init_devices(timeout=1.0):
     phantom1 = PhantomDetector(
         "XF:27ID1-ES{Phantom-Det:1}",
         ADWriterFactory.hdf(path_provider),
-        name="phantom1",
+        name="phantom",
     )
 
     diamond_window_camera = VimbaDetector(
