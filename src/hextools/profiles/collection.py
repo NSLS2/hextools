@@ -148,7 +148,7 @@ with auto_init_devices(timeout=1.0):
     )
     wide_fov_camera = WideFOVCamera("XF:27IDF-OP:1{OPT:2-Ax:", name="wide_fov_camera")
 
-    phantom1 = PhantomDetector(
+    phantom = PhantomDetector(
         "XF:27ID1-ES{Phantom-Det:1}",
         ADWriterFactory.hdf(path_provider),
         name="phantom",
