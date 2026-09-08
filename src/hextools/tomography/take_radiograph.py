@@ -45,6 +45,7 @@ profile), not by this plan — the old script's proposal-folder logic is gone.
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
 from ophyd_async.core import DetectorTrigger, StandardDetector, TriggerInfo
+from ophyd_async.epics.adcore import AreaDetector
 
 from hextools.photon_delivery_system import Shutter
 
@@ -54,7 +55,7 @@ FRAME_PERIOD_MARGIN = 0.1
 
 
 def take_radiograph(
-    detectors: list[StandardDetector],
+    detectors: list[AreaDetector],
     front_end_shutter: Shutter,
     photon_shutter: Shutter,
     exposure_time: float,
@@ -70,7 +71,7 @@ def take_radiograph(
 
     Parameters
     ----------
-    detectors : list[StandardDetector]
+    detectors : list[AreaDetector]
         detectors to trigger; any ophyd-async detector is accepted
     front_end_shutter : Shutter
         the front-end shutter to check before opening the photon shutter
@@ -131,25 +132,18 @@ def take_radiograph(
             "frame_period": frame_period,
             "exposure_time": exposure_time,
         }
+        for det in detectors:
+            yield from bps.mv(det.driver.num_images, frames_per_burst)
 
         if sample_name is not None:
             _md["sample_name"] = sample_name
         _md.update(md or {})
         yield from bps.open_run(md=_md)
 
-        trigger_info = TriggerInfo(
-            trigger=DetectorTrigger.INTERNAL,
-            livetime=exposure_time,
-            deadtime=frame_period - exposure_time,
-        )
-
         yield from bps.stage_all(*detectors)
-        for det in detectors:
-            yield from bps.prepare(det, trigger_info, wait=True)
 
         for burst in range(num_bursts):
-            for _ in range(frames_per_burst):
-                yield from bps.trigger_and_read(detectors)
+            yield from bps.trigger_and_read(detectors)
             if burst < num_bursts - 1:
                 yield from bps.sleep(wait_between_bursts)
 
