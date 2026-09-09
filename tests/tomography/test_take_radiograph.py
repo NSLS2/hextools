@@ -19,8 +19,8 @@ from ophyd_async.epics.adkinetix import KinetixDetector
 from hextools.photon_delivery_system import Shutter
 from hextools.tomography.take_radiograph import FRAME_PERIOD_MARGIN, take_radiograph
 
-
 # --- shutters: same shape as tests/tomography/test_alignment.py ---------------
+
 
 @pytest.fixture
 def shutter_factory() -> Callable[[str], Shutter]:
@@ -128,7 +128,7 @@ async def test_take_radiograph_single_row(
             num_bursts=num_bursts,
             wait_between_bursts=wait,
         ),
-        cache_docs,
+        cache_docs,  # type: ignore
     )
 
     for kind in ("start", "descriptor", "stream_resource", "stop"):
@@ -151,5 +151,5 @@ async def test_take_radiograph_single_row(
     assert await photon_shutter.status.get_value() is False  # finalizer closed it
 
     assert await ktx.driver.acquire_period.get_value() == pytest.approx(
-    exposure_time + FRAME_PERIOD_MARGIN
+        exposure_time + FRAME_PERIOD_MARGIN
     )
