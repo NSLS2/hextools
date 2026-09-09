@@ -18,13 +18,14 @@ interrupt still closes the shutter.
 
 Trigger model
 -------------
-Each frame is acquired with ``bps.trigger_and_read`` using the camera's
-internal trigger; the plan owns the exposure via ``prepare(TriggerInfo)``
-(control screens just reflect it). Non-overlapping frames are guaranteed by
-``deadtime = frame_period - exposure_time`` — the same "period larger than
-exposure" discipline the old PandA-paced script enforced with its PULSE step.
-A PandA-paced external-trigger variant remains possible if precision frame
-timing is ever needed.
+Each burst is a single ``bps.trigger_and_read`` on the camera's internal
+trigger, with ``num_images`` set to ``frames_per_burst`` so one trigger fires
+the whole burst. The plan owns the timing directly: ``acquire_time`` is set to
+``exposure_time`` and ``acquire_period`` to ``frame_period``, so
+``frame_period - exposure_time`` is the readout margin that keeps frames
+non-overlapping — the same "period larger than exposure" discipline the old
+PandA-paced script enforced with its PULSE step. A PandA-paced external-trigger
+variant remains possible if precision frame timing is ever needed.
 
 Usage
 -----
@@ -44,7 +45,6 @@ profile), not by this plan — the old script's proposal-folder logic is gone.
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
-from ophyd_async.core import DetectorTrigger, StandardDetector, TriggerInfo
 from ophyd_async.epics.adcore import AreaDetector
 
 from hextools.photon_delivery_system import Shutter
@@ -118,11 +118,10 @@ def take_radiograph(
             photon_shutter_open = yield from bps.rd(photon_shutter.status)
             if not photon_shutter_open:
                 yield from bps.mv(photon_shutter, True)
-        total_frames = frames_per_burst * num_bursts
 
         _md = {
             "detectors": [det.name for det in detectors],
-            "num_points": total_frames,
+            "num_points": num_bursts,
             "plan_name": "take_radiograph",
             "hints": {},
             # burst structure — lets analysis reconstruct the timing
@@ -134,6 +133,8 @@ def take_radiograph(
         }
         for det in detectors:
             yield from bps.mv(det.driver.num_images, frames_per_burst)
+            yield from bps.mv(det.driver.acquire_time, exposure_time)
+            yield from bps.mv(det.driver.acquire_period, frame_period)
 
         if sample_name is not None:
             _md["sample_name"] = sample_name
