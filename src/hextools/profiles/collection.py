@@ -14,25 +14,30 @@ from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
 )
-from bluesky.suspenders import SuspendFloor
 from bluesky.utils import ProgressBarManager
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
+from pathlib import PureWindowsPath
 from nslsii.ophyd_async.providers import NSLS2PathProvider
-from ophyd_async.epics.adcore import ADWriterFactory, NDStatsIO, PluginSignalDataLogic
+from ophyd_async.epics.adcore import ADWriterFactory, NDStatsIO, PluginSignalDataLogic, ContAcqDetector
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from tiled.client import from_uri, simple
+from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
+from bluesky.suspenders import SuspendFloor
+from hextools.utils import show_docs
 
 from hextools.detectors.phantom import PhantomDetector
+from hextools.detectors.kinetix import kinetix_factory
 from hextools.machine import NSLS2StorageRing
-from hextools.motors import DoubleObjCamera, OpticsTable, SampleTower, WideFOVCamera
+from hextools.motors import FOV_2_4_mm_Camera, OpticsTable, SampleTower, FOV_20_40_mm_Camera
 from hextools.photon_delivery_system import (
     DCLM,
     Filter,
     Shutter,
+    Slits,
     load_filters,
 )
 from hextools.utils import (
@@ -97,17 +102,21 @@ with auto_init_devices(timeout=1.0):
     fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front_end_shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon_shutter")
 
+    # Slits
+    a_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="a_slits")
+    f_slits = Slits("XF:27IDF-OP:1{Slt:2-Ax:", name="f_slits")
+
     # Storage ring information
     storage_ring = NSLS2StorageRing()
 
     # Monochromator DCLM (Double Crystal Laue Monochromator)
-    dclm = DCLM("XF:27IDA-OP:1{Mono:DCLM-Ax:", name="dclm")
+    monochromator = mono = dclm = DCLM("XF:27IDA-OP:1{Mono:DCLM-Ax:", name="monochromator")
 
     # Motors for the optics table
-    optics_table = OpticsTable("XF:27ID1A-OP:1{OPT:1-Ax:", name="optics_table")
+    optics_table = OpticsTable("XF:27IDF-OP:1{OPT:1-Ax:", name="optics_table")
 
     # Sample tower
-    sample_tower = SampleTower("XF:27ID1A-OP:1{SMPL:1-Ax:", name="sample_tower")
+    sample_tower = SampleTower("XF:27IDF-OP:1{SMPL:1-Ax:", name="sample_tower")
 
     # Generate filter objects from the configuration file
     filters: list[Filter] = load_filters()
@@ -118,35 +127,19 @@ with auto_init_devices(timeout=1.0):
             ipython.user_ns[filter.name] = filter
 
     # PandABox
-    panda1 = HDFPanda("XF:27ID1-ES{PANDA:1}", path_provider, name="panda1")
+    panda1 = HDFPanda("XF:27ID1-ES{PANDA:1}:", path_provider, name="panda1")
 
     # Kinetix and Phantom detectors
-    kinetix1 = KinetixDetector(
-        "XF:27ID1-BI{Kinetix-Det:1}",
-        ADWriterFactory.hdf(path_provider),
-        name="kinetix1",
-    )
-    kinetix2 = KinetixDetector(
-        "XF:27ID1-BI{Kinetix-Det:2}",
-        ADWriterFactory.hdf(path_provider),
-        name="kinetix2",
-    )
-    kinetix3 = KinetixDetector(
-        "XF:27ID1-BI{Kinetix-Det:3}",
-        ADWriterFactory.hdf(path_provider),
-        name="kinetix3",
-    )
-    kinetix4 = KinetixDetector(
-        "XF:27ID1-BI{Kinetix-Det:4}",
-        ADWriterFactory.hdf(path_provider),
-        name="kinetix4",
-    )
+    kinetix1 = kinetix_factory(1, path_provider, name="kinetix1")
+    # kinetix2 = kinetix_factory(2, path_provider, name="kinetix2")
+    # kinetix3 = kinetix_factory(3, path_provider, name="kinetix3")
+    # kinetix4 = kinetix_factory(4, path_provider, name="kinetix4")
 
     # Optique-Peter microscope optics
-    double_obj_camera = DoubleObjCamera(
+    double_obj_camera = FOV_2_4_mm_Camera(
         "XF:27IDF-OP:1{OPT:1-Ax:", name="double_obj_camera"
     )
-    wide_fov_camera = WideFOVCamera("XF:27IDF-OP:1{OPT:2-Ax:", name="wide_fov_camera")
+    wide_fov_camera = FOV_20_40_mm_Camera("XF:27IDF-OP:1{OPT:2-Ax:", name="wide_fov_camera")
 
     phantom = PhantomDetector(
         "XF:27ID1-ES{Phantom-Det:1}",
@@ -154,52 +147,65 @@ with auto_init_devices(timeout=1.0):
         name="phantom",
     )
 
-    diamond_window_camera = VimbaDetector(
-        "XF:27IDA-BI{FAM:1-Cam:1}cam1:",
-        ADWriterFactory.hdf(path_provider),
-        name="diamond_window_camera",
-    )
+    # TODO: Re-install with ADVimba
+    # diamond_window_camera = VimbaDetector(
+    #     "XF:27IDA-BI{FAM:1-Cam:1}",
+    #     ADWriterFactory.hdf(path_provider),
+    #     name="diamond_window_camera",
+    # )
     sample_camera = VimbaDetector(
-        "XF:27ID1-ES{Sample-Cam:1}cam1:",
+        "XF:27ID1-ES{Sample-Cam:1}",
         ADWriterFactory.hdf(path_provider),
         name="sample_camera",
     )
 
-    fs_window_stats = NDStatsIO(
-        "XF:27IDA-BI{FS:1-Cam:1}Stats1:", name="fs_window_stats"
-    )
-    fs_window = VimbaDetector(
-        "XF:27IDA-BI{FS:1-Cam:1}cam1:",
-        ADWriterFactory.hdf(path_provider),
-        name="fs_window",
-        plugins={"stats1": fs_window_stats},
-    )
-    # TODO: Remove this once the StandardDetector -> StandardReadble change is merged.
-    # TODO: Use mean rather than total, once available.
-    fs_window.add_detector_logics(
-        PluginSignalDataLogic(fs_window.driver, fs_window_stats.total)
-    )
+    # TODO: Re-install with ADVimba
+    # fs_window_stats = NDStatsIO(
+    #     "XF:27IDA-BI{FS:1-Cam:1}Stats1:", name="fs_window_stats"
+    # )
+    # fs_window = VimbaDetector(
+    #     "XF:27IDA-BI{FS:1-Cam:1}",
+    #     ADWriterFactory.hdf(path_provider),
+    #     name="fs_window",
+    #     plugins={"stats1": fs_window_stats},
+    # )
+    # # TODO: Remove this once the StandardDetector -> StandardReadble change is merged.
+    # # TODO: Use mean rather than total, once available.
+    # fs_window.add_detector_logics(
+    #     PluginSignalDataLogic(fs_window.driver, fs_window_stats.total)
+    # )
 
     f_hutch_camera = VimbaDetector(
-        "XF:27IDA-BI{GigE-Cam:5}cam1:",
+        "XF:27IDA-BI{GigE-Cam:5}",
         ADWriterFactory.hdf(path_provider),
         name="f_hutch_camera",
     )
 
-    # TODO: Perkin elmer.
+    pe_path_provider = NSLS2PathProvider(RE.md, base_write_dir=PureWindowsPath("Z:\\proposals"))
+    perkin_elmer = ContAcqDetector(
+        "XF:27ID1-ES{PE-Det:1}",
+        ADWriterFactory.hdf(pe_path_provider),
+        name="perkin-elmer",
+        proc_suffix="Proc1:",
+    )
 
+# TODO: Figure out why the '-' character in the name is being
+# replaced with '_' in the ctx manager
+perkin_elmer._name = "perkin-elmer"
 
 # Install a suspender to pause the RunEngine if the beam current drops below 100 mA
 # and resume when it rises above 300 mA.
-RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
+# RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
 
 # Configure baseline supplemental data to include in the metadata of every run.
-sd = bpp.SupplementalData(
-    baseline=[
-        storage_ring.beam_current,
-        sample_tower,
-        dclm,
-        optics_table,
-    ]
-)
-RE.preprocessors.append(sd)
+# sd = bpp.SupplementalData(
+#     baseline=[
+#         storage_ring.beam_current,
+#         wb_slits,
+#         pb_slits,
+#         sample_tower,
+#         #dclm,
+#         optics_table,
+#     ]
+# )
+# RE.preprocessors.append(sd)

@@ -32,6 +32,8 @@ dependencies = [
   "algotom",
   "ipython",
   "numpy",
+  "bluesky",
+  "nslsii",
   "ophyd-async[ca, pva]",
   "rich>=15.0.0",
   "scikit-image>=0.26.0",
@@ -39,9 +41,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-iocs = [
-  "caproto",
-]
 gui = [
 #   "ntnda-qt-viewer",
 ]

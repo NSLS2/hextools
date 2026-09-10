@@ -52,7 +52,7 @@ filters:
       lower_limit: -61.2
 
   filter3:
-    motor_pv: XF:27IDA-OP:1{Fltr:3-Ax:Y}Mtr
+    motor_pv: XF:27IDA-OP:3{Fltr:3-Ax:Y}Mtr
     in_position_switch: XF:27IDA-OP:0{Fltr:3}Sw:InPos-Sts
     positions:
       upper_limit: 66.6
@@ -64,7 +64,7 @@ filters:
       lower_limit: -64.9
 
   filter4:
-    motor_pv: XF:27IDA-OP:1{Fltr:4-Ax:Y}Mtr
+    motor_pv: XF:27IDA-OP:2{Fltr:4-Ax:Y}Mtr
     in_position_switch: XF:27IDA-OP:0{Fltr:4}Sw:InPos-Sts
     positions:
       upper_limit: 71.8

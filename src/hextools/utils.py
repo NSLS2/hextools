@@ -4,9 +4,10 @@ import asyncio
 import os
 from collections.abc import MutableMapping
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from bluesky.run_engine import RunEngine
+from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from IPython.terminal.prompts import Prompts
 from nslsii.sync_experiment import sync_experiment
@@ -14,6 +15,7 @@ from nslsii.utils import open_redis_client
 from ophyd_async.core import (
     Device,
     DeviceProcessor,
+    DeviceVector,
     NotConnectedError,
     wait_for_connection,
 )
@@ -21,6 +23,18 @@ from pygments.token import Token
 from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
 from rich.console import Console
+
+NSVarT = TypeVar("NSVarT")
+
+
+def get_obj_from_ipython_ns(var_name: str, var_type: type[NSVarT]) -> NSVarT | None:
+    """Get an obj from the IPython ns if it exists and is of the correct type."""
+    ipython = get_ipython()
+    if ipython is not None:
+        obj = ipython.user_ns.get(var_name)
+        if isinstance(obj, var_type):
+            return obj
+    return None
 
 
 async def merge_async_iterables(*aiterables):
@@ -141,7 +155,7 @@ def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
     print_proposal_info(md)
 
 
-def auto_init_devices(timeout: float = 1.0):
+def auto_init_devices(timeout: float = 1.0, verbose: bool = False) -> DeviceProcessor:
     """Create a DeviceProcessor that connects devices, printing status for each.
 
     Parameters
@@ -166,10 +180,12 @@ def auto_init_devices(timeout: float = 1.0):
             name: device.connect(mock, timeout) for name, device in devices.items()
         }
         failed: set[str] = set()
+        reasons: dict[str, str] = {}
         try:
             await wait_for_connection(**coros)
         except NotConnectedError as e:
             failed = set(e.sub_errors.keys())
+            reasons = {name: str(err) for name, err in e.sub_errors.items()}
 
         for name in devices:
             dots = "." * (40 - len(name))
@@ -180,5 +196,61 @@ def auto_init_devices(timeout: float = 1.0):
             else:
                 status = rf"\[[bold green]{'OK'.center(6)}[/bold green]]"
             console.print(f"  {name} {dots} {status}")
+        if verbose:
+            console.print("\n".join(f"{name}: {reason}" for name, reason in reasons.items()) if reasons else "")
 
     return DeviceProcessor(_process_devices)
+
+
+PIPE = "│"
+ELBOW = "└──"
+TEE = "├──"
+PIPE_PREFIX = "│   "
+SPACE_PREFIX = "    "
+
+
+def _get_children(device: Device) -> list[tuple[str, Device]]:
+    """
+    Supplementary method for building the tree view of a device.
+    Return the (name, child) pairs of a device, sorted for display.
+    """
+    children = [
+        (name, child) for name, child in device.children() if isinstance(child, Device)
+    ]
+    if isinstance(device, DeviceVector):
+        # DeviceVector children are stringified integer indices.
+        return sorted(children, key=lambda item: int(item[0]))
+    return sorted(children, key=lambda item: item[0])
+
+
+def _make_tree_body(tree: list[str], device: Device, prefix=""):
+    """
+    Supplementary method for building the tree view of a device.
+    Create the tree body.
+    """
+    entries = _get_children(device)
+    last_index = len(entries) - 1
+    for index, (name, child) in enumerate(entries):
+        if index == 0:
+            tree.append(prefix + PIPE)
+        connector = ELBOW if index == last_index else TEE
+        tree.append(f"{prefix}{connector} {name}")
+        child_prefix = prefix + (
+            SPACE_PREFIX if index == last_index else PIPE_PREFIX
+        )
+        _make_tree_body(tree, child, prefix=child_prefix)
+
+
+def print_device_tree(device: Device, indent: int = 0) -> None:
+    """Print the device tree for a given device.
+
+    Parameters
+    ----------
+    device : Device
+        The device whose tree is to be printed.
+    indent : int
+        The indentation level for the current device.
+    """
+    x = []
+    _make_tree_body(x, device)
+    print("\n".join(x))
