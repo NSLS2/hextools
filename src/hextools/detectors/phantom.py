@@ -179,19 +179,19 @@ class PhantomIO(ADBaseIO):
     complete_and_valid: A[SignalR[int], PvSuffix("State_RBV.B1")]
     waiting_for_trigger: A[SignalR[int], PvSuffix("State_RBV.B2")]
     trigger_received: A[SignalR[int], PvSuffix("State_RBV.B3")]
-    cine_content_saved: A[SignalR[int], PvSuffix("State_RBV.B9")]
+    cine_content_saved: A[SignalR[bool], PvSuffix("State_RBV.B9")]
 
     def __init__(self, prefix: str, name: str = ""):
         super().__init__(prefix, name=name)
-        self.aux_pins = DeviceVector(
-            {
-                i: epics_signal_rw_rbv(
-                    PhantomAuxPinMode, prefix + f"Aux{i}PinMode", name=f"aux_pin{i}"
-                )
-                for i in range(1, 5)
-            },
-            name="aux_pins",
-        )
+        # self.aux_pins = DeviceVector(
+        #     {
+        #         i: epics_signal_rw_rbv(
+        #             PhantomAuxPinMode, prefix + f"Aux{i}PinMode", name=f"aux_pin{i}"
+        #         )
+        #         for i in (1, 2, 4)
+        #     },
+        #     name="aux_pins",
+        # )
 
         # IOC does not provide these signals, so make them derived here
         self.total_download_frames = derived_signal_r(
@@ -325,6 +325,7 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         if livetime != 0:
             coros.append(self.driver.acquire_time_ms.set(livetime * 1000))
         await asyncio.gather(*coros)
+        await self.setup_download(num)
 
     async def prepare_edge(self, num: int, livetime: float):
         """Prepare the detector to take external edge triggered exposures.
@@ -340,6 +341,7 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         if livetime != 0:
             coros.append(self.driver.acquire_time_ms.set(livetime * 1000))
         await asyncio.gather(*coros)
+        await self.setup_download(num)
 
     async def default_trigger_info(self) -> TriggerInfo:
         """Fallback for the default TriggerInfo in plans without prepare.
@@ -451,33 +453,32 @@ class PhantomAcquireLogic(ADAcquireLogic):
         if self.acquire_status:
             await self.acquire_status
 
-        # Check how many frames we are supposed to download
-        target_num_saved = await self.driver.total_download_frames.get_value()
+        last_value = await self.driver.download_count.get_value()
 
         # As long as our download counter is counting up and has not reached the target
         # number of frames, keep waiting. If we timeout, check if the download count
         # has increased since the last time we checked, and if so keep waiting,
         # otherwise raise a timeout error.
-        last_value = None
         while True:
             try:
-                async for num_saved in observe_value(
-                    self.driver.download_count, done_timeout=DEFAULT_TIMEOUT
+
+                async for saved in observe_value(
+                    self.driver.cine_content_saved, done_timeout=DEFAULT_TIMEOUT
                 ):
-                    last_value = num_saved
-                    if num_saved == target_num_saved:
+                    if saved:
                         return
             except TimeoutError as err:
-                current = await self.driver.download_count.get_value()
-                if current == last_value:
-                    raise TimeoutError(
-                        "Timeout waiting for download to complete! "
-                        f"Target number of downloaded frames: {target_num_saved}"
-                    ) from err
-                if current == target_num_saved:
+                current, saved = await asyncio.gather(
+                    self.driver.download_count.get_value(),
+                    self.driver.cine_content_saved.get_value(),
+                )
+                if saved:
                     return
+                if current <= last_value:
+                    raise TimeoutError(
+                        "Download counter stopped incrementing and cine was not marked as saved!"
+                    ) from err
                 last_value = current
-
 
 class PhantomDetector(AreaDetector[PhantomIO]):
     """Detector class for Phantom cameras."""

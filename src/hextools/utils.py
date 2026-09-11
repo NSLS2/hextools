@@ -175,7 +175,8 @@ def auto_init_devices(timeout: float = 1.0, verbose: bool = False) -> DeviceProc
 
     async def _process_devices(devices: dict[str, Device]):
         for name, device in devices.items():
-            device.set_name(name, child_name_separator="_")
+            if not device.name:
+                device.set_name(name)
         coros = {
             name: device.connect(mock, timeout) for name, device in devices.items()
         }

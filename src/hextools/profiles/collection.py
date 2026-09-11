@@ -20,6 +20,7 @@ from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from pathlib import PureWindowsPath
 from nslsii.ophyd_async.providers import NSLS2PathProvider
+from pathlib import Path
 from ophyd_async.epics.adcore import ADWriterFactory, NDStatsIO, PluginSignalDataLogic, ContAcqDetector
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.advimba import VimbaDetector
@@ -129,11 +130,11 @@ with auto_init_devices(timeout=1.0):
     # PandABox
     panda1 = HDFPanda("XF:27ID1-ES{PANDA:1}:", path_provider, name="panda1")
 
-    # Kinetix and Phantom detectors
-    kinetix1 = kinetix_factory(1, path_provider, name="kinetix1")
-    # kinetix2 = kinetix_factory(2, path_provider, name="kinetix2")
-    # kinetix3 = kinetix_factory(3, path_provider, name="kinetix3")
-    # kinetix4 = kinetix_factory(4, path_provider, name="kinetix4")
+    # Kinetix detectors
+    kinetix1 = kinetix_factory(1, path_provider, name="kinetix-det1")
+    kinetix2 = kinetix_factory(2, path_provider, name="kinetix-det2")
+    kinetix3 = kinetix_factory(3, path_provider, name="kinetix-det3")
+    kinetix4 = kinetix_factory(4, path_provider, name="kinetix-det4")
 
     # Optique-Peter microscope optics
     double_obj_camera = FOV_2_4_mm_Camera(
