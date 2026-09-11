@@ -93,7 +93,7 @@ def tomo_flyscan(
     _md = {
         "detectors": [det.name for det in detectors],
         "num_points": num_images,
-        "plan_name": "single_axis_flyscan",
+        "plan_name": "tomo_flyscan",
         "hints": {},
     }
     if sample_name is not None:
