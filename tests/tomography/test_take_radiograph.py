@@ -17,7 +17,10 @@ from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFi
 from ophyd_async.epics.adkinetix import KinetixDetector
 
 from hextools.photon_delivery_system import Shutter
-from hextools.tomography.take_radiograph_plan import FRAME_PERIOD_MARGIN, take_radiograph
+from hextools.tomography.take_radiograph_plan import (
+    FRAME_PERIOD_MARGIN,
+    take_radiograph,
+)
 
 # --- shutters: same shape as tests/tomography/test_alignment.py ---------------
 
