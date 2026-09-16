@@ -4,7 +4,7 @@ import asyncio
 import os
 from collections.abc import MutableMapping
 from datetime import datetime
-from typing import Any, TypeVar
+from typing import Any, OrderedDict, TypeVar
 
 from bluesky.run_engine import RunEngine
 from IPython.core.getipython import get_ipython
@@ -35,6 +35,29 @@ def get_obj_from_ipython_ns(var_name: str, var_type: type[NSVarT]) -> NSVarT | N
         if isinstance(obj, var_type):
             return obj
     return None
+
+
+def ensure_available(var_type: type[NSVarT], **kwargs: NSVarT | None) -> NSVarT:
+    """Ensure that an object with a given name is available in the current scope, or it can be retrieved from the IPython namespace."""
+
+    if len(kwargs) != 1:
+        raise ValueError("Can only check availability of a single device at a time.")
+
+    name = next(iter(kwargs))
+    value = kwargs[name]
+    if not isinstance(value, var_type) and value is not None:
+        raise TypeError(
+            f"Value for {name} must be of type {var_type} or None, is {type(value)}"
+        )
+    elif isinstance(value, var_type):
+        return value
+    else:
+        value = get_obj_from_ipython_ns(name, var_type)
+        if value is not None:
+            return value
+        raise ValueError(
+            f"Device {name} of type {var_type} is not available locally, or in the IPython namespace!"
+        )
 
 
 async def merge_async_iterables(*aiterables):
@@ -198,7 +221,11 @@ def auto_init_devices(timeout: float = 1.0, verbose: bool = False) -> DeviceProc
                 status = rf"\[[bold green]{'OK'.center(6)}[/bold green]]"
             console.print(f"  {name} {dots} {status}")
         if verbose:
-            console.print("\n".join(f"{name}: {reason}" for name, reason in reasons.items()) if reasons else "")
+            console.print(
+                "\n".join(f"{name}: {reason}" for name, reason in reasons.items())
+                if reasons
+                else ""
+            )
 
     return DeviceProcessor(_process_devices)
 
@@ -236,9 +263,7 @@ def _make_tree_body(tree: list[str], device: Device, prefix=""):
             tree.append(prefix + PIPE)
         connector = ELBOW if index == last_index else TEE
         tree.append(f"{prefix}{connector} {name}")
-        child_prefix = prefix + (
-            SPACE_PREFIX if index == last_index else PIPE_PREFIX
-        )
+        child_prefix = prefix + (SPACE_PREFIX if index == last_index else PIPE_PREFIX)
         _make_tree_body(tree, child, prefix=child_prefix)
 
 
