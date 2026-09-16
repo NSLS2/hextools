@@ -1,5 +1,9 @@
 """Ophyd async support for detectors at HEX."""
 
+# Readout headroom (s) added to exposure_time when frame_period is unset;
+# same margin the beamline's deployed PandA plan kept between step and exposure.
+FRAME_PERIOD_MARGIN = 0.1
+
 from .phantom import (
     PhantomAuxPinMode,
     PhantomDetector,

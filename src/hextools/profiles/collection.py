@@ -2,6 +2,8 @@
 
 import os
 
+from hextools.detectors.germ import GeRMDetector
+
 # Remove PYEPICS_LIBCA set by the conda epics-base activation script.
 # It points to conda's libca.so which conflicts with epicscorelibs' libca.so
 # (used by aioca/ophyd-async), causing PV connections to fail and the process
@@ -21,7 +23,12 @@ from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from pathlib import PureWindowsPath
 from nslsii.ophyd_async.providers import NSLS2PathProvider
 from pathlib import Path
-from ophyd_async.epics.adcore import ADWriterFactory, NDStatsIO, PluginSignalDataLogic, ContAcqDetector
+from ophyd_async.epics.adcore import (
+    ADWriterFactory,
+    NDStatsIO,
+    PluginSignalDataLogic,
+    ContAcqDetector,
+)
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
@@ -33,7 +40,12 @@ from hextools.utils import show_docs
 from hextools.detectors.phantom import PhantomDetector
 from hextools.detectors.kinetix import kinetix_factory
 from hextools.machine import NSLS2StorageRing
-from hextools.motors import FOV_2_4_mm_Camera, OpticsTable, SampleTower, FOV_20_40_mm_Camera
+from hextools.motors import (
+    FOV_2_4_mm_Camera,
+    OpticsTable,
+    SampleTower,
+    FOV_20_40_mm_Camera,
+)
 from hextools.photon_delivery_system import (
     DCLM,
     Filter,
@@ -111,7 +123,9 @@ with auto_init_devices(timeout=1.0):
     storage_ring = NSLS2StorageRing()
 
     # Monochromator DCLM (Double Crystal Laue Monochromator)
-    monochromator = mono = dclm = DCLM("XF:27IDA-OP:1{Mono:DCLM-Ax:", name="monochromator")
+    monochromator = mono = dclm = DCLM(
+        "XF:27IDA-OP:1{Mono:DCLM-Ax:", name="monochromator"
+    )
 
     # Motors for the optics table
     optics_table = OpticsTable("XF:27IDF-OP:1{OPT:1-Ax:", name="optics_table")
@@ -132,15 +146,17 @@ with auto_init_devices(timeout=1.0):
 
     # Kinetix detectors
     kinetix1 = kinetix_factory(1, path_provider, name="kinetix-det1")
-    kinetix2 = kinetix_factory(2, path_provider, name="kinetix-det2")
+    # kinetix2 = kinetix_factory(2, path_provider, name="kinetix-det2")
     kinetix3 = kinetix_factory(3, path_provider, name="kinetix-det3")
-    kinetix4 = kinetix_factory(4, path_provider, name="kinetix-det4")
+    # kinetix4 = kinetix_factory(4, path_provider, name="kinetix-det4")
 
     # Optique-Peter microscope optics
     double_obj_camera = FOV_2_4_mm_Camera(
         "XF:27IDF-OP:1{OPT:1-Ax:", name="double_obj_camera"
     )
-    wide_fov_camera = FOV_20_40_mm_Camera("XF:27IDF-OP:1{OPT:2-Ax:", name="wide_fov_camera")
+    wide_fov_camera = FOV_20_40_mm_Camera(
+        "XF:27IDF-OP:1{OPT:2-Ax:", name="wide_fov_camera"
+    )
 
     phantom = PhantomDetector(
         "XF:27ID1-ES{Phantom-Det:1}",
@@ -182,12 +198,20 @@ with auto_init_devices(timeout=1.0):
         name="f_hutch_camera",
     )
 
-    pe_path_provider = NSLS2PathProvider(RE.md, base_write_dir=PureWindowsPath("Z:\\proposals"))
+    pe_path_provider = NSLS2PathProvider(
+        RE.md, base_write_dir=PureWindowsPath("Z:\\proposals")
+    )
     perkin_elmer = ContAcqDetector(
         "XF:27ID1-ES{PE-Det:1}",
         ADWriterFactory.hdf(pe_path_provider),
         name="perkin-elmer",
         proc_suffix="Proc1:",
+    )
+
+    germ = GeRMDetector(
+        "XF:27ID1-ES{GeRM-Det:1}",
+        path_provider,
+        name="germ",
     )
 
 # TODO: Figure out why the '-' character in the name is being

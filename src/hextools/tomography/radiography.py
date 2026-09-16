@@ -43,29 +43,28 @@ Where files land is decided by each detector's path provider (set in the
 profile), not by this plan — the old script's proposal-folder logic is gone.
 """
 
-from  bluesky import plan_stubs as bps, plans as bp
+from bluesky import plan_stubs as bps, plans as bp
 import bluesky.preprocessors as bpp
 from nslsii import detectors
 from ophyd_async.epics.adcore import AreaDetector
 from ophyd_async.core import DetectorTrigger, TriggerInfo
-from hextools.utils import get_obj_from_ipython_ns
+from hextools.photon_delivery_system.shutter import ensure_shutter_closed, ensure_shutter_open
+from hextools.utils import ensure_available, get_obj_from_ipython_ns
 
 from hextools.photon_delivery_system import Shutter
 
-# Readout headroom (s) added to exposure_time when frame_period is unset;
-# same margin the beamline's deployed PandA plan kept between step and exposure.
-FRAME_PERIOD_MARGIN = 0.1
+from hextools.detectors import FRAME_PERIOD_MARGIN
 
-# @bpp.stage_decorator([])
-# @bpp.run_decorator()
+
 def take_radiograph(
     detectors: list[AreaDetector],
     exposure_time: float,
     external_trigger: bool = False,
-    frames_per_burst: int = 10, # image_number
-    num_bursts: int = 1, # Iteration
-    wait_between_bursts: float = 0.0, # Sleep time between bursts
-    frame_period: float | None = None, # acquire period
+    num_images: int = 10,
+    images_to_average: int = 1,
+    num_acquisitions: int = 1,  # Iteration
+    wait_between_acquisitions: float = 0.0,  # Sleep time between bursts
+    frame_period: float | None = None,  # acquire period
     sample_name: str | None = None,
     md: dict | None = None,
     use_shutter: bool = False,
@@ -84,12 +83,16 @@ def take_radiograph(
         the photon shutter to open/close around the acquisition
     exposure_time : float
         camera exposure time, in seconds (no default — depends on the sample)
-    frames_per_burst : int
-        number of frames fired in each burst
-    num_bursts : int
-        number of bursts to acquire
-    wait_between_bursts : float
-        idle time between bursts, in seconds
+    num_images : int
+        number of images to acquire in each acquisition
+    images_to_average : int
+        number of images to average for each acquired frame
+    frame_period: float | None = None,
+        time between exposures, in seconds
+    wait_between_acquisitions: float = 0.0,
+        idle time between acquisitions, in seconds
+    num_acquisitions : int
+        number of acquisitions to perform
     frame_period : float, optional
         minimum time per frame, in seconds; must exceed ``exposure_time``, and
         the difference is enforced as the camera's deadtime. If None, computed
@@ -102,14 +105,8 @@ def take_radiograph(
         extra metadata to merge into the run's metadata
     """
 
-    if fe_shutter is None:
-        fe_shutter = get_obj_from_ipython_ns("fe_shutter", Shutter)
-    if photon_shutter is None:
-        photon_shutter = get_obj_from_ipython_ns("photon_shutter", Shutter)
-    if fe_shutter is None or photon_shutter is None:
-        raise ValueError(
-            "Both fe_shutter and photon_shutter must be specified or available in the IPython namespace."
-        )
+    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
+    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
 
     # Validate arguments before touching hardware.
     if frame_period is None:
@@ -121,59 +118,43 @@ def take_radiograph(
         )
 
     trigger_info = TriggerInfo(
-        trigger=DetectorTrigger.EXTERNAL_EDGE if external_trigger else DetectorTrigger.INTERNAL,
+        trigger=DetectorTrigger.EXTERNAL_EDGE
+        if external_trigger
+        else DetectorTrigger.INTERNAL,
         livetime=exposure_time,
         deadtime=frame_period - exposure_time,
-        exposures_per_collection=1,
-        collections_per_event=frames_per_burst,
+        exposures_per_collection=images_to_average,
+        collections_per_event=num_images,
         number_of_events=1,
     )
 
     if use_shutter:
-        # FE shutter must already be open; this plan never actuates it.
-        fe_shutter_open = yield from bps.rd(fe_shutter.status)
-        if not fe_shutter_open:
-            raise ValueError(
-                "Front-end shutter is closed. Please open it before starting the scan."
-            )
+        yield from ensure_shutter_open(fe_shutter)
 
     def _body():
+
         if use_shutter:
-            photon_shutter_open = yield from bps.rd(photon_shutter.status)
-            if not photon_shutter_open:
-                yield from bps.mv(photon_shutter, True)
+            yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
 
-        _md = {
-            "detectors": [det.name for det in detectors],
-            "num_points": num_bursts,
-            "plan_name": "take_radiograph",
-            "hints": {},
-            # burst structure — lets analysis reconstruct the timing
-            "frames_per_burst": frames_per_burst,
-            "num_bursts": num_bursts,
-            "wait_between_bursts": wait_between_bursts,
-            "frame_period": frame_period,
-            "exposure_time": exposure_time,
-        }
-
-        if sample_name is not None:
-            _md["sample_name"] = sample_name
-        _md.update(md or {})
-
-        # for burst in range(num_bursts):
-        #     yield from bps.trigger_and_read(detectors)
-        #     if burst < num_bursts - 1:
-        #         yield from bps.sleep(wait_between_bursts)
-
+        # Prepare all detectors for the upcoming acquisition, with the specified
+        # triggering configuration
         for det in detectors:
             yield from bps.prepare(det, trigger_info, group="prepare")
         yield from bps.wait(group="prepare")
 
-        yield from bp.count(detectors, num_bursts, delay=wait_between_bursts, md=_md)
-
+        # Attach additional metadata
+        _md = {
+            "plan_name": "take_radiograph",
+        }
+        if sample_name is not None:
+            _md["sample_name"] = sample_name
+        _md.update(md or {})
+        yield from bp.count(
+            detectors, num_acquisitions, delay=wait_between_acquisitions, md=_md
+        )
 
     def _cleanup():
         if use_shutter:
-            yield from bps.mv(photon_shutter, False)
+            ensure_shutter_closed(photon_shutter, allow_actuation=True)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))

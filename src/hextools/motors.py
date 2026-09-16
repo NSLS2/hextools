@@ -173,7 +173,9 @@ class HomeStatus(StrictEnum):
     HOMED = "Homed"
 
 
-class FOV_2_4_mm_Camera(StandardReadable, EpicsDevice, AsyncMovable[CameraObjective | str]):
+class FOV_2_4_mm_Camera(
+    StandardReadable, EpicsDevice, AsyncMovable[CameraObjective | str]
+):
     """HEX double objective camera."""
 
     def __init__(self, prefix: str, name: str = "double_obj_camera"):
@@ -190,7 +192,9 @@ class FOV_2_4_mm_Camera(StandardReadable, EpicsDevice, AsyncMovable[CameraObject
             prefix + "ObjSel}Sts:HomeCmplt-Sts",
             name="obj_selector_home_sts",
         )
-        self.objective = epics_signal_rw(CameraObjective, prefix + "ObjSel}Objective", name="objective")
+        self.objective = epics_signal_rw(
+            CameraObjective, prefix + "ObjSel}Objective", name="objective"
+        )
 
         self._at_right_objective = epics_signal_r(
             bool, prefix + "ObjSel}AtRightObj", name="at_right_objective"
@@ -198,7 +202,6 @@ class FOV_2_4_mm_Camera(StandardReadable, EpicsDevice, AsyncMovable[CameraObject
         self._at_left_objective = epics_signal_r(
             bool, prefix + "ObjSel}AtLeftObj", name="at_left_objective"
         )
-
 
     @AsyncStatus.wrap
     async def set(self, value: CameraObjective | str):
@@ -230,7 +233,7 @@ class FOV_2_4_mm_Camera(StandardReadable, EpicsDevice, AsyncMovable[CameraObject
         if not isinstance(value, CameraObjective):
             raise ValueError(
                 f"Invalid objective value: {value}. "
-                "Must be a CameraObjective or a string matching" \
+                "Must be a CameraObjective or a string matching"
                 "one of its names."
             )
 

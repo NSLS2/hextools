@@ -187,6 +187,8 @@ def change_energy(
     RuntimeError
         If the monochromator is not in monochromatic mode.
     """
+
+    # Retrieve DCLM and photon shutter from the IPython namespace if not provided.
     if dclm is None:
         dclm = get_obj_from_ipython_ns("dclm", DCLM)
         if dclm is None:
