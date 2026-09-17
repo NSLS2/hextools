@@ -17,10 +17,7 @@ from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFi
 from ophyd_async.epics.adkinetix import KinetixDetector
 
 from hextools.photon_delivery_system import Shutter
-from hextools.tomography.take_radiograph_plan import (
-    FRAME_PERIOD_MARGIN,
-    take_radiograph,
-)
+from hextools.tomography.radiography import FRAME_PERIOD_MARGIN, take_radiograph
 
 # --- shutters: same shape as tests/tomography/test_alignment.py ---------------
 
@@ -103,7 +100,7 @@ async def test_take_radiograph_single_row(
 ):
     # the profile sets this; tests do not load the profile
     monkeypatch.setenv("OPHYD_ASYNC_PRESERVE_DETECTOR_STATE", "YES")
-    exposure_time, frames_per_burst, num_bursts, wait = 0.1, 10, 5, 0.01
+    exposure_time, num_images, num_acquisitions, wait = 0.1, 10, 5, 0.01
 
     fe_shutter, photon_shutter = two_shutters
     ktx = kinetix_hdf_factory(1)
@@ -124,33 +121,32 @@ async def test_take_radiograph_single_row(
     RE(
         take_radiograph(
             [ktx],
-            fe_shutter,
-            photon_shutter,
             exposure_time,
-            frames_per_burst=frames_per_burst,
-            num_bursts=num_bursts,
-            wait_between_bursts=wait,
+            num_images=num_images,
+            num_acquisitions=num_acquisitions,
+            wait_between_acquisitions=wait,
+            use_shutter=True,
+            fe_shutter=fe_shutter,
+            photon_shutter=photon_shutter,
         ),
         cache_docs,  # type: ignore
     )
 
     for kind in ("start", "descriptor", "stream_resource", "stop"):
         assert len(docs[kind]) == 1
-    assert len(docs["event"]) == num_bursts
-    assert len(docs["stream_datum"]) == num_bursts
+    assert len(docs["event"]) == num_acquisitions
+    assert len(docs["stream_datum"]) == num_acquisitions
 
     start = docs["start"][0]
     assert start["plan_name"] == "take_radiograph"
-    assert start["frames_per_burst"] == frames_per_burst
-    assert start["num_bursts"] == num_bursts
-    assert start["num_points"] == num_bursts
 
     sleeps = messages_by_type.get("sleep", [])
-    assert len(sleeps) == num_bursts - 1
-    assert all(m.args == (wait,) for m in sleeps)
+    assert len(sleeps) == num_acquisitions - 1
+    # bp.count subtracts elapsed time from the delay, so each sleep is <= wait
+    assert all(0 < m.args[0] <= wait for m in sleeps)
 
     assert await ktx.driver.acquire_time.get_value() == exposure_time
-    assert await ktx.driver.num_images.get_value() == frames_per_burst
+    assert await ktx.driver.num_images.get_value() == num_images
     assert await photon_shutter.status.get_value() is False  # finalizer closed it
 
     assert await ktx.driver.acquire_period.get_value() == pytest.approx(

@@ -9,8 +9,8 @@ What this plan does
 1. Check the front-end shutter and open the photon shutter.
    The front-end shutter is only checked at entry; must already be open — this
    plan never actuates it.
-2. For each burst: fire ``frames_per_burst`` frames, then wait
-   ``wait_between_bursts``.
+2. For each acquisition: fire ``num_images`` images, then wait
+   ``wait_between_acquisitions``.
 3. Close the photon shutter.
 
 Everything from shutter-open onward runs under a finalizer, so an error or
@@ -18,23 +18,23 @@ interrupt still closes the shutter.
 
 Trigger model
 -------------
-Each burst is a single ``bps.trigger_and_read`` on the camera's internal
-trigger, with ``num_images`` set to ``frames_per_burst`` so one trigger fires
-the whole burst. The plan owns the timing directly: ``acquire_time`` is set to
-``exposure_time`` and ``acquire_period`` to ``frame_period``, so
-``frame_period - exposure_time`` is the readout margin that keeps frames
-non-overlapping — the same "period larger than exposure" discipline the old
-PandA-paced script enforced with its PULSE step. A PandA-paced external-trigger
-variant remains possible if precision frame timing is ever needed.
+Each acquisition prepares the detector with a ``TriggerInfo`` capturing
+``num_images`` images (each averaged over ``num_exposures`` exposures). The plan
+owns the timing directly: ``exposure_time`` sets the livetime and
+``acquire_period`` sets the frame period, so ``acquire_period - exposure_time``
+is the readout margin (deadtime) that keeps frames non-overlapping — the same
+"period larger than exposure" discipline the old PandA-paced script enforced
+with its PULSE step. Set ``external_trigger`` to pace frames from an external
+edge if precision frame timing is ever needed.
 
 Usage
 -----
     RE(take_radiograph(
-        [kinetix1], fe_shutter, ph_shutter,
+        [kinetix1],
         exposure_time=0.5,
-        frames_per_burst=10,
-        num_bursts=5,
-        wait_between_bursts=10.0,
+        num_images=10,
+        num_acquisitions=5,
+        wait_between_acquisitions=10.0,
     ))
 
 ``detectors`` is a list (``[kinetix1]``) since multiple detectors are supported.
@@ -58,18 +58,18 @@ from hextools.detectors import FRAME_PERIOD_MARGIN
 
 def take_radiograph(
     detectors: list[AreaDetector],
-    exposure_time: float,
-    external_trigger: bool = False,
-    num_images: int = 10,
-    images_to_average: int = 1,
-    num_acquisitions: int = 1,  # Iteration
-    wait_between_acquisitions: float = 0.0,  # Sleep time between bursts
-    frame_period: float | None = None,  # acquire period
-    sample_name: str | None = None,
-    md: dict | None = None,
-    use_shutter: bool = False,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
+    exposure_time: float,  # screen: Exposure Time
+    acquire_period: float | None = None,  # screen: Acquire Time
+    num_images: int = 10,  # screen: Num Images
+    num_exposures: int = 1,  # screen: Exp / Image
+    external_trigger: bool = False,  # screen: Trigger Mode
+    num_acquisitions: int = 1,  # screen: Number of acquisitions
+    wait_between_acquisitions: float = 0.0,  # plan-level: idle between repeats
+    sample_name: str | None = None,  # Name of the sample being imaged
+    md: dict | None = None,  # Extra metadata to merge into the run's metadata
+    use_shutter: bool = False,  # Whether to open/check the photon shutter during the scan
+    fe_shutter: Shutter | None = None,  # Front-end shutter to check before opening the photon shutter
+    photon_shutter: Shutter | None = None,  # Photon shutter to open/close around the acquisition
 ):
     """Acquire a burst-mode radiograph series on the HEX beamline.
 
@@ -77,43 +77,44 @@ def take_radiograph(
     ----------
     detectors : list[AreaDetector]
         detectors to trigger; any ophyd-async detector is accepted
-    fe_shutter : Shutter
-        the front-end shutter to check before opening the photon shutter
-    photon_shutter : Shutter
-        the photon shutter to open/close around the acquisition
     exposure_time : float
         camera exposure time, in seconds (no default — depends on the sample)
-    num_images : int
-        number of images to acquire in each acquisition
-    images_to_average : int
-        number of images to average for each acquired frame
-    frame_period: float | None = None,
-        time between exposures, in seconds
-    wait_between_acquisitions: float = 0.0,
-        idle time between acquisitions, in seconds
-    num_acquisitions : int
-        number of acquisitions to perform
-    frame_period : float, optional
+    acquire_period : float, optional
         minimum time per frame, in seconds; must exceed ``exposure_time``, and
         the difference is enforced as the camera's deadtime. If None, computed
         from ``exposure_time`` plus a readout margin
-    use_shutter : bool
-        whether to open/check the photon shutter during the scan
+    num_images : int
+        number of images to acquire in each acquisition
+    num_exposures : int
+        number of exposures to average for each acquired image
+    external_trigger : bool
+        whether to pace frames from an external edge instead of the camera's
+        internal trigger
+    num_acquisitions : int
+        number of acquisitions to perform
+    wait_between_acquisitions : float
+        idle time between acquisitions, in seconds
     sample_name : str, optional
         name of the sample being imaged
     md : dict, optional
         extra metadata to merge into the run's metadata
+    use_shutter : bool
+        whether to open/check the photon shutter during the scan
+    fe_shutter : Shutter
+        the front-end shutter to check before opening the photon shutter
+    photon_shutter : Shutter
+        the photon shutter to open/close around the acquisition
     """
 
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
 
     # Validate arguments before touching hardware.
-    if frame_period is None:
-        frame_period = exposure_time + FRAME_PERIOD_MARGIN
-    if frame_period <= exposure_time:
+    if acquire_period is None:
+        acquire_period = exposure_time + FRAME_PERIOD_MARGIN
+    if acquire_period <= exposure_time:
         raise ValueError(
-            f"frame_period ({frame_period}) must be larger than exposure_time "
+            f"acquire_period ({acquire_period}) must be larger than exposure_time "
             f"({exposure_time}) to leave readout margin."
         )
 
@@ -122,8 +123,8 @@ def take_radiograph(
         if external_trigger
         else DetectorTrigger.INTERNAL,
         livetime=exposure_time,
-        deadtime=frame_period - exposure_time,
-        exposures_per_collection=images_to_average,
+        deadtime=acquire_period - exposure_time,
+        exposures_per_collection=num_exposures,
         collections_per_event=num_images,
         number_of_events=1,
     )
@@ -155,6 +156,6 @@ def take_radiograph(
 
     def _cleanup():
         if use_shutter:
-            ensure_shutter_closed(photon_shutter, allow_actuation=True)
+            yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
