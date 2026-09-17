@@ -124,7 +124,7 @@ async def test_take_radiograph_single_row(
             exposure_time,
             num_images=num_images,
             num_acquisitions=num_acquisitions,
-            wait_between_acquisitions=wait,
+            time_gap=wait,
             use_shutter=True,
             fe_shutter=fe_shutter,
             photon_shutter=photon_shutter,

@@ -10,7 +10,7 @@ What this plan does
    The front-end shutter is only checked at entry; must already be open — this
    plan never actuates it.
 2. For each acquisition: fire ``num_images`` images, then wait
-   ``wait_between_acquisitions``.
+   ``time_gap``.
 3. Close the photon shutter.
 
 Everything from shutter-open onward runs under a finalizer, so an error or
@@ -34,7 +34,7 @@ Usage
         exposure_time=0.5,
         num_images=10,
         num_acquisitions=5,
-        wait_between_acquisitions=10.0,
+        time_gap=10.0,
     ))
 
 ``detectors`` is a list (``[kinetix1]``) since multiple detectors are supported.
@@ -59,12 +59,12 @@ from hextools.detectors import FRAME_PERIOD_MARGIN
 def take_radiograph(
     detectors: list[AreaDetector],
     exposure_time: float,  # screen: Exposure Time
-    acquire_period: float | None = None,  # screen: Acquire Time
-    num_images: int = 10,  # screen: Num Images
-    num_exposures: int = 1,  # screen: Exp / Image
-    external_trigger: bool = False,  # screen: Trigger Mode
+    num_images: int,  # screen: Num Images
     num_acquisitions: int = 1,  # screen: Number of acquisitions
-    wait_between_acquisitions: float = 0.0,  # plan-level: idle between repeats
+    acquire_period: float = 0.0,  # screen: Acquire Time    
+    external_trigger: bool = False,  # screen: Trigger Mode
+    time_gap: float = 0.0,  # plan-level: idle between repeats
+    num_exposures: int = 1,  # screen: Exp / Image
     sample_name: str | None = None,  # Name of the sample being imaged
     md: dict | None = None,  # Extra metadata to merge into the run's metadata
     use_shutter: bool = False,  # Whether to open/check the photon shutter during the scan
@@ -92,7 +92,7 @@ def take_radiograph(
         internal trigger
     num_acquisitions : int
         number of acquisitions to perform
-    wait_between_acquisitions : float
+    time_gap : float
         idle time between acquisitions, in seconds
     sample_name : str, optional
         name of the sample being imaged
@@ -110,13 +110,11 @@ def take_radiograph(
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
 
     # Validate arguments before touching hardware.
-    if acquire_period is None:
-        acquire_period = exposure_time + FRAME_PERIOD_MARGIN
     if acquire_period <= exposure_time:
-        raise ValueError(
-            f"acquire_period ({acquire_period}) must be larger than exposure_time "
-            f"({exposure_time}) to leave readout margin."
-        )
+        acquire_period = exposure_time + FRAME_PERIOD_MARGIN
+        # raise UserWarning(
+        #     f"acquire_period ({acquire_period}) must be larger than exposure_time "
+        #     f"({exposure_time}) to leave readout margin.")
 
     trigger_info = TriggerInfo(
         trigger=DetectorTrigger.EXTERNAL_EDGE
@@ -151,7 +149,7 @@ def take_radiograph(
             _md["sample_name"] = sample_name
         _md.update(md or {})
         yield from bp.count(
-            detectors, num_acquisitions, delay=wait_between_acquisitions, md=_md
+            detectors, num_acquisitions, delay=time_gap, md=_md
         )
 
     def _cleanup():
