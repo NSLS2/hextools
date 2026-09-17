@@ -7,6 +7,8 @@ from ophyd_async.epics.motor import Motor
 from hextools.utils import (
     ProposalIDPrompt,
     auto_init_devices,
+    ensure_available,
+    get_obj_from_ipython_ns,
     initialize_run_engine,
     is_running_in_ci,
     merge_async_iterables,
@@ -48,7 +50,7 @@ async def test_auto_init_devices_preserves_dash_in_name(monkeypatch):
 
     # Dash preserved on the device, underscore used as the child separator.
     assert motor.name == "my-motor"
-    assert motor.velocity.name == "my-motor_velocity"
+    assert motor.velocity.name == "my-motor-velocity"
 
 
 async def test_auto_init_devices_context_manager_printout(monkeypatch, capsys):
@@ -108,7 +110,7 @@ def test_proposal_id_prompt_tokens():
     fake_re = SimpleNamespace(md={"data_session": "pass-42"})
     fake_shell = SimpleNamespace(execution_count=7)
 
-    tokens = ProposalIDPrompt(fake_re, fake_shell).in_prompt_tokens()  # ty: ignore[invalid-argument-type]
+    tokens = ProposalIDPrompt(fake_re, fake_shell).in_prompt_tokens()  # type: ignore[invalid-argument-type]
 
     text = "".join(value for _, value in tokens)
     assert "pass-42" in text
@@ -119,7 +121,7 @@ def test_proposal_id_prompt_defaults_when_missing():
     fake_re = SimpleNamespace(md={})
     fake_shell = SimpleNamespace(execution_count=1)
 
-    prompt = ProposalIDPrompt(fake_re, fake_shell)  # ty: ignore[invalid-argument-type]
+    prompt = ProposalIDPrompt(fake_re, fake_shell)  # type: ignore[invalid-argument-type]
     text = "".join(value for _, value in prompt.in_prompt_tokens())
     assert "N/A" in text
 
@@ -165,3 +167,69 @@ def test_start_beamtime(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "123456" in out
     assert "My Study" in out
+
+
+def test_get_obj_from_ipython_ns(monkeypatch):
+    fake_ns = {"my_var": 42}
+    monkeypatch.setattr(
+        "hextools.utils.get_ipython", lambda: SimpleNamespace(user_ns=fake_ns)
+    )
+
+    result = get_obj_from_ipython_ns("my_var", int)
+    assert result == 42
+
+    result_none = get_obj_from_ipython_ns("non_existent_var", int)
+    assert result_none is None
+
+
+@pytest.fixture
+def mock_namespace(monkeypatch):
+    fake_ns = {
+        "my_var": 42,
+        "other_var": 99.5,
+        "another_var": "hello",
+        "a_fourth_var": "world",
+    }
+    monkeypatch.setattr(
+        "hextools.utils.get_ipython", lambda: SimpleNamespace(user_ns=fake_ns)
+    )
+    return fake_ns
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"my_var": 42, "other_var": 99.5}])
+def test_ensure_available_only_takes_one_var(mock_namespace, kwargs):
+    with pytest.raises(
+        ValueError, match="Can only check availability of a single device at a time."
+    ):
+        ensure_available(int, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "name, value, type, expected",
+    [
+        ("my_var", None, int, 42),
+        ("other_var", None, float, 99.5),
+        ("another_var", None, str, "hello"),
+        ("a_fourth_var", None, str, "world"),
+        ("provided_var", 123.4, float, 123.4),
+    ],
+)
+def test_ensure_available_success(mock_namespace, name, value, type, expected):
+    result = ensure_available(type, **{name: value})
+    assert result == expected
+
+
+def test_ensure_available_fails_if_val_invalid_type(mock_namespace):
+    with pytest.raises(
+        TypeError,
+        match="Value for my_var must be of type <class 'int'> or None, is <class 'str'>",
+    ):
+        ensure_available(int, my_var="not an int")
+
+
+def test_ensure_available_fails_if_not_provided_and_not_in_ns(mock_namespace):
+    with pytest.raises(
+        ValueError,
+        match="Device non_existent_var of type <class 'int'> is not available locally, or in the IPython namespace!",
+    ):
+        ensure_available(int, non_existent_var=None)

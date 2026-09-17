@@ -6,11 +6,13 @@ from typing import Annotated as A
 
 from ophyd_async.core import (
     DEFAULT_TIMEOUT,
+    DetectorTrigger,
     DetectorTriggerLogic,
     DeviceVector,
     OnOff,
     SignalR,
     SignalRW,
+    StandardReadable,
     StrictEnum,
     SubsetEnum,
     TriggerInfo,
@@ -29,8 +31,11 @@ from ophyd_async.epics.adcore import (
     AreaDetector,
     NDFileHDF5IO,
     NDPluginBaseIO,
+    NDProcessIO,
+    prepare_exposures_per_collection,
+    default_trigger_info_from_detector_settings,
 )
-from ophyd_async.epics.core import PvSuffix, epics_signal_rw_rbv
+from ophyd_async.epics.core import EpicsDevice, PvSuffix, epics_signal_rw_rbv
 
 
 class PhantomDownloadFrameMode(StrictEnum):
@@ -115,6 +120,25 @@ class PhantomPixelDataFormat(StrictEnum):
     P_TWELVE_L = "P12L"
 
 
+class PhantomCineIO(EpicsDevice, StandardReadable):
+    cine_name: A[SignalR[str], PvSuffix("Name_RBV")]
+    width: A[SignalR[int], PvSuffix("Width_RBV")]
+    height: A[SignalR[int], PvSuffix("Height_RBV")]
+    frame_count: A[SignalR[int], PvSuffix("FrameCount_RBV")]
+    first_frame: A[SignalR[int], PvSuffix("FirstFrame_RBV")]
+    last_frame: A[SignalR[int], PvSuffix("LastFrame_RBV")]
+    invalid: A[SignalR[bool], PvSuffix("State_RBV.B0")]
+    complete_and_valid: A[SignalR[bool], PvSuffix("State_RBV.B1")]
+    waiting_for_trigger: A[SignalR[bool], PvSuffix("State_RBV.B2")]
+    trigger_recieved: A[SignalR[bool], PvSuffix("State_RBV.B3")]
+    ready: A[SignalR[bool], PvSuffix("State_RBV.B4")]
+    default_copy: A[SignalR[bool], PvSuffix("State_RBV.B5")]
+    can_accept_trigger: A[SignalR[bool], PvSuffix("State_RBV.B6")]
+    preview_cine: A[SignalR[bool], PvSuffix("State_RBV.B7")]
+    active_cine: A[SignalR[bool], PvSuffix("State_RBV.B8")]
+    cine_content_saved: A[SignalR[bool], PvSuffix("State_RBV.B9")]
+
+
 class PhantomIO(ADBaseIO):
     """IO class for ADPhantom driver.
 
@@ -126,6 +150,7 @@ class PhantomIO(ADBaseIO):
     partition_cines: A[SignalRW[int], PvSuffix("PartitionCines")]
     cine_count: A[SignalR[int], PvSuffix("CineCount_RBV")]
     max_frame_count: A[SignalR[int], PvSuffix("MaxFrameCount_RBV")]
+    total_frame_count: A[SignalR[int], PvSuffix("TotalFrameCount_RBV")]
     post_trig_frames: A[SignalRW[int], PvSuffix.rbv("PostTrigFrames")]
     auto_advance: A[SignalRW[OnOff], PvSuffix.rbv("AutoAdvance")]
     auto_save: A[SignalRW[OnOff], PvSuffix.rbv("AutoSave")]
@@ -175,22 +200,26 @@ class PhantomIO(ADBaseIO):
         SignalRW[PhantomPixelDataFormat], PvSuffix.rbv("SelectPixelDataFormat")
     ]
     frame_read_speed: A[SignalR[int], PvSuffix("FrameReadSpeed_RBV")]
-    invalid: A[SignalR[int], PvSuffix("State_RBV.B0")]
-    complete_and_valid: A[SignalR[int], PvSuffix("State_RBV.B1")]
-    waiting_for_trigger: A[SignalR[int], PvSuffix("State_RBV.B2")]
-    trigger_received: A[SignalR[int], PvSuffix("State_RBV.B3")]
-    cine_content_saved: A[SignalR[int], PvSuffix("State_RBV.B9")]
+    invalid: A[SignalR[bool], PvSuffix("State_RBV.B0")]
+    complete_and_valid: A[SignalR[bool], PvSuffix("State_RBV.B1")]
+    waiting_for_trigger: A[SignalR[bool], PvSuffix("State_RBV.B2")]
+    trigger_received: A[SignalR[bool], PvSuffix("State_RBV.B3")]
 
-    def __init__(self, prefix: str, name: str = ""):
+    def __init__(self, prefix: str, name: str = "", num_cines: int = 63):
         super().__init__(prefix, name=name)
-        self.aux_pins = DeviceVector(
-            {
-                i: epics_signal_rw_rbv(
-                    PhantomAuxPinMode, prefix + f"Aux{i}PinMode", name=f"aux_pin{i}"
-                )
-                for i in range(1, 5)
-            },
-            name="aux_pins",
+        # self.aux_pins = DeviceVector(
+        #     {
+        #         i: epics_signal_rw_rbv(
+        #             PhantomAuxPinMode, prefix + f"Aux{i}PinMode", name=f"aux_pin{i}"
+        #         )
+        #         for i in (1, 2, 4)
+        #     },
+        #     name="aux_pins",
+        # )
+
+        self.cines = DeviceVector(
+            {i: PhantomCineIO(prefix + f"C{i}:") for i in range(1, num_cines + 1)},
+            name="cines",
         )
 
         # IOC does not provide these signals, so make them derived here
@@ -250,8 +279,9 @@ class PhantomIO(ADBaseIO):
 class PhantomTriggerLogic(DetectorTriggerLogic):
     """Trigger logic for the Phantom camera."""
 
-    def __init__(self, driver: PhantomIO):
+    def __init__(self, driver: PhantomIO, process_plugin: NDProcessIO | None = None):
         self.driver = driver
+        self.process_plugin = process_plugin
 
     def config_sigs(self) -> set[SignalR]:
         """Return the signals that should appear in read_configuration.
@@ -325,6 +355,7 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         if livetime != 0:
             coros.append(self.driver.acquire_time_ms.set(livetime * 1000))
         await asyncio.gather(*coros)
+        await self.setup_download(num)
 
     async def prepare_edge(self, num: int, livetime: float):
         """Prepare the detector to take external edge triggered exposures.
@@ -340,6 +371,20 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         if livetime != 0:
             coros.append(self.driver.acquire_time_ms.set(livetime * 1000))
         await asyncio.gather(*coros)
+        await self.setup_download(num)
+
+    async def prepare_exposures_per_collection(self, exposures_per_collection: int):
+        """Prepare the process plugin for the specified number of exposures per collection.
+
+        Parameters
+        ----------
+        exposures_per_collection : int
+            The number of exposures to take per collection.
+        """
+        if self.process_plugin is not None:
+            await prepare_exposures_per_collection(
+                self.process_plugin, exposures_per_collection=exposures_per_collection
+            )
 
     async def default_trigger_info(self) -> TriggerInfo:
         """Fallback for the default TriggerInfo in plans without prepare.
@@ -349,9 +394,15 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         TriggerInfo
             A TriggerInfo with default values for the Phantom camera.
         """
-        dl_start = await self.driver.download_start_frame.get_value()
-        dl_end = await self.driver.download_end_frame.get_value()
-        return TriggerInfo(collections_per_event=(dl_end - dl_start + 1))
+        trigger_mode = DetectorTrigger.INTERNAL
+        if await self.driver.ext_sync_type.get_value() == PhantomExtSyncType.FSYNC:
+            trigger_mode = DetectorTrigger.EXTERNAL_EDGE
+        default_trig_info = await default_trigger_info_from_detector_settings(
+            self.driver.total_download_frames,
+            self.process_plugin,
+            detector_trigger=trigger_mode,
+        )
+        return default_trig_info
 
 
 class PhantomAcquireLogic(ADAcquireLogic):
@@ -383,7 +434,7 @@ class PhantomAcquireLogic(ADAcquireLogic):
             self.driver.acquire,
             True,
             self.driver.waiting_for_trigger,
-            1,
+            True,
             timeout=DEFAULT_TIMEOUT,
         )
 
@@ -397,7 +448,7 @@ class PhantomAcquireLogic(ADAcquireLogic):
                 async for trigger_received in observe_value(
                     self.driver.trigger_received, done_timeout=DEFAULT_TIMEOUT
                 ):
-                    if trigger_received == 1:
+                    if trigger_received:
                         break
                 break
             except TimeoutError as exc:
@@ -436,6 +487,18 @@ class PhantomAcquireLogic(ADAcquireLogic):
                     f"does not match actual number {actual_post_trig}"
                 ) from exc
 
+        # If we recieved the trigger, we know at this point how many frames we'll have access to,
+        # and how many we want to download. If we are trying to DL more than we have available,
+        # raise a RuntimeError.
+        available_frames, total_download_frames = await asyncio.gather(
+            self.driver.total_frame_count.get_value(),
+            self.driver.total_download_frames.get_value(),
+        )
+        if total_download_frames > available_frames:
+            raise RuntimeError(
+                f"Requested {total_download_frames} frames to download, but only {available_frames} are available!"
+            )
+
         # Finally, start the download
         await self.driver.download.set(True)
 
@@ -451,32 +514,44 @@ class PhantomAcquireLogic(ADAcquireLogic):
         if self.acquire_status:
             await self.acquire_status
 
-        # Check how many frames we are supposed to download
-        target_num_saved = await self.driver.total_download_frames.get_value()
+        selected_cine_num, last_download_count = await asyncio.gather(
+            self.driver.selected_cine.get_value(),
+            self.driver.download_count.get_value(),
+        )
+        selected_cine = self.driver.cines[selected_cine_num]
 
         # As long as our download counter is counting up and has not reached the target
         # number of frames, keep waiting. If we timeout, check if the download count
         # has increased since the last time we checked, and if so keep waiting,
         # otherwise raise a timeout error.
-        last_value = None
         while True:
             try:
-                async for num_saved in observe_value(
-                    self.driver.download_count, done_timeout=DEFAULT_TIMEOUT
+                async for saved in observe_value(
+                    selected_cine.cine_content_saved, done_timeout=DEFAULT_TIMEOUT
                 ):
-                    last_value = num_saved
-                    if num_saved == target_num_saved:
+                    if saved:
                         return
             except TimeoutError as err:
-                current = await self.driver.download_count.get_value()
-                if current == last_value:
-                    raise TimeoutError(
-                        "Timeout waiting for download to complete! "
-                        f"Target number of downloaded frames: {target_num_saved}"
-                    ) from err
-                if current == target_num_saved:
+                # download_counter = await self.driver.download_count.get_value()
+                # if download_counter == 0:
+                #     raise TimeoutError(
+                #         "Download counter stopped incrementing and cine was not marked as saved!"
+                #     ) from err
+
+                current, saved = await asyncio.gather(
+                    self.driver.download_count.get_value(),
+                    selected_cine.cine_content_saved.get_value(),
+                )
+                print(
+                    f"Last value: {last_download_count}, Current value: {current}, Saved: {saved}"
+                )
+                if saved:
                     return
-                last_value = current
+                if current <= last_download_count:
+                    raise TimeoutError(
+                        "Download counter stopped incrementing and cine was not marked as saved!"
+                    ) from err
+                last_download_count = current
 
 
 class PhantomDetector(AreaDetector[PhantomIO]):
@@ -488,18 +563,24 @@ class PhantomDetector(AreaDetector[PhantomIO]):
         self,
         prefix: str,
         *writer_factories: ADWriterFactory,
-        driver_suffix="cam1:",
+        driver_suffix: str = "cam1:",
+        proc_suffix: str | None = "Proc1:",
         plugins: dict[str, NDPluginBaseIO] | None = None,
         config_sigs: Sequence[SignalR] = (),
         name: str = "",
     ) -> None:
         driver = PhantomIO(prefix + driver_suffix)
+        process_plugin = None if not proc_suffix else NDProcessIO(prefix + proc_suffix)
+        if plugins is None:
+            plugins = {}
+        if process_plugin is not None:
+            plugins["proc"] = process_plugin
         super().__init__(
             driver,
             prefix,
             *writer_factories,
             acquire_logic=PhantomAcquireLogic(driver),
-            trigger_logic=PhantomTriggerLogic(driver),
+            trigger_logic=PhantomTriggerLogic(driver, process_plugin=process_plugin),
             plugins=plugins,
             config_sigs=config_sigs,
             name=name,
