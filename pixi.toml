@@ -43,6 +43,7 @@ qs-server = "uvicorn --host localhost --port 60610 bluesky_httpserver.server:app
 matplotlib = ">=3.10.9,<4"
 qtpy = ">=2.4.3,<3"
 pyside6 = ">=6.9.0,<7"
+nexpy = ">=2.0.3,<3"
 
 [feature.terminal.tasks.start]
 cmd = "unset SESSION_MANAGER PYTHONPATH PYTHONUSERBASE && MPLBACKEND=qtagg ipython -i src/hextools/profiles/{{ profile }}.py"
