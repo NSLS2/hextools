@@ -117,14 +117,14 @@ class GeRMDetectorIO(EpicsDevice, StandardReadable):
     acquire_time: A[SignalRW[float], PvSuffix("AcquireTime"), Format.CONFIG_SIGNAL]
 
     # Todo: Make into device vector
-    model: A[SignalR[str], PvSuffix("DetectorModel")]
-    firmware_version: A[SignalR[int], PvSuffix("FirmwareVersion")]
+    model: A[SignalR[str], PvSuffix("DetectorModel"), Format.CONFIG_SIGNAL]
+    firmware_version: A[SignalR[str], PvSuffix("FirmwareVersion"), Format.CONFIG_SIGNAL]
 
     temperature1: A[SignalR[float], PvSuffix("Temperature1")]
     temperature2: A[SignalR[float], PvSuffix("Temperature2")]
     temperature3: A[SignalR[float], PvSuffix("Temperature3")]
     zynq_temperature: A[SignalR[float], PvSuffix("ZynqTemperature")]
-    high_voltage: A[SignalRW[float], PvSuffix.rbv("HighVoltage")]
+    high_voltage: A[SignalRW[float], PvSuffix.rbv("HighVoltage"), Format.CONFIG_SIGNAL]
     hv_current: A[SignalR[float], PvSuffix("HighVoltageCurrent")]
     udp_reachable: A[SignalR[bool], PvSuffix("UDPReachable_RBV")]
     udp_data_file_write_enable: A[SignalR[bool], PvSuffix("UDPDataFileWriteEnable")]
@@ -358,7 +358,7 @@ class GeRMDetector(StandardDetector):
         self.add_detector_logics(
             ADHDFDataLogic(
                 NDArrayDescription(
-                    [self.driver.num_energy_bins, self.driver.num_elements],
+                    [self.driver.num_elements, self.driver.num_energy_bins],
                     self.driver.data_type,
                     self.driver.color_mode,
                 ),

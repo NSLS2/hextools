@@ -2,7 +2,10 @@
 
 # Readout headroom (s) added to exposure_time when frame_period is unset;
 # same margin the beamline's deployed PandA plan kept between step and exposure.
-FRAME_PERIOD_MARGIN = 0.1
+FRAME_PERIOD_MARGIN = 0.0125 #Kinetix
+                    # 0.000005 #TODO for phantom
+                    # GeRM N/A
+                    # 0.05 # PE
 
 from .phantom import (
     PhantomAuxPinMode,
