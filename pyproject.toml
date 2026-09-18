@@ -42,7 +42,16 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = [
-#   "ntnda-qt-viewer",
+    "bluesky-widgets",
+    "bluesky-queueserver",
+    "bluesky-queueserver-api",
+    "bluesky-httpserver",
+    "tiled[client]",
+    "bluesky-tiled-plugins",
+    "matplotlib",
+    "qtpy",
+    "pyside6",
+    "ntnda-qt-viewer @ git+https://github.com/jwlodek/ntnda-qt-viewer@main",
 ]
 
 [dependency-groups]
@@ -91,6 +100,9 @@ Changelog = "https://github.com/NSLS-II-HEX/hextools/releases"
 
 [tool.hatch]
 version.source = "vcs"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build]
 artifacts = ["src/hextools/_version.py"]

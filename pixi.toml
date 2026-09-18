@@ -93,9 +93,14 @@ env = { HEXTOOLS_RUNNING_IN_CI = "YES", BEAMLINE_ACRONYM = "HEX" }
 pyside6 = ">=6.9.0,<7"
 qtpy = ">=2.4.3,<3"
 
+# Install the `gui` extra (bluesky-widgets, ntnda-qt-viewer, ...) in this env.
+[feature.gui.pypi-dependencies]
+hextools = { path = ".", editable = true, extras = ["gui"] }
+
 
 [feature.gui.tasks]
 qserver-gui = "queue-monitor --http-server-uri https://xf27id1-hex-qs1.nsls2.bnl.gov:443"
+hex-gui = "python -m hextools.gui --http-server-uri https://xf27id1-hex-qs1.nsls2.bnl.gov:443"
 
 [environments]
 # Base environments
