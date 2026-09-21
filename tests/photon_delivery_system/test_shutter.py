@@ -6,7 +6,7 @@ import pytest
 from bluesky.run_engine import RunEngine
 from ophyd_async.core import callback_on_mock_execute, init_devices, set_mock_value
 
-from hextools.photon_delivery_system.shutter import Shutter
+from hextools.photon_delivery_system.shutter import Shutter, ShutterStatus
 
 
 @pytest.fixture
@@ -18,14 +18,14 @@ def shutter() -> Shutter:
 
 async def _delayed_readback(ps: Shutter, value: bool, delay: float):
     await asyncio.sleep(delay)
-    set_mock_value(ps.status, value)
+    set_mock_value(ps.status, ShutterStatus.OPEN if value else ShutterStatus.CLOSED)
 
 
 @pytest.mark.parametrize("delay", [0.0, 0.05, 0.1, 0.15])
 async def test_shutter_open_close_behavior(
     RE: RunEngine, shutter: Shutter, delay: float
 ):
-    set_mock_value(shutter.status, False)
+    set_mock_value(shutter.status, ShutterStatus.CLOSED)
 
     callback_on_mock_execute(
         shutter.open_cmd,
@@ -39,13 +39,13 @@ async def test_shutter_open_close_behavior(
     t0 = time.monotonic()
     RE(bps.mv(shutter, True))
     open_duration = time.monotonic() - t0
-    assert await shutter.status.get_value() is True
+    assert await shutter.status.get_value() is ShutterStatus.OPEN
     assert open_duration >= delay
     assert open_duration < delay + 0.1
 
     t0 = time.monotonic()
     RE(bps.mv(shutter, False))
     close_duration = time.monotonic() - t0
-    assert await shutter.status.get_value() is False
+    assert await shutter.status.get_value() is ShutterStatus.CLOSED
     assert close_duration >= delay
     assert close_duration < delay + 0.1

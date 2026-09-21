@@ -1,8 +1,9 @@
 """Tomography plans for HEX beamline."""
 
 from bluesky import plan_stubs as bps
+from bluesky.utils import plan
 from ophyd_async.core import DetectorTrigger, StandardFlyable, TriggerInfo
-from ophyd_async.epics.adkinetix import KinetixDetector
+from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.fastcs.panda import HDFPanda
 
 from hextools.photon_delivery_system.shutter import (
@@ -15,7 +16,7 @@ from hextools.photon_delivery_system import Shutter
 from ..detectors.phantom import PhantomDetector
 from ..flyers import SingleAxisFlyableLogic, construct_fly_info_models
 from ..motors import RotationMotor
-from bluesky import preprocessors as bpp
+from bluesky import preprocessors as bpp, plans as bp
 
 from hextools.detectors import FRAME_PERIOD_MARGIN
 
@@ -25,14 +26,14 @@ def tomo_flyscan(
     exposure_time: float,
     acquire_period: float | None = None,
     images_to_average: int = 1,
-    start_position: float = 0,
-    stop_position: float = 180,
+    start: float = 0,
+    stop: float = 180,
     use_shutter: bool = True,
     sample_name: str | None = None,
     time_based: bool = True,
     stream_name: str = "primary",
     panda: HDFPanda | None = None,
-    motor: RotationMotor | None = None,
+    rot_motor: RotationMotor | None = None,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
 ):
@@ -44,15 +45,15 @@ def tomo_flyscan(
         list of detectors to be used in the scan
     panda : HDFPanda
         the panda device used for triggering and recording the rotation angle
-    motor : RotationMotor
+    rot_motor : RotationMotor
         the rotation stage for tomography
     exposure_time : float
         exposure time to use on the camera(s), in seconds
     num_images : int
         total number of camera images to collect during the scan
-    start_position : float (optional)`
+    start : float (optional)
         starting point in degrees
-    stop_position : float (optional)
+    stop : float (optional)
         stopping point in degrees
     lead_angle : float (optional)
         the angle in degrees to be used to move motor to -lead_angle before
@@ -70,34 +71,27 @@ def tomo_flyscan(
         yield from ensure_shutter_open(fe_shutter)
 
     panda = ensure_available(HDFPanda, panda=panda)
-    motor = ensure_available(RotationMotor, motor=motor)
+    rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
 
     if acquire_period is None:
         acquire_period = exposure_time + FRAME_PERIOD_MARGIN
 
-    _md = {
-        "detectors": [det.name for det in detectors],
-        "num_points": num_images,
-        "images_to_average": images_to_average,
-        "plan_name": "tomo_flyscan",
-    }
-    if sample_name is not None:
-        _md["sample_name"] = sample_name
-
     all_detectors = [*detectors, panda]
 
     # Construct ephemeral flyer for the single axis flyscan
-    single_axis_panda_flyer = StandardFlyable(SingleAxisFlyableLogic(panda))
-    all_devices = [*all_detectors, single_axis_panda_flyer, motor]
+    single_axis_panda_flyer = SingleAxisFlyableLogic(panda).with_device()
+    all_devices = [*all_detectors, single_axis_panda_flyer, rot_motor]
 
-
-    @bpp.run_decorator(md=_md)
-    @bpp.stage_decorator(*all_devices)
+    @bpp.stage_decorator(all_devices)
     def _body():
 
         # Get the start position in encoder counts
-        encoder_res = yield from bps.rd(motor.encoder_resolution)
-        max_velocity = yield from bps.rd(motor.max_velocity)
+        encoder_res = yield from bps.rd(rot_motor.encoder_resolution)
+        max_velocity = yield from bps.rd(rot_motor.max_velocity)
+        current_position = yield from bps.rd(rot_motor.user_readback)
+
+        # TODO: Come up with better way to access panda calc block
+        current_enc = yield from bps.rd(panda.calc[1].out)  # type: ignore
 
         det_trigger_info = TriggerInfo(
             number_of_events=num_images,
@@ -122,18 +116,23 @@ def tomo_flyscan(
         flyer_info, motor_info = construct_fly_info_models(
             num_pulses=num_images,
             max_exposure_time=exposure_time,
-            start_position=start_position,
-            stop_position=stop_position,
+            current_position=current_position,
+            current_enc_position=current_enc,
+            start_position=start,
+            stop_position=stop,
             encoder_resolution=encoder_res,
             max_motor_velocity=max_velocity,
             acq_time_overhead=overhead,
             time_based=time_based,
         )
 
-        yield from ensure_shutter_open(
-            photon_shutter, allow_actuation=True, group="prepare", wait=False
-        )
-        yield from bps.prepare(motor, motor_info, group="prepare")
+        print(flyer_info)
+
+        if use_shutter:
+            yield from ensure_shutter_open(
+                photon_shutter, allow_actuation=True, group="prepare", wait=False
+            )
+        yield from bps.prepare(rot_motor, motor_info, group="prepare")
         yield from bps.prepare(single_axis_panda_flyer, flyer_info, group="prepare")
 
         for det in detectors:
@@ -145,19 +144,26 @@ def tomo_flyscan(
         # motor move to start position time.
         yield from bps.wait(group="prepare")
 
-        yield from bps.declare_stream(*all_detectors, name=stream_name)
+        _md = {
+            "detectors": [det.name for det in detectors],
+            "num_points": num_images,
+            "images_to_average": images_to_average,
+            "plan_name": "tomo_flyscan",
+        }
+        if sample_name is not None:
+            _md["sample_name"] = sample_name
 
-        yield from bps.kickoff_all(*all_devices, wait=True)
-
-        flush_period = max(1, exposure_time + overhead)
-        yield from bps.collect_while_completing(
+        yield from bp.fly(
             all_devices,
-            all_detectors,
-            flush_period=flush_period,
-            stream_name=stream_name,
+            md=_md,
+            collect_flush_period=max(1, exposure_time + overhead),
+            stream_name=stream_name
         )
 
     def _cleanup():
-        yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
+        """Perform post-scan cleanup, regardless of result"""
 
-    yield from bpp.finalize_wrapper(_body, _cleanup)
+        yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
+        yield from bps.abs_set(rot_motor.motor_stop, 1)
+
+    yield from bpp.finalize_wrapper(_body(), _cleanup())

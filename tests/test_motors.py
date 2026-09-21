@@ -4,23 +4,23 @@ from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
 from ophyd_async.core import init_devices, set_mock_value
 
-from hextools.motors import CameraObjective, DoubleObjCamera, HomeStatus
+from hextools.motors import CameraObjective, FOV_20_40_mm_Camera, FOV_2_4_mm_Camera, HomeStatus
 
 
 @pytest.fixture
-def double_obj_camera() -> DoubleObjCamera:
+def fov_2_4_mm_camera() -> FOV_2_4_mm_Camera:
     with init_devices(mock=True):
-        camera = DoubleObjCamera("TEST:CAM:")
+        camera = FOV_2_4_mm_Camera("TEST:CAM:")
     return camera
 
 
-async def test_double_obj_camera_raises_when_not_homed(
-    RE: RunEngine, double_obj_camera: DoubleObjCamera
+async def test_fov_2_4_mm_camera_raises_when_not_homed(
+    RE: RunEngine, fov_2_4_mm_camera: FOV_2_4_mm_Camera
 ):
-    set_mock_value(double_obj_camera._obj_selector_home_sts, HomeStatus.NOT_HOMED)
+    set_mock_value(fov_2_4_mm_camera._obj_selector_home_sts, HomeStatus.NOT_HOMED)
 
     with pytest.raises(FailedStatus) as exc_info:
-        RE(bps.mv(double_obj_camera, CameraObjective.LEFT_4MM))
+        RE(bps.mv(fov_2_4_mm_camera, CameraObjective.LEFT_4MM))
     assert "not homed" in str(exc_info.value.__cause__)
 
 
@@ -33,16 +33,16 @@ async def test_double_obj_camera_raises_when_not_homed(
 )
 async def test_double_obj_camera_moves_to_objective(
     RE: RunEngine,
-    double_obj_camera: DoubleObjCamera,
+    fov_2_4_mm_camera: FOV_2_4_mm_Camera,
     objective: CameraObjective,
     readback_attr: str,
     other_readback_attr: str,
 ):
-    set_mock_value(double_obj_camera._obj_selector_home_sts, HomeStatus.HOMED)
-    readback = getattr(double_obj_camera, readback_attr)
+    set_mock_value(fov_2_4_mm_camera._obj_selector_home_sts, HomeStatus.HOMED)
+    readback = getattr(fov_2_4_mm_camera, readback_attr)
     set_mock_value(readback, True)
 
-    RE(bps.mv(double_obj_camera, objective))
+    RE(bps.mv(fov_2_4_mm_camera, objective))
 
     assert await readback.get_value() is True
-    assert await getattr(double_obj_camera, other_readback_attr).get_value() is False
+    assert await getattr(fov_2_4_mm_camera, other_readback_attr).get_value() is False

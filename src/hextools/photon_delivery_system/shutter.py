@@ -2,7 +2,7 @@
 
 from typing import Hashable
 
-from ophyd_async.core import AsyncMovable, AsyncStatus, wait_for_value
+from ophyd_async.core import AsyncMovable, AsyncStatus, StrictEnum, wait_for_value
 from bluesky import plan_stubs as bps
 from ophyd_async.epics.core import (
     EpicsDevice,
@@ -10,6 +10,9 @@ from ophyd_async.epics.core import (
     epics_triggerable_command,
 )
 
+class ShutterStatus(StrictEnum):
+    OPEN = "Open"
+    CLOSED = "Not Open"
 
 class Shutter(EpicsDevice, AsyncMovable[bool]):
     """Photon shutter device.
@@ -27,7 +30,7 @@ class Shutter(EpicsDevice, AsyncMovable[bool]):
     def __init__(self, prefix: str, name: str = ""):
 
         super().__init__(prefix, name=name)
-        self.status = epics_signal_r(bool, f"{prefix}Pos-Sts")
+        self.status = epics_signal_r(ShutterStatus, f"{prefix}Pos-Sts")
         self.open_cmd = epics_triggerable_command(f"{prefix}Cmd:Opn-Cmd")
         self.close_cmd = epics_triggerable_command(f"{prefix}Cmd:Cls-Cmd")
 
@@ -52,7 +55,7 @@ class Shutter(EpicsDevice, AsyncMovable[bool]):
             cmd_sig = self.close_cmd
 
         await cmd_sig.execute()
-        await wait_for_value(self.status, value, timeout=10)
+        await wait_for_value(self.status, ShutterStatus.OPEN if value else ShutterStatus.CLOSED, timeout=10)
 
 
 def ensure_shutter_state(
@@ -69,7 +72,7 @@ def ensure_shutter_state(
     shutter : Shutter
         shutter to guarantee the state of.
     desired_state : bool
-        the state that the shutter should be in (True for open, False for closed)
+        the state of the shutter (True for open, False for closed)
     allow_actuation : bool, default False
         whether to allow the plan to actuate the shutter if it is not in the desired state
     group : Hashable | None, optional

@@ -59,7 +59,6 @@ def ensure_available(var_type: type[NSVarT], **kwargs: NSVarT | None) -> NSVarT:
             f"Device {name} of type {var_type} is not available locally, or in the IPython namespace!"
         )
 
-
 async def merge_async_iterables(*aiterables):
     """Merge multiple async iterables into a single async iterable."""
     queue: asyncio.Queue = asyncio.Queue()

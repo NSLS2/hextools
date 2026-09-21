@@ -136,7 +136,7 @@ class RotationMotor(AsyncEpicsMotor):
         int
             The number of encoder counts per revolution.
         """
-        return int(360.0 * encoder_resolution)
+        return int(360.0 / encoder_resolution)
 
 
 class SampleTower(StandardReadable, EpicsDevice):
@@ -158,6 +158,8 @@ class SampleTower(StandardReadable, EpicsDevice):
         self.outboard_y = AsyncEpicsMotor(prefix + "Y2}Mtr", name="outboard_y")
         self.downstream_y = AsyncEpicsMotor(prefix + "Y3}Mtr", name="downstream_y")
 
+        # TODO: Get this prefix adjusted so it doesn't need to be ah
+        self.ry2 = RotationMotor("XF:27IDF-OP:1{MC:5-Ax:4}Mtr", name="ry2")
 
 class CameraObjective(StrictEnum):
     """Represents the camera objective in use."""
