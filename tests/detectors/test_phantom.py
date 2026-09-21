@@ -150,7 +150,7 @@ async def test_arm_logic_arm_timeout_waiting_for_trigger(
     )  # Set a short timeout for the test
 
     # Pre-set waiting_for_trigger so set_and_wait_for_other_value completes immediately
-    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, 1)
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
 
     # Acquisition stop after a short delay, so it takes effect after acquire.set(True)
     async def _stop_acquisition():
@@ -176,8 +176,8 @@ async def test_arm_logic_arm_timeout_saving_to_cine(
 
     # Pre-set waiting_for_trigger and trigger_received so the first two
     # loops complete immediately
-    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, 1)
-    set_mock_value(phantom_arm_logic.driver.trigger_received, 1)
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
+    set_mock_value(phantom_arm_logic.driver.trigger_received, True)
     # Set post_trig_frames to a value that won't match array_counter,
     # so the second loop times out
     set_mock_value(phantom_arm_logic.driver.post_trig_frames, 10)
@@ -198,10 +198,10 @@ async def test_arm_logic_arm_post_trig_frames_incorrect(
 
     # Pre-set waiting_for_trigger and trigger_received so the first two loops
     # complete immediately
-    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, 1)
-    set_mock_value(phantom_arm_logic.driver.trigger_received, 1)
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
+    set_mock_value(phantom_arm_logic.driver.trigger_received, True)
     set_mock_value(phantom_arm_logic.driver.post_trig_frames, 10)
-    set_mock_value(phantom_arm_logic.driver.complete_and_valid, 1)
+    set_mock_value(phantom_arm_logic.driver.complete_and_valid, True)
     set_mock_value(
         phantom_arm_logic.driver.array_counter, 5
     )  # Different from post_trig_frames
@@ -222,10 +222,10 @@ async def test_arm_logic_arm_success(
 
     # Pre-set waiting_for_trigger and trigger_received so the first two loops
     # complete immediately
-    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, 1)
-    set_mock_value(phantom_arm_logic.driver.trigger_received, 1)
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
+    set_mock_value(phantom_arm_logic.driver.trigger_received, True)
     set_mock_value(phantom_arm_logic.driver.post_trig_frames, 10)
-    set_mock_value(phantom_arm_logic.driver.complete_and_valid, 1)
+    set_mock_value(phantom_arm_logic.driver.complete_and_valid, True)
     set_mock_value(
         phantom_arm_logic.driver.array_counter, 10
     )  # Matches post_trig_frames
@@ -347,10 +347,10 @@ async def test_detector_full_stack(
 
     def _on_acquire(value, **kwargs):
         if value:
-            set_mock_value(phantom.driver.waiting_for_trigger, 1)
-            set_mock_value(phantom.driver.trigger_received, 1)
+            set_mock_value(phantom.driver.waiting_for_trigger, True)
+            set_mock_value(phantom.driver.trigger_received, True)
             set_mock_value(phantom.driver.array_counter, 15)
-            set_mock_value(phantom.driver.complete_and_valid, 1)
+            set_mock_value(phantom.driver.complete_and_valid, True)
 
     def _on_download(value, **kwargs):
         assert phantom.hdf is not None
