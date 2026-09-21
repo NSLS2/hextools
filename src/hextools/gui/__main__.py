@@ -5,18 +5,24 @@ into a single entrypoint so it can serve as the main HEX GUI. Run with::
 
     python -m hextools.gui
 
-Connection defaults to a local RE Manager over 0MQ, or an HTTP server if
-``--http-server-uri``/``QSERVER_HTTP_SERVER_URI`` is provided.
+With ``--queueserver-uri`` (or ``QSERVER_HTTP_SERVER_URI``) the GUI connects to a
+QueueServer and submits plans to its queue. Otherwise it starts IPython on a
+profile (``--profile``, default ``collection``) with the GUI attached and runs
+plans in-process via ``RE(plan(...))``.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import time as ttime
 
+import IPython
+from bluesky import RunEngine
 from bluesky_widgets.models.run_engine_client import RunEngineClient
 from bluesky_widgets.qt import Window, gui_qt
 from bluesky_widgets.qt.run_engine_client import (
+    QLabel,
     QtReConsoleMonitor,
     QtReEnvironmentControls,
     QtReExecutionControls,
@@ -30,24 +36,48 @@ from bluesky_widgets.qt.run_engine_client import (
 )
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
+    QApplication,
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QMainWindow,
     QSplitter,
+    QStatusBar,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
+from pathlib import Path
 
-from hextools.gui.live_re_md_viewer import QtReMetadataMonitor
-from hextools.gui.misc.weather import QtWeatherWidget
+from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor
+from hextools.gui.live_re_md_viewer import (
+    QtProposalInfo,
+    QtReMetadataMonitor,
+)
+from hextools.gui.re_execution_controls import (
+    QtReExecutionControls as QtReExecutionControlsLocal,
+)
+
+from typing import Generic, TypeVar
+from hextools.gui.misc import QtWeatherWidget, QtTabbedDetectorsWidget
+from hextools.gui.plan_widget import QtPlanWidget
 from hextools.gui._theme import apply_bnl_theme
+from hextools.photon_delivery_system.dclm import change_beam_mode
+from hextools.tomography.alignment import tomo_alignment_scan
+from hextools.tomography.flyscans import tomo_flyscan
+from hextools.tomography.radiography import take_radiograph
+from hextools.photon_delivery_system import change_energy
+from bluesky.plan_stubs import mv
+
+from ._event_loop import gui_qt, get_our_app_name
+from ._threading import wait_for_workers_to_quit
 
 try:  # QAction moved from QtWidgets to QtGui in Qt6
     from qtpy.QtWidgets import QAction
 except ImportError:
     from qtpy.QtGui import QAction
 
+RunEngineClientT = TypeVar("RunEngineClientT", bound=RunEngineClient | RunEngine)
 
 def _patch_setchecked_checkstate():
     """Let ``setChecked`` accept ``Qt.CheckState`` enums (bluesky-widgets on PySide6>=6.9)."""
@@ -64,27 +94,6 @@ def _patch_setchecked_checkstate():
 
 
 _patch_setchecked_checkstate()
-
-
-class Settings:
-    """Connection settings shared with the RE Manager client."""
-
-    http_server_uri: str | None = None
-    http_server_api_key: str | None = None
-    zmq_re_manager_control_addr: str | None = None
-    zmq_re_manager_info_addr: str | None = None
-
-
-SETTINGS = Settings()
-
-#: RE metadata keys shown in the monitor view's live metadata panel.
-RE_METADATA_KEYS = (
-    "scan_id",
-    "proposal_id",
-    "data_session",
-    "sample_name",
-    "operator",
-)
 
 
 class QtOrganizeQueueWidgets(QSplitter):
@@ -181,207 +190,349 @@ class QtRunEngineManagerEditor(QWidget):
         self.setLayout(vbox)
 
 
-class QtViewer(QTabWidget):
-    """Tabbed container holding the monitor and editor views."""
+class QtTomographyView(QWidget):
+    """Tomography controls arranged around the live detector viewers.
 
-    def __init__(self, model, *args, **kwargs):
+    Detector viewers fill the majority of the tab and the tomography plan
+    selector sits in a side column. The shared RE controls and progress bars
+    live outside the tab in :class:`QtTabbedTechniqueSelector`.
+    """
+
+    def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.model = model
+        self._re_client = re_client
 
-        self.setObjectName("mainViewerTabs")
-        self.setTabPosition(QTabWidget.West)
+        vbox = QVBoxLayout()
 
-        self._re_manager_monitor = QtRunEngineManagerMonitor(model.run_engine)
-        self.addTab(self._re_manager_monitor, "Monitor Queue")
+        top = QHBoxLayout()
+        # Detector viewers take the majority of the screen.
+        top.addWidget(QtTabbedDetectorsWidget(
+            {f"Kinetix {i}": "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}" for i in range(1, 5)}
+        ), stretch=3)
 
-        self._re_manager_editor = QtRunEngineManagerEditor(model.run_engine)
-        self.addTab(self._re_manager_editor, "Edit and Control Queue")
+        # Side column: a tabbed selector offering the tomography plans. Each tab
+        # validates and runs its plan per the active execution mode (in-process
+        # IPython vs. Queue Server).
+        plan_tabs = QTabWidget()
+        plan_tabs.addTab(QtPlanWidget(re_client, tomo_alignment_scan), "Alignment")
+        plan_tabs.addTab(QtPlanWidget(re_client, tomo_flyscan), "Flyscan")
+        plan_tabs.addTab(QtPlanWidget(re_client, take_radiograph), "Radiography")
+
+        side = QVBoxLayout()
+        side.addWidget(plan_tabs, stretch=1)
+        top.addLayout(side, stretch=1)
+
+        vbox.addLayout(top, stretch=1)
+
+        self.setLayout(vbox)
 
 
-class ViewerModel:
-    """Encapsulates the models used by the application."""
+class QtBeamlineView(QWidget):
+    """Beamline controls arranged around the visible-light camera viewers.
 
-    def __init__(self):
-        self.run_engine = RunEngineClient(
-            zmq_control_addr=SETTINGS.zmq_re_manager_control_addr,
-            zmq_info_addr=SETTINGS.zmq_re_manager_info_addr,
-            http_server_uri=SETTINGS.http_server_uri,
-            http_server_api_key=SETTINGS.http_server_api_key,
-        )
+    Mirrors :class:`QtTomographyView`: the visible-light camera viewers fill the
+    majority of the tab and a side column offers the motor and energy plans. The
+    shared RE controls and progress bars live outside the tab in
+    :class:`QtTabbedTechniqueSelector`.
+    """
+
+    def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._re_client = re_client
+
+        vbox = QVBoxLayout()
+
+        top = QHBoxLayout()
+        # Visible-light camera viewers take the majority of the screen.
+        top.addWidget(QtTabbedDetectorsWidget(
+            {
+                "Sample": "XF:27ID1-ES{Sample-Cam:1}",
+                "F-Hutch": "XF:27IDA-BI{GigE-Cam:5}",
+            }
+        ), stretch=3)
+
+        # Side column: a tabbed selector offering the beamline plans. Each tab
+        # validates and runs its plan per the active execution mode (in-process
+        # IPython vs. Queue Server).
+        plan_tabs = QTabWidget()
+        plan_tabs.addTab(QtPlanWidget(re_client, mv), "Motors")
+        plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
+        plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
+
+        side = QVBoxLayout()
+        side.addWidget(plan_tabs, stretch=1)
+        top.addLayout(side, stretch=1)
+
+        vbox.addLayout(top, stretch=1)
+
+        self.setLayout(vbox)
 
 
-class Viewer(ViewerModel):
-    """Model extended with a Qt window, exposed to an interactive console."""
+class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
+    """Container with shared RE controls on top, the technique tabs in the
+    middle, and the shared live progress bars along the bottom."""
 
-    def __init__(self, *, show=True, title="HEX Queue Monitor"):
-        super().__init__()
+    def __init__(self, re_client: RunEngineClientT, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._re_client = re_client
 
-        self._work_dir = os.path.expanduser("~")
+        vbox = QVBoxLayout()
 
-        self._widget = QtViewer(self)
-        self._window = Window(self._widget, show=show)
+        # Shared top row: queue/plan controls (Queue Server only) and RE
+        # metadata. In-process mode reads metadata from the local RunEngine.
+        controls = QHBoxLayout()
+        if isinstance(re_client, RunEngineClient):
+            controls.addWidget(QtReQueueControls(re_client))
+            controls.addWidget(QtReExecutionControls(re_client))
+            controls.addWidget(QtReRunningPlan(re_client))
+        else:
+            controls.addWidget(QtReExecutionControlsLocal(local=True))
+        controls.addWidget(QtProposalInfo(re_client))
+        controls.addWidget(QtWeatherWidget())
+        controls.addStretch()
+        vbox.addLayout(controls)
 
-        # bluesky-widgets pads the central widget (4px left/right), which shows
-        # as a light border around the window; remove it.
-        self._window._qt_center.layout().setContentsMargins(0, 0, 0, 0)
+        # Technique tabs.
+        tabs = QTabWidget()
+        tabs.setObjectName("mainViewerTabs")
+        tabs.setTabPosition(QTabWidget.TabPosition.West)
+        self._tomography = QtTomographyView(self._re_client)
+        tabs.addTab(self._tomography, "Tomography")
+        self._beamline = QtBeamlineView(self._re_client)
+        tabs.addTab(self._beamline, "Beamline")
+        vbox.addWidget(tabs, stretch=1)
 
-        menu_bar = self._window._qt_window.menuBar()
-        menu_item_control = menu_bar.addMenu("Control Actions")
-        self.action_activate_env_destroy = QAction(
-            "Activate 'Destroy Environment'", self._window._qt_window
-        )
-        self.action_activate_env_destroy.setCheckable(True)
-        self._update_action_env_destroy_state()
-        self.action_activate_env_destroy.triggered.connect(
-            self._activate_env_destroy_triggered
-        )
-        menu_item_control.addAction(self.action_activate_env_destroy)
+        # Shared live per-device progress bars pinned to the bottom.
+        vbox.addWidget(QtReWaitingHookMonitor(re_client))
 
-        menu_item_save = menu_bar.addMenu("Save and Backup")
-        self.action_save_history_as_txt = QAction(
-            "Save Plan History (as .txt)", self._window._qt_window
-        )
-        self.action_save_history_as_txt.triggered.connect(
-            self._save_history_as_txt_triggered
-        )
-        menu_item_save.addAction(self.action_save_history_as_txt)
-        self.action_save_history_as_json = QAction(
-            "Save Plan History (as .json)", self._window._qt_window
-        )
-        self.action_save_history_as_json.triggered.connect(
-            self._save_history_as_json_triggered
-        )
-        menu_item_save.addAction(self.action_save_history_as_json)
-        self.action_save_history_as_yaml = QAction(
-            "Save Plan History (as .yaml)", self._window._qt_window
-        )
-        self.action_save_history_as_yaml.triggered.connect(
-            self._save_history_as_yaml_triggered
-        )
-        menu_item_save.addAction(self.action_save_history_as_yaml)
+        # Queue status pinned to the bottom of the window (Queue Server only).
+        if isinstance(re_client, RunEngineClient):
+            vbox.addWidget(QtRePlanQueue(re_client))
 
-        self._widget.model.run_engine.events.status_changed.connect(
-            self.on_update_widgets
-        )
+        self.setLayout(vbox)
 
-    def _update_action_env_destroy_state(self):
-        env_destroy_activated = self._widget.model.run_engine.env_destroy_activated
-        self.action_activate_env_destroy.setChecked(env_destroy_activated)
 
-    def _activate_env_destroy_triggered(self):
-        env_destroy_activated = self._widget.model.run_engine.env_destroy_activated
-        self._widget.model.run_engine.activate_env_destroy(not env_destroy_activated)
+class QtDataAcquisitionWindow:
+    """Application window that contains the menu bar and viewer.
 
-    def _save_history_as_txt_triggered(self):
-        self._save_history_to_file("txt")
+    Parameters
+    ----------
+    qt_widget : QtViewer
+        Contained viewer widget.
 
-    def _save_history_as_json_triggered(self):
-        self._save_history_to_file("json")
+    Attributes
+    ----------
+    file_menu : qtpy.QtWidgets.QMenu
+        File menu.
+    help_menu : qtpy.QtWidgets.QMenu
+        Help menu.
+    main_menu : qtpy.QtWidgets.QMainWindow.menuBar
+        Main menubar.
+    qt_widget : QtViewer
+        Contained viewer widget.
+    view_menu : qtpy.QtWidgets.QMenu
+        View menu.
+    window_menu : qtpy.QtWidgets.QMenu
+        Window menu.
+    """
 
-    def _save_history_as_yaml_triggered(self):
-        self._save_history_to_file("yaml")
+    def __init__(self, re_client: RunEngineClient | RunEngine, *, show: bool = True):
+        self.qt_widget = QtTabbedTechniqueSelector(re_client)
 
-    def _save_history_to_file(self, file_format):
-        try:
-            fln_pattern = f"{file_format.upper()} (*.{file_format.lower()});; All (*)"
-            file_path_init = os.path.join(
-                self._work_dir, "plan_history." + file_format.lower()
-            )
-            file_path_tuple = QFileDialog.getSaveFileName(
-                self._widget, "Save Plan History to File", file_path_init, fln_pattern
-            )
-            file_path = file_path_tuple[0]
-            if file_path:
-                self._work_dir = os.path.dirname(file_path)
-                self._widget.model.run_engine.save_plan_history_to_file(
-                    file_path=file_path, file_format=file_format
-                )
-                print(f"Plan history was successfully saved to file {file_path!r}")
-        except Exception as ex:
-            print(f"Failed to save data to file: {ex}")
+        self._qt_window = QMainWindow()
+        self._qt_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._qt_window.setUnifiedTitleAndToolBarOnMac(True)
+        self._qt_center = QWidget(self._qt_window)
 
-    def on_update_widgets(self, event):
-        self._update_action_env_destroy_state()
+        self._qt_window.setCentralWidget(self._qt_center)
+        self._qt_center.setLayout(QHBoxLayout())
+        self._status_bar = QStatusBar()
+        self._qt_window.setStatusBar(self._status_bar)
 
-    @property
-    def window(self):
-        return self._window
+        self._status_bar.showMessage("Ready")
+        self._help = QLabel("")
+        self._status_bar.addPermanentWidget(self._help)
+
+        layout = self._qt_center.layout()
+        if layout is not None:
+            layout.addWidget(self.qt_widget)
+        else:
+            raise RuntimeError("Failed to get layout for central widget.")
+
+        # self._add_viewer_dock_widget(self.qt_widget.dockConsole)
+        # self._add_viewer_dock_widget(self.qt_widget.dockLayerControls)
+        # self._add_viewer_dock_widget(self.qt_widget.dockLayerList)
+
+        # self.qt_widget.viewer.events.status.connect(self._status_changed)
+        # self.qt_widget.viewer.events.help.connect(self._help_changed)
+        # self.qt_widget.viewer.events.title.connect(self._title_changed)
+        # self.qt_widget.viewer.events.palette.connect(self._update_palette)
+
+        if show:
+            self.show()
+
+    def resize(self, width, height):
+        """Resize the window.
+
+        Parameters
+        ----------
+        width : int
+            Width in logical pixels.
+        height : int
+            Height in logical pixels.
+        """
+        self._qt_window.resize(width, height)
 
     def show(self):
-        """Resize, show, and raise the window."""
-        self._window.show()
+        """Resize, show, and bring forward the window."""
+        window_layout = self._qt_window.layout()
+        if window_layout is not None:
+            self._qt_window.resize(window_layout.sizeHint())
+        self._qt_window.show()
+
+        # We want to call Window._qt_window.raise_() in every case *except*
+        # when instantiating a viewer within a gui_qt() context for the
+        # _first_ time within the Qt app's lifecycle.
+        #
+        # `app_name` will be ours iff the application was instantiated in
+        # gui_qt(). isActiveWindow() will be True if it is the second time a
+        # _qt_window has been created. See #732
+        app = QApplication.instance()
+        if app is None:
+            raise RuntimeError("Failed to get QApplication instance.")
+        app_name = app.applicationName()
+        if app_name != get_our_app_name() or self._qt_window.isActiveWindow():
+            self._qt_window.raise_()  # for macOS
+            self._qt_window.activateWindow()  # for Windows
+
+    def _status_changed(self, event):
+        """Update status bar.
+
+        Parameters
+        ----------
+        event : qtpy.QtCore.QEvent
+            Event from the Qt context.
+        """
+        self._status_bar.showMessage(event.text)
+
+    def _title_changed(self, event):
+        """Update window title.
+
+        Parameters
+        ----------
+        event : qtpy.QtCore.QEvent
+            Event from the Qt context.
+        """
+        self._qt_window.setWindowTitle(event.text)
+
+    def _help_changed(self, event):
+        """Update help message on status bar.
+
+        Parameters
+        ----------
+        event : qtpy.QtCore.QEvent
+            Event from the Qt context.
+        """
+        self._help.setText(event.text)
+
 
     def close(self):
-        """Close the window."""
-        self._window.close()
+        """Close the viewer window and cleanup sub-widgets."""
+        # on some versions of Darwin, exiting while fullscreen seems to tickle
+        # some bug deep in NSWindow.  This forces the fullscreen keybinding
+        # test to complete its draw cycle, then pop back out of fullscreen.
+        if self._qt_window.isFullScreen():
+            self._qt_window.showNormal()
+            for i in range(8):
+                ttime.sleep(0.1)
+                QApplication.processEvents()
+        self.qt_widget.close()
+        self._qt_window.close()
+        wait_for_workers_to_quit()
+        del self._qt_window
 
 
-def main(argv=None):
-    """Launch the HEX queue-monitor GUI."""
+def launch_local_viewer():
+    """Create and return the GUI in in-process (local) mode.
+
+    Intended to be run from within an IPython session that already has the
+    RunEngine (``RE``) and devices loaded, so the plan widget can execute plans
+    via ``RE(plan(...))``.
+    """
+    from qtpy.QtWidgets import QApplication
+
+    # IPython's Qt event loop hook runs after startup, so create the
+    # QApplication now to build widgets safely.
+    app = QApplication.instance() or QApplication([])
+    apply_bnl_theme(app)
+    re = IPython.get_ipython().user_ns.get("RE", None)
+    if not isinstance(re, RunEngine):
+        raise RuntimeError("RE not found in IPython user namespace or is not a RunEngine instance.")
+
+    return QtDataAcquisitionWindow(re_client=re)
+
+
+def main():
+    """Launch the HEX Data Acquisition GUI."""
     parser = argparse.ArgumentParser(description="HEX Queue Monitor")
-    parser.add_argument(
-        "--zmq-control-addr",
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--queueserver-uri",
         default=None,
-        help="Address of control socket of RE Manager, e.g. tcp://localhost:60615. "
-        "Overrides QSERVER_ZMQ_CONTROL_ADDRESS environment variable.",
+        help="Address of the Bluesky QueueServer http server. If set, connect to"
+        " the QueueServer via HTTP and submit plans to its queue.",
     )
-    parser.add_argument(
-        "--zmq-info-addr",
-        default=None,
-        help="Address of PUB-SUB socket of RE Manager, e.g. tcp://localhost:60625. "
-        "Overrides QSERVER_ZMQ_INFO_ADDRESS environment variable.",
-    )
-    parser.add_argument(
-        "--http-server-uri",
-        default=None,
-        help="Address of HTTP Server, e.g. http://localhost:60610. Activates "
-        "communication with Queue Server via HTTP server. Overrides "
-        "QSERVER_HTTP_SERVER_URI environment variable. Use "
-        "QSERVER_HTTP_SERVER_API_KEY to pass an API key directly.",
+    mode.add_argument(
+        "--profile",
+        default="collection",
+        help="Profile to load when running acquisition in-process. If set (or if"
+        " no QueueServer is given), start IPython on this profile with the GUI"
+        " attached, running plans via RE(plan(...)).",
     )
     parser.add_argument(
-        "--http-server-keyfile",
-        default=None,
-        help="Path to read to get the single-user API key. Takes priority over "
-        "the QSERVER_HTTP_SERVER_API_KEYFILE env variable.",
-    )
-    args = parser.parse_args(argv)
-
-    zmq_control_addr = args.zmq_control_addr or os.environ.get(
-        "QSERVER_ZMQ_CONTROL_ADDRESS", None
-    )
-    zmq_info_addr = args.zmq_info_addr or os.environ.get(
-        "QSERVER_ZMQ_INFO_ADDRESS", None
+        "--mock",
+        action="store_true",
+        help="Run devices in mock/simulation mode by setting"
+        " HEXTOOLS_RUNNING_IN_CI=YES.",
     )
 
-    http_server_uri = args.http_server_uri or os.environ.get(
-        "QSERVER_HTTP_SERVER_URI", None
-    )
-    http_server_api_key = os.environ.get("QSERVER_HTTP_SERVER_API_KEY", None)
-    http_server_api_path = args.http_server_keyfile or os.environ.get(
-        "QSERVER_HTTP_SERVER_API_KEYFILE", None
-    )
-    if http_server_api_key is None and http_server_api_path is not None:
-        with open(http_server_api_path) as fin:
-            http_server_api_key = fin.read()
+    args = parser.parse_args()
 
-    if http_server_uri:
-        print("Initializing: communication with Queue Server via HTTP Server ...")
-        SETTINGS.http_server_uri = http_server_uri
-        SETTINGS.http_server_api_key = http_server_api_key
-        SETTINGS.zmq_re_manager_control_addr = None
-        SETTINGS.zmq_re_manager_info_addr = None
+    if args.mock:
+        os.environ["HEXTOOLS_RUNNING_IN_CI"] = "YES"
+
+    os.environ["BEAMLINE_ACRONYM"] = "HEX"
+
+    if args.queueserver_uri:
+        with gui_qt("HEX Queue Monitor"):
+            apply_bnl_theme()
+            re_client = RunEngineClient(http_server_uri = args.queueserver_uri)
+            QtDataAcquisitionWindow(re_client=re_client)
     else:
-        print("Initializing: communication with Queue Server directly via 0MQ ...")
-        SETTINGS.http_server_uri = None
-        SETTINGS.http_server_api_key = None
-        SETTINGS.zmq_re_manager_control_addr = zmq_control_addr
-        SETTINGS.zmq_re_manager_info_addr = zmq_info_addr
+    
+        from IPython import start_ipython
+        from traitlets.config import Config
 
-    with gui_qt("HEX Queue Monitor"):
-        apply_bnl_theme()
-        Viewer()
+        profile_path = Path(__file__).resolve().parent.parent / "profiles" / f"{args.profile}.py"
+        if not profile_path.exists():
+            raise FileNotFoundError(f"Profile not found: {profile_path}")
 
+        # Mirror the environment tweaks from the pixi `start` task.
+        for var in ("SESSION_MANAGER", "PYTHONPATH", "PYTHONUSERBASE"):
+            os.environ.pop(var, None)
+        os.environ["MPLBACKEND"] = "qtagg"
+
+        config = Config()
+        config.InteractiveShellApp.gui = "qt"
+        # Run the profile first (defining RE and devices), then attach the GUI.
+        # exec_lines run in order, before any command-line files.
+        config.InteractiveShellApp.exec_lines = [
+            f"get_ipython().run_line_magic('run', {f'-i {profile_path}'!r})",
+            "from hextools.gui.__main__ import launch_local_viewer",
+            "launch_local_viewer()",
+        ]
+        config.TerminalIPythonApp.display_banner = False
+        start_ipython(argv=[], config=config)
 
 if __name__ == "__main__":
     main()

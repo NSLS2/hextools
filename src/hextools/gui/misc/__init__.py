@@ -1,0 +1,2 @@
+from .weather import QtWeatherWidget
+from .tabbed_detectors_widget import QtTabbedDetectorsWidget

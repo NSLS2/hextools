@@ -105,6 +105,10 @@ class VelocityRespectingMotorMock(DeviceMock[AsyncEpicsMotor]):
         callback_on_mock_put(device.user_setpoint, _on_setpoint_write)
 
 
+# Make every Motor respect velocity/acceleration in mock mode by default.
+default_mock_class(VelocityRespectingMotorMock)(AsyncEpicsMotor)
+
+
 @default_mock_class(VelocityRespectingMotorMock)
 class RotationMotor(AsyncEpicsMotor):
     """A motor that can be used for rotation scans.

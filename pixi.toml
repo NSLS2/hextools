@@ -96,11 +96,15 @@ qtpy = ">=2.4.3,<3"
 # Install the `gui` extra (bluesky-widgets, ntnda-qt-viewer, ...) in this env.
 [feature.gui.pypi-dependencies]
 hextools = { path = ".", editable = true, extras = ["gui"] }
+ntnda-qt-viewer = { git = "https://github.com/jwlodek/ntnda-qt-viewer" }
 
 
 [feature.gui.tasks]
 qserver-gui = "queue-monitor --http-server-uri https://xf27id1-hex-qs1.nsls2.bnl.gov:443"
-hex-gui = "python -m hextools.gui --http-server-uri https://xf27id1-hex-qs1.nsls2.bnl.gov:443"
+hex-gui = "python -m hextools.gui"
+
+[feature.gui-dev.tasks]
+hex-gui-mock = "python -m hextools.gui --mock"
 
 [environments]
 # Base environments
@@ -113,6 +117,7 @@ terminal = {features = ["profile", "terminal"], solve-group = "profile"}
 terminal-dev = { features = ["profile", "terminal", "dev"] }
 qs = { features = ["profile", "qs"], solve-group = "profile" }
 gui = { features = ["profile", "gui"], solve-group = "profile" }
+gui-dev = { features = ["profile", "gui", "dev", "gui-dev"], solve-group = "profile" }
 
 # Python version specific environments for CI
 py311 = { features = ["dev", "py311"], solve-group = "py311" }

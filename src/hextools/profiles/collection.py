@@ -52,6 +52,8 @@ from hextools.photon_delivery_system import (
     Shutter,
     Slits,
     load_filters,
+    change_energy,
+    change_beam_mode,
 )
 from hextools.utils import (
     ProposalIDPrompt,
@@ -110,7 +112,7 @@ RE.subscribe(bec)
 # Define our global default path provider for the beamline
 path_provider = NSLS2PathProvider(RE.md)
 
-with auto_init_devices(timeout=1.0):
+with auto_init_devices(timeout=2.0):
     # Shutters (Front-end and photon)
     fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front_end_shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon_shutter")
@@ -146,9 +148,9 @@ with auto_init_devices(timeout=1.0):
 
     # Kinetix detectors
     kinetix1 = kinetix_factory(1, path_provider, name="kinetix-det1")
-    # kinetix2 = kinetix_factory(2, path_provider, name="kinetix-det2")
+    kinetix2 = kinetix_factory(2, path_provider, name="kinetix-det2")
     kinetix3 = kinetix_factory(3, path_provider, name="kinetix-det3")
-    # kinetix4 = kinetix_factory(4, path_provider, name="kinetix-det4")
+    kinetix4 = kinetix_factory(4, path_provider, name="kinetix-det4")
 
     # Optique-Peter microscope optics
     double_obj_camera = FOV_2_4_mm_Camera(
@@ -213,10 +215,6 @@ with auto_init_devices(timeout=1.0):
         path_provider,
         name="germ",
     )
-
-# TODO: Figure out why the '-' character in the name is being
-# replaced with '_' in the ctx manager
-perkin_elmer._name = "perkin-elmer"
 
 # Install a suspender to pause the RunEngine if the beam current drops below 100 mA
 # and resume when it rises above 300 mA.

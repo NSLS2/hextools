@@ -1,6 +1,6 @@
 """Photon delivery system (PDS) devices and plans."""
 
-from .dclm import DCLM, change_energy
+from .dclm import DCLM, change_energy, change_beam_mode
 from .filters import Filter, FilterPosition, load_filters
 from .shutter import Shutter
 from .slits import Slits
@@ -13,4 +13,5 @@ __all__ = [
     "Slits",
     "DCLM",
     "change_energy",
+    "change_beam_mode",
 ]
