@@ -10,8 +10,6 @@ from ophyd_async.core import (
 )
 from ophyd_async.fastcs.panda import CommonPandaBlocks, PandaPcompDirection
 
-from .motors import get_encoder_value_from_pos
-
 
 class SingleAxisFlyscanInfo(ConfinedModel):
     """Information for a single axis flyscan.
@@ -155,7 +153,6 @@ def construct_fly_info_models(
     tuple[SingleAxisFlyscanInfo, FlyMotorInfo]
         The fly info models for a single axis flyscan.
     """
-
     dist_to_start = (start_position - current_position) / encoder_resolution
     start_in_counts = round(current_enc_position + dist_to_start)
     signed_travel_counts = round((stop_position - start_position) / encoder_resolution)

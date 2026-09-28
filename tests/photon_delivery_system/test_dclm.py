@@ -37,7 +37,8 @@ def photon_shutter() -> Shutter:
         shutter.open_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN)
     )
     callback_on_mock_execute(
-        shutter.close_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED)
+        shutter.close_cmd,
+        lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED),
     )
     return shutter
 

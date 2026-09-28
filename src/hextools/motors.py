@@ -166,6 +166,7 @@ class SampleTower(StandardReadable, EpicsDevice):
         # TODO: Get this prefix adjusted so it doesn't need to be ah
         self.ry2 = RotationMotor("XF:27IDF-OP:1{MC:5-Ax:4}Mtr", name="ry2")
 
+
 class CameraObjective(StrictEnum):
     """Represents the camera objective in use."""
 
