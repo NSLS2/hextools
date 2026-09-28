@@ -10,9 +10,13 @@ from ophyd_async.epics.core import (
     epics_triggerable_command,
 )
 
+
 class ShutterStatus(StrictEnum):
+    """Shutter position readback, as the IOC reports it."""
+
     OPEN = "Open"
     CLOSED = "Not Open"
+
 
 class Shutter(EpicsDevice, AsyncMovable[bool]):
     """Photon shutter device.
@@ -28,7 +32,6 @@ class Shutter(EpicsDevice, AsyncMovable[bool]):
     """
 
     def __init__(self, prefix: str, name: str = ""):
-
         super().__init__(prefix, name=name)
         self.status = epics_signal_r(ShutterStatus, f"{prefix}Pos-Sts")
         self.open_cmd = epics_triggerable_command(f"{prefix}Cmd:Opn-Cmd")
@@ -54,7 +57,11 @@ class Shutter(EpicsDevice, AsyncMovable[bool]):
             cmd_sig = self.close_cmd
 
         await cmd_sig.execute()
-        await wait_for_value(self.status, ShutterStatus.OPEN if value else ShutterStatus.CLOSED, timeout=10)
+        await wait_for_value(
+            self.status,
+            ShutterStatus.OPEN if value else ShutterStatus.CLOSED,
+            timeout=10,
+        )
 
 
 def ensure_shutter_state(
@@ -81,7 +88,8 @@ def ensure_shutter_state(
         whether to wait for the shutter to reach the desired state after actuation
     """
     shutter_status = yield from bps.rd(shutter.status)
-    if shutter_status != desired_state:
+    desired_status = ShutterStatus.OPEN if desired_state else ShutterStatus.CLOSED
+    if shutter_status != desired_status:
         if allow_actuation:
             yield from bps.abs_set(shutter, desired_state, group=group, wait=wait)
         else:
