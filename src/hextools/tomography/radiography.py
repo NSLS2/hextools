@@ -71,10 +71,10 @@ def take_radiograph(
     md: dict | None = None,  # Extra metadata to merge into the run's metadata
     # Whether to open and check the photon shutter during the scan
     use_shutter: bool = False,
-    fe_shutter: Shutter
-    | None = None,  # Front-end shutter to check before opening the photon shutter
-    photon_shutter: Shutter
-    | None = None,  # Photon shutter to open/close around the acquisition
+    # Front-end shutter to check before opening the photon shutter
+    fe_shutter: Shutter | None = None,
+    # Photon shutter to open/close around the acquisition
+    photon_shutter: Shutter | None = None,
 ):
     """Acquire a burst-mode radiograph series on the HEX beamline.
 
@@ -98,7 +98,8 @@ def take_radiograph(
     num_acquisitions : int
         number of acquisitions to perform
     time_gap : float
-        idle time between acquisitions, in seconds
+        idle time between acquisitions, in seconds; there is no wait after the
+        last one
     sample_name : str, optional
         name of the sample being imaged
     md : dict, optional
@@ -152,7 +153,14 @@ def take_radiograph(
         if sample_name is not None:
             _md["sample_name"] = sample_name
         _md.update(md or {})
-        yield from bp.count(detectors, num_acquisitions, delay=time_gap, md=_md)
+        # One gap fewer than acquisitions: a scalar delay would make bp.count
+        # repeat it forever, including a wasted wait after the final one
+        yield from bp.count(
+            detectors,
+            num_acquisitions,
+            delay=[time_gap] * (num_acquisitions - 1),
+            md=_md,
+        )
 
     def _cleanup():
         if use_shutter:

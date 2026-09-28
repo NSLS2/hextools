@@ -17,6 +17,7 @@ from skimage.measure._regionprops import RegionProperties
 from hextools.detectors.phantom import PhantomDetector
 from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
+from hextools.photon_delivery_system.shutter import ShutterStatus
 
 Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
 BinaryImage = np.ndarray[tuple[int, int], np.dtype[np.bool_]]
@@ -403,17 +404,19 @@ def tomo_alignment_scan(
     sample_stage_x : AsyncEpicsMotor | None, optional
         The sample stage X motor, by default None.
     """
-    # Check the shutter statuses
-    fe_shutter_open = yield from bps.rd(front_end_shutter.status)
-    photon_shutter_open = yield from bps.rd(photon_shutter.status)
+    # Check the shutter statuses. Both readbacks are ShutterStatus members, and
+    # both members are non-empty strings, so they must be compared, not tested
+    # for truth.
+    fe_shutter_status = yield from bps.rd(front_end_shutter.status)
+    photon_shutter_status = yield from bps.rd(photon_shutter.status)
 
     # FE shutter must already be open. If not, raise an error.
     # If the photon shutter is closed, open it.
-    if not fe_shutter_open:
+    if fe_shutter_status != ShutterStatus.OPEN:
         raise ValueError(
             "Front-end shutter is closed. Please open it before starting the scan."
         )
-    if not photon_shutter_open:
+    if photon_shutter_status != ShutterStatus.OPEN:
         yield from bps.mv(photon_shutter, True)
 
     # Set the rotation stage to the maximum velocity before starting the scan

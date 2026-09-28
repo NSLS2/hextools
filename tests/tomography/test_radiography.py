@@ -18,6 +18,7 @@ from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFi
 from ophyd_async.epics.adkinetix import KinetixDetector
 
 from hextools.photon_delivery_system import Shutter
+from hextools.photon_delivery_system.shutter import ShutterStatus
 from hextools.tomography.radiography import FRAME_PERIOD_MARGIN, take_radiograph
 
 
@@ -49,11 +50,15 @@ def shutter_factory() -> Callable[[str], Shutter]:
             shutter = Shutter(name, name=name)
         # the only two arcs Shutter.set awaits: a command put flips the status readback
         callback_on_mock_execute(
-            shutter.open_cmd, lambda *_: set_mock_value(shutter.status, True)
+            shutter.open_cmd,
+            lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN),
         )
         callback_on_mock_execute(
-            shutter.close_cmd, lambda *_: set_mock_value(shutter.status, False)
+            shutter.close_cmd,
+            lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED),
         )
+        # A mock enum signal starts at its first member, which is OPEN
+        set_mock_value(shutter.status, ShutterStatus.CLOSED)
         return shutter
 
     return _factory
@@ -165,18 +170,10 @@ async def test_take_radiograph_single_row(
     assert start["plan_name"] == "take_radiograph"
 
     sleeps = messages_by_type.get("sleep", [])
-    # num_acquisitions, NOT num_acquisitions - 1. take_radiograph passes a
-    # SCALAR delay to bp.count, which turns it into itertools.repeat - an
-    # iterator that never exhausts - so bps.repeat emits a sleep after every
-    # acquisition INCLUDING THE LAST. The plan therefore waits time_gap once
-    # more after the final frame, which is a real trailing wait at the beamline
-    # for any sizeable gap.
-    #
-    # The old assertion of num_acquisitions - 1 only ever passed when timing
-    # happened to swallow exactly one of the sleeps, which is why it failed in
-    # both directions: 3 observed locally on 2026-09-18, 0 on CI, 5 here with
-    # the clock frozen.
-    assert len(sleeps) == num_acquisitions
+    # A gap between each pair of acquisitions and none after the last: the plan
+    # hands bp.count a finite list of num_acquisitions - 1 delays, so bps.repeat
+    # stops without the trailing sleep a scalar delay would add.
+    assert len(sleeps) == num_acquisitions - 1
     # Exact, not "<= wait": with the clock frozen the whole gap survives. If
     # bluesky ever measures elapsed time some other way, this fails loudly
     # instead of quietly going back to being a race.
@@ -184,7 +181,8 @@ async def test_take_radiograph_single_row(
 
     assert await ktx.driver.acquire_time.get_value() == exposure_time
     assert await ktx.driver.num_images.get_value() == num_images
-    assert await photon_shutter.status.get_value() is False  # finalizer closed it
+    # finalizer closed it
+    assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
 
     assert await ktx.driver.acquire_period.get_value() == pytest.approx(
         exposure_time + FRAME_PERIOD_MARGIN
