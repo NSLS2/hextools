@@ -1,8 +1,7 @@
 """Tomography tools for HEX beamline."""
 
-from .flyscans import tomo_flyscan
-
 from .alignment import tomo_alignment_scan
+from .flyscans import tomo_flyscan
 from .radiography import take_radiograph
 
 __all__ = [

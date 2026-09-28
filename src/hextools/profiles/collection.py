@@ -1,9 +1,6 @@
 """Bluesky profile for the 27-ID-1 HEX beamline at NSLS-II."""
 
 import os
-
-from hextools.detectors.germ import GeRMDetector
-
 from pathlib import PureWindowsPath
 
 # bp/bps/bpp are re-exported so beamline staff can use them at the prompt.
@@ -31,6 +28,7 @@ from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from tiled.client import from_uri, simple
 
+from hextools.detectors.germ import GeRMDetector
 from hextools.detectors.kinetix import kinetix_factory
 from hextools.detectors.phantom import PhantomDetector
 from hextools.machine import NSLS2StorageRing
@@ -38,7 +36,7 @@ from hextools.motors import (
     FOV_2_4_mm_Camera,
     FOV_20_40_mm_Camera,
     OpticsTable,
-    RotationMotor,
+    RotationMotor,  # noqa: F401 - re-exported for the prompt
     SampleTower,
 )
 from hextools.photon_delivery_system import (
@@ -48,6 +46,7 @@ from hextools.photon_delivery_system import (
     Slits,
     load_filters,
 )
+from hextools.tomography import tomo_flyscan  # noqa: F401 - called interactively by staff
 from hextools.utils import (
     ProposalIDPrompt,
     auto_init_devices,
@@ -57,8 +56,6 @@ from hextools.utils import (
     print_version_info,
     show_docs,  # noqa: F401 - called interactively by staff
 )
-
-from hextools.tomography import tomo_flyscan
 
 # Environment variables for Redis host and ophyd_async detector state preservation
 os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"
@@ -188,9 +185,9 @@ with auto_init_devices(timeout=2.0, verbose=False):
     # )
     # TODO: Remove this once the StandardDetector -> StandardReadble change is merged.
     # TODO: Use mean rather than total, once available.
-    #fs_window.add_detector_logics(
+    # fs_window.add_detector_logics(
     #    PluginSignalDataLogic(fs_window.driver, fs_window_stats.total)
-    #)
+    # )
 
     f_hutch_camera = VimbaDetector(
         "XF:27IDA-BI{GigE-Cam:5}",

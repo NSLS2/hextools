@@ -3,9 +3,9 @@
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky import preprocessors as bpp
-from bluesky.utils import plan
-from ophyd_async.core import DetectorTrigger, StandardFlyable, TriggerInfo
-from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
+from bluesky.protocols import Flyable
+from ophyd_async.core import DetectorTrigger, TriggerInfo
+from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.fastcs.panda import HDFPanda
 
 from hextools.detectors import FRAME_PERIOD_MARGIN
@@ -80,11 +80,10 @@ def tomo_flyscan(
 
     # Construct ephemeral flyer for the single axis flyscan
     single_axis_panda_flyer = SingleAxisFlyableLogic(panda).with_device()
-    all_devices = [*all_detectors, single_axis_panda_flyer, rot_motor]
+    all_devices: list[Flyable] = [*all_detectors, single_axis_panda_flyer, rot_motor]
 
     @bpp.stage_decorator(all_devices)
     def _body():
-
         # Get the start position in encoder counts
         encoder_res = yield from bps.rd(rot_motor.encoder_resolution)
         max_velocity = yield from bps.rd(rot_motor.max_velocity)
@@ -157,12 +156,11 @@ def tomo_flyscan(
             all_devices,
             md=_md,
             collect_flush_period=max(1, exposure_time + overhead),
-            stream_name=stream_name
+            stream_name=stream_name,
         )
 
     def _cleanup():
-        """Perform post-scan cleanup, regardless of result"""
-
+        """Perform post-scan cleanup, regardless of result."""
         yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
         yield from bps.abs_set(rot_motor.motor_stop, 1)
 
