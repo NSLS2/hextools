@@ -237,6 +237,56 @@ async def test_arm_logic_arm_success(
     assert await phantom_arm_logic.driver.download.get_value()
 
 
+@pytest.mark.timeout(10)
+async def test_arm_logic_arm_trigger_stream_ends_without_trigger(
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
+):
+    # A trigger_received stream that ends on its own, without the trigger and
+    # without timing out, must be handled like a timeout: acquisition has
+    # stopped, so this raises instead of re-subscribing in a tight loop.
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
+
+    async def _ends_without_trigger(signal, done_timeout=None):
+        yield 0
+        set_mock_value(phantom_arm_logic.driver.acquire, False)
+
+    monkeypatch.setattr(
+        hextools.detectors.phantom, "observe_value", _ends_without_trigger
+    )
+
+    with pytest.raises(
+        RuntimeError, match="Acquisition stopped while waiting for event trigger!"
+    ):
+        await phantom_arm_logic.start_acquiring()
+
+
+async def test_arm_logic_arm_post_trig_overshoot_after_timeout(
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
+):
+    # If the array counter update that crossed post_trig_frames is missed and the
+    # observer times out, a counter already past the target is a completed
+    # acquisition, not a wrong frame count.
+    real_observe_value = hextools.detectors.phantom.observe_value
+
+    def _array_counter_times_out(signal, done_timeout=None):
+        if signal is phantom_arm_logic.driver.array_counter:
+            raise TimeoutError
+        return real_observe_value(signal, done_timeout=done_timeout)
+
+    monkeypatch.setattr(
+        hextools.detectors.phantom, "observe_value", _array_counter_times_out
+    )
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
+    set_mock_value(phantom_arm_logic.driver.trigger_received, True)
+    set_mock_value(phantom_arm_logic.driver.post_trig_frames, 10)
+    set_mock_value(phantom_arm_logic.driver.complete_and_valid, True)
+    set_mock_value(phantom_arm_logic.driver.array_counter, 12)  # past the target
+    set_mock_value(phantom_arm_logic.driver.total_frame_count, 100)
+
+    await phantom_arm_logic.start_acquiring()
+    assert await phantom_arm_logic.driver.download.get_value()
+
+
 async def test_arm_logic_arm_refuses_when_too_few_frames_available(
     phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
@@ -359,7 +409,6 @@ async def test_detector_full_stack(
     tiled_client,
     monkeypatch,
 ):
-
     monkeypatch.setenv(
         "OPHYD_ASYNC_PRESERVE_DETECTOR_STATE", "YES"
     )  # Ensure detector config is preserved across stages

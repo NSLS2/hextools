@@ -444,7 +444,8 @@ class PhantomAcquireLogic(ADAcquireLogic):
         # to 1 within the timeout, check if acquisition stopped, and if so raise
         # a timeout error indicating acquisition stopped while waiting for trigger.
         # Otherwise, if acq is still running, keep waiting for trigger_received to
-        # go to 1.
+        # go to 1. A stream that ends without the trigger is treated as a timeout,
+        # so the acquisition check runs instead of the loop spinning.
         got_trigger = False
         while not got_trigger:
             try:
@@ -454,6 +455,10 @@ class PhantomAcquireLogic(ADAcquireLogic):
                     if trigger_received:
                         got_trigger = True
                         break
+                else:
+                    raise TimeoutError(
+                        "trigger_received stream ended before the event trigger"
+                    )
             except TimeoutError as exc:
                 acquiring = await self.driver.acquire.get_value()
                 if not acquiring:
@@ -484,7 +489,7 @@ class PhantomAcquireLogic(ADAcquireLogic):
                 raise TimeoutError(
                     "Received event trigger, but writing to cine was not completed!"
                 ) from exc
-            elif actual_post_trig != target_post_trig:
+            elif actual_post_trig < target_post_trig:
                 raise ValueError(
                     f"Expected number of post trig frames {target_post_trig} "
                     f"does not match actual number {actual_post_trig}"
