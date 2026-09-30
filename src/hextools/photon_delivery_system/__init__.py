@@ -2,11 +2,12 @@
 
 from .dclm import DCLM, change_energy
 from .filters import Filter, FilterPosition, load_filters
-from .shutter import Shutter
+from .shutter import Shutter, ShutterStatus
 from .slits import Slits
 
 __all__ = [
     "Shutter",
+    "ShutterStatus",
     "Filter",
     "load_filters",
     "FilterPosition",

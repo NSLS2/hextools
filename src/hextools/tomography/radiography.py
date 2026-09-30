@@ -61,7 +61,7 @@ def take_radiograph(
     exposure_time: float,  # screen: Exposure Time
     num_images: int,  # screen: Num Images
     num_acquisitions: int = 1,  # screen: Number of acquisitions
-    acquire_period: float = 0.0,  # screen: Acquire Time    
+    acquire_period: float = 0.0,  # screen: Acquire Time
     external_trigger: bool = False,  # screen: Trigger Mode
     time_gap: float = 0.0,  # plan-level: idle between repeats
     num_exposures: int = 1,  # screen: Exp / Image
@@ -153,7 +153,6 @@ def take_radiograph(
         )
 
     def _cleanup():
-        if use_shutter:
-            yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
+        yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))

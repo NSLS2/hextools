@@ -16,7 +16,7 @@ from ophyd_async.core import (
 from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFileIO
 from ophyd_async.epics.adkinetix import KinetixDetector
 
-from hextools.photon_delivery_system import Shutter
+from hextools.photon_delivery_system import Shutter, ShutterStatus
 from hextools.tomography.radiography import FRAME_PERIOD_MARGIN, take_radiograph
 
 # --- shutters: same shape as tests/tomography/test_alignment.py ---------------
@@ -29,10 +29,10 @@ def shutter_factory() -> Callable[[str], Shutter]:
             shutter = Shutter(name, name=name)
         # the only two arcs Shutter.set awaits: a command put flips the status readback
         callback_on_mock_execute(
-            shutter.open_cmd, lambda *_: set_mock_value(shutter.status, True)
+            shutter.open_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN)
         )
         callback_on_mock_execute(
-            shutter.close_cmd, lambda *_: set_mock_value(shutter.status, False)
+            shutter.close_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED)
         )
         return shutter
 
@@ -103,6 +103,7 @@ async def test_take_radiograph_single_row(
     exposure_time, num_images, num_acquisitions, wait = 0.1, 10, 5, 0.01
 
     fe_shutter, photon_shutter = two_shutters
+    set_mock_value(fe_shutter.status, ShutterStatus.OPEN)
     ktx = kinetix_hdf_factory(1)
     RE(bps.mv(fe_shutter, True))  # precondition: front end already open
 
@@ -116,7 +117,7 @@ async def test_take_radiograph_single_row(
     def msg_hook(msg: Msg):
         messages_by_type.setdefault(msg.command, []).append(msg)
 
-    RE.msg_hook = msg_hook
+    RE.msg_hook = msg_hook  # type: ignore
 
     RE(
         take_radiograph(
