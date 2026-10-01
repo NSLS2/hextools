@@ -18,7 +18,7 @@ from ophyd_async.epics.adcore import (
 )
 
 from hextools.photon_delivery_system.dclm import DCLM, BeamMode, change_energy
-from hextools.photon_delivery_system.shutter import Shutter
+from hextools.photon_delivery_system.shutter import Shutter, ShutterStatus
 
 
 @pytest.fixture
@@ -32,12 +32,12 @@ def dclm() -> DCLM:
 def photon_shutter() -> Shutter:
     with init_devices(mock=True):
         shutter = Shutter("TEST:PSH:", name="photon_shutter")
-    set_mock_value(shutter.status, False)
+    set_mock_value(shutter.status, ShutterStatus.CLOSED)
     callback_on_mock_execute(
-        shutter.open_cmd, lambda *_: set_mock_value(shutter.status, True)
+        shutter.open_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN)
     )
     callback_on_mock_execute(
-        shutter.close_cmd, lambda *_: set_mock_value(shutter.status, False)
+        shutter.close_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED)
     )
     return shutter
 
