@@ -20,8 +20,8 @@ from ophyd_async.epics.adcore import AreaDetector, NDStatsIO
 from ophyd_async.epics.core import EpicsDevice
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
-from ..utils import get_obj_from_ipython_ns
-from .shutter import Shutter
+from ..utils import ensure_available, get_obj_from_ipython_ns
+from .shutter import Shutter, ensure_shutter_closed
 
 
 class BeamMode(StrictEnum):
@@ -128,7 +128,7 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
     def _get_energy(self, pitch_angle: float) -> float:
         """Compute the energy of the monochromatic beam based on the pitch angle."""
         bragg_angle = np.deg2rad(self.bragg_angle_offset - pitch_angle)
-        return self.bragg_factor / np.sin(bragg_angle)
+        return float(self.bragg_factor / np.sin(bragg_angle))
 
     @AsyncStatus.wrap
     async def set(self, value: BeamMode):
@@ -145,13 +145,14 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
 
 def change_energy(
     energy: float,
-    dclm: DCLM | None = None,
-    fs_camera: AreaDetector | None = None,
     coarse_angle_range: float = 0.1,
     coarse_num_steps: int = 41,
     fine_angle_range: float = 0.025,
     fine_num_steps: int = 26,
     fs_stats_plugin_name: str = "stats1",
+    auto_tune: bool = False,
+    dclm: DCLM | None = None,
+    fs_window_cam: AreaDetector | None = None,
     photon_shutter: Shutter | None = None,
 ):
     """Bluesky plan to change monochromator energy for Si(111).
@@ -167,7 +168,7 @@ def change_energy(
     dclm : DCLM, optional
         Must be in monochromatic mode. If None, the function will attempt to
         retrieve it from the IPython namespace.
-    fs_camera : AreaDetector, optional
+    fs_window_cam : AreaDetector, optional
         Fluorescence screen camera for auto-tuning. If None, motors are
         moved without feedback.
     coarse_angle_range : float
@@ -188,28 +189,16 @@ def change_energy(
         If the monochromator is not in monochromatic mode.
     """
 
-    # Retrieve DCLM and photon shutter from the IPython namespace if not provided.
-    if dclm is None:
-        dclm = get_obj_from_ipython_ns("dclm", DCLM)
-        if dclm is None:
-            raise RuntimeError(
-                "No DCLM provided and no valid 'dclm' var found in the IPython ns."
-            )
-
-    if photon_shutter is None:
-        photon_shutter = get_obj_from_ipython_ns("photon_shutter", Shutter)
-        if photon_shutter is None and fs_camera is not None:
-            raise RuntimeError(
-                "No photon shutter provided and no valid 'photon_shutter' var found "
-                "in the IPython ns. Photon shutter is required for auto-tuning with "
-                "a camera."
-            )
+    dclm = ensure_available(DCLM, monochromator=dclm)
+    if auto_tune:
+        photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
+        fs_window_cam = ensure_available(AreaDetector, fs_window_cam=fs_window_cam)
 
     def _reset_and_close():
         # Reset the fluorescence screen and close the shutter on the way out.
         yield from bps.mv(dclm.flourescence_screen, dclm.fs_out)
         if photon_shutter is not None:
-            yield from bps.mv(photon_shutter, False)  # Close the photon shutter on exit
+            yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
 
     def _inner_change_energy():
         mode = yield from bps.rd(dclm.beam_mode)
@@ -229,7 +218,7 @@ def change_energy(
         z = dclm.fixed_beam_offset / np.tan(
             2 * bragg_angle
         )  # Crystal 2 z for fixed beam offset of 25 mm
-        if fs_camera is not None:
+        if auto_tune:
             fluo_y = dclm.fs_distance * np.tan(
                 2 * bragg_angle
             )  # Fluorescence screen y at 1428 mm downstream
@@ -248,10 +237,10 @@ def change_energy(
         # fmt: on
 
         # No feedback available without a camera, so just move the motors and return.
-        if fs_camera is None or photon_shutter is None:
+        if fs_window_cam is None or photon_shutter is None or not auto_tune:
             return
 
-        fs_stats = fs_camera.get_plugin_by_name(fs_stats_plugin_name, NDStatsIO)
+        fs_stats = fs_window_cam.get_plugin_by_name(fs_stats_plugin_name, NDStatsIO)
         if fs_stats is None:
             raise RuntimeError(
                 "Fluorescence screen camera does not have a "
@@ -266,26 +255,27 @@ def change_energy(
         # and find the position of the crystal 2 pitch that produces a peak.
         ps = PeakStats(
             dclm.xtal2_pitch.name,
-            fs_camera.get_plugin_by_name(fs_stats_plugin_name, NDStatsIO).total.name,
+            fs_window_cam.get_plugin_by_name(fs_stats_plugin_name, NDStatsIO).total.name,
         )
 
         # Perform a scan around the current position of the crystal 2 pitch,
         # and feed the produced events into the PeakStats object to find the peak
         # position.
         @subs_decorator(ps)
-        def auto_tune(angle_range: float, num_steps: int):
+        def energy_auto_tune(angle_range: float, num_steps: int):
+            # TODO: Fix type hint to allow AsyncReadable
             yield from bp.scan(
-                [fs_camera],
+                [fs_window_cam],  # type: ignore
                 dclm.xtal2_pitch,
                 angle - angle_range,
                 angle + angle_range,
                 num_steps,
-                md={"plan_name": "change_energy_auto_tune"},
+                md={"plan_name": "energy_auto_tune"},
             )
 
-        yield from auto_tune(coarse_angle_range, coarse_num_steps)  # Coarse scan
+        yield from energy_auto_tune(coarse_angle_range, coarse_num_steps)  # Coarse scan
 
-        peak: float | None = ps.com  # ty: ignore[unresolved-attribute]
+        peak: float | None = ps.com  # type: ignore
         if peak is None:
             raise RuntimeError(
                 "No peak found in coarse scan. Check the fluorescence screen."
@@ -297,9 +287,9 @@ def change_energy(
         # Clear coarse scan events so the fine scan computes from its own data only
         ps.reset()
 
-        yield from auto_tune(fine_angle_range, fine_num_steps)  # Fine scan
+        yield from energy_auto_tune(fine_angle_range, fine_num_steps)  # Fine scan
 
-        peak = ps.com  # ty: ignore[unresolved-attribute]
+        peak = ps.com  # type: ignore
         if peak is None:
             raise RuntimeError(
                 "No peak found in fine scan. Check the fluorescence screen."
