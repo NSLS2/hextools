@@ -34,7 +34,7 @@ from bluesky_widgets.qt.run_engine_client import (
     QtReRunningPlan,
     QtReStatusMonitor,
 )
-from qtpy.QtCore import Qt
+from qtpy.QtCore import QObject, Qt, QTimer, Signal
 from qtpy.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -49,6 +49,7 @@ from qtpy.QtWidgets import (
 )
 from pathlib import Path
 
+from hextools.gui.available_devices import QtAvailableDevices
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor
 from hextools.gui.live_re_md_viewer import (
     QtProposalInfo,
@@ -61,6 +62,7 @@ from hextools.gui.re_execution_controls import (
 from typing import Generic, TypeVar
 from hextools.gui.misc import QtWeatherWidget, QtTabbedDetectorsWidget
 from hextools.gui.plan_widget import QtPlanWidget
+from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui._theme import apply_bnl_theme
 from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.tomography.alignment import tomo_alignment_scan
@@ -68,6 +70,19 @@ from hextools.tomography.flyscans import tomo_flyscan
 from hextools.tomography.radiography import take_radiograph
 from hextools.photon_delivery_system import change_energy
 from bluesky.plan_stubs import mv
+from ophyd_async.epics.adkinetix import KinetixDetector
+from ophyd_async.epics.advimba import VimbaDetector
+from ophyd_async.fastcs.panda import HDFPanda
+from hextools.detectors.phantom import PhantomDetector
+from hextools.machine import NSLS2StorageRing
+from hextools.motors import (
+    FOV_2_4_mm_Camera,
+    FOV_20_40_mm_Camera,
+    OpticsTable,
+    SampleTower,
+    move_motor,
+)
+from hextools.photon_delivery_system import DCLM, Shutter, Slits
 
 from ._event_loop import gui_qt, get_our_app_name
 from ._threading import wait_for_workers_to_quit
@@ -78,6 +93,28 @@ except ImportError:
     from qtpy.QtGui import QAction
 
 RunEngineClientT = TypeVar("RunEngineClientT", bound=RunEngineClient | RunEngine)
+
+# Names must match those defined in the profile / Queue Server namespace.
+EXPECTED_DEVICES: list[tuple[str, type]] = [
+    ("fe_shutter", Shutter),
+    ("photon_shutter", Shutter),
+    ("a_slits", Slits),
+    ("f_slits", Slits),
+    ("storage_ring", NSLS2StorageRing),
+    ("dclm", DCLM),
+    ("optics_table", OpticsTable),
+    ("sample_tower", SampleTower),
+    ("panda", HDFPanda),
+    ("kinetix1", KinetixDetector),
+    ("kinetix2", KinetixDetector),
+    ("kinetix3", KinetixDetector),
+    ("kinetix4", KinetixDetector),
+    ("double_obj_camera", FOV_2_4_mm_Camera),
+    ("wide_fov_camera", FOV_20_40_mm_Camera),
+    ("phantom", PhantomDetector),
+    ("sample_camera", VimbaDetector),
+    ("f_hutch_camera", VimbaDetector),
+]
 
 def _patch_setchecked_checkstate():
     """Let ``setChecked`` accept ``Qt.CheckState`` enums (bluesky-widgets on PySide6>=6.9)."""
@@ -255,7 +292,7 @@ class QtBeamlineView(QWidget):
         # validates and runs its plan per the active execution mode (in-process
         # IPython vs. Queue Server).
         plan_tabs = QTabWidget()
-        plan_tabs.addTab(QtPlanWidget(re_client, mv), "Motors")
+        plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
 
@@ -290,6 +327,10 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         controls.addWidget(QtProposalInfo(re_client))
         controls.addWidget(QtWeatherWidget())
         controls.addStretch()
+        if isinstance(re_client, RunEngine):
+            ipython = IPython.get_ipython()
+            if ipython is not None:
+                controls.addWidget(QtShutterStatus(re_client, ipython.user_ns))
         vbox.addLayout(controls)
 
         # Technique tabs.
@@ -300,6 +341,8 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         tabs.addTab(self._tomography, "Tomography")
         self._beamline = QtBeamlineView(self._re_client)
         tabs.addTab(self._beamline, "Beamline")
+        self._available_devices = QtAvailableDevices(self._re_client, EXPECTED_DEVICES)
+        tabs.addTab(self._available_devices, "Available Devices")
         vbox.addWidget(tabs, stretch=1)
 
         # Shared live per-device progress bars pinned to the bottom.
@@ -310,6 +353,10 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             vbox.addWidget(QtRePlanQueue(re_client))
 
         self.setLayout(vbox)
+
+
+class _StateSignal(QObject):
+    changed = Signal()
 
 
 class QtDataAcquisitionWindow:
@@ -350,9 +397,18 @@ class QtDataAcquisitionWindow:
         self._status_bar = QStatusBar()
         self._qt_window.setStatusBar(self._status_bar)
 
-        self._status_bar.showMessage("Ready")
+        self._re_client = re_client
+        self._status_bar.showMessage(self._re_state_text())
         self._help = QLabel("")
         self._status_bar.addPermanentWidget(self._help)
+        if isinstance(re_client, RunEngine):
+            self._install_state_hook(re_client)
+        else:
+            self._re_state_timer = QTimer(self._qt_window)
+            self._re_state_timer.timeout.connect(
+                lambda: self._status_bar.showMessage(self._re_state_text())
+            )
+            self._re_state_timer.start(250)
 
         layout = self._qt_center.layout()
         if layout is not None:
@@ -371,6 +427,29 @@ class QtDataAcquisitionWindow:
 
         if show:
             self.show()
+
+    def _install_state_hook(self, re: RunEngine):
+        self._state_signal = _StateSignal(self._qt_window)
+        self._state_signal.changed.connect(
+            lambda: self._status_bar.showMessage(self._re_state_text())
+        )
+        previous_hook = re.state_hook
+
+        # Called from the RunEngine's event-loop thread.
+        def state_hook(new_state, old_state):
+            self._state_signal.changed.emit()
+            if previous_hook is not None:
+                previous_hook(new_state, old_state)
+
+        re.state_hook = state_hook
+
+    def _re_state_text(self) -> str:
+        if isinstance(self._re_client, RunEngine):
+            state = self._re_client.state
+        else:
+            status = self._re_client.re_manager_status or {}
+            state = status.get("re_state") or status.get("manager_state") or "unknown"
+        return f"RunEngine: {str(state).capitalize()}"
 
     def resize(self, width, height):
         """Resize the window.

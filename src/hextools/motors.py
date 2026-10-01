@@ -26,6 +26,7 @@ from ophyd_async.epics.core import (
 )
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
+import bluesky.plan_stubs as bps
 
 def get_encoder_value_from_pos(
     current_position: float, encoder_resolution: float, encoder_pos_at_zero: int
@@ -259,3 +260,24 @@ class FOV_20_40_mm_Camera(StandardReadable, EpicsDevice):
         with self.add_children_as_readables(Format.CHILD):
             self.focus = AsyncEpicsMotor(prefix + "Focus}Mtr", name="focus")
             self.rotation = AsyncEpicsMotor(prefix + "CamRot}Mtr", name="rotation")
+
+
+def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = None):
+    """Move the specified motor to the given position.
+
+    Parameters
+    ----------
+    motor : AsyncEpicsMotor
+        The motor to move.
+    value : float
+        The target position for the motor.
+    timeout : float, optional
+        Maximum time to wait for the motor to reach the target position. Defaults to None.
+
+    Raises
+    ------
+    RuntimeError
+        If the motor fails to reach the target position within the specified timeout.
+    """
+
+    yield from bps.mv(motor, value, timeout=timeout)

@@ -40,6 +40,7 @@ from hextools.motors import (
     RotationMotor,
     SampleTower,
     FOV_20_40_mm_Camera,
+    move_motor,
 )
 from hextools.photon_delivery_system import (
     DCLM,
@@ -59,7 +60,7 @@ from hextools.utils import (
     print_version_info,
 )
 
-from hextools.tomography import tomo_flyscan
+from hextools.tomography import tomo_flyscan, tomo_alignment_scan
 
 # Environment variables for Redis host and ophyd_async detector state preservation
 os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"

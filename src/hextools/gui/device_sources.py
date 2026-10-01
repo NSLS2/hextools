@@ -20,26 +20,92 @@ tuple of Python classes (e.g. ``(KinetixDetector, PhantomDetector)``); pass
 from __future__ import annotations
 
 
-from collections.abc import Callable, Iterable, Mapping
+from collections import deque
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from abc import ABC, abstractmethod
 from typing import Any
 
 import IPython
 
 _DEVICE_BASES: tuple[type, ...]
+_SIGNAL_BASES: list[type] = []
 try:  # ophyd_async devices (used throughout hextools).
     from ophyd_async.core import Device as _AsyncDevice
+    from ophyd_async.core import DeviceVector as _DeviceVector
+    from ophyd_async.core import Signal as _AsyncSignal
 
     _BASES: list[type] = [_AsyncDevice]
+    _SIGNAL_BASES.append(_AsyncSignal)
 except Exception:  # pragma: no cover - optional dependency layout
+    _AsyncDevice = _DeviceVector = None  # type: ignore[assignment,misc]
     _BASES = []
+try:
+    from ophyd_async.core import DeviceMap as _DeviceMap
+except Exception:  # pragma: no cover - older ophyd_async
+    _DeviceMap = None  # type: ignore[assignment,misc]
 try:  # classic ophyd devices, if present.
     from ophyd.ophydobj import OphydObject as _OphydObject
+    from ophyd.signal import Signal as _OphydSignal
 
     _BASES.append(_OphydObject)
+    _SIGNAL_BASES.append(_OphydSignal)
 except Exception:  # pragma: no cover - optional dependency layout
     pass
 _DEVICE_BASES = tuple(_BASES)
+_SIGNAL_TYPES = tuple(_SIGNAL_BASES)
+
+
+def _iter_children(name: str, obj: Any) -> Iterator[tuple[str, Any]]:
+    """Yield ``(path, child)`` for each direct child device of ``obj``.
+
+    Paths are valid Python expressions relative to the namespace, so they can be
+    rendered directly into ``RE(plan(...))`` calls.
+    """
+    if _AsyncDevice is not None and isinstance(obj, _AsyncDevice):
+        for key, child in obj.children():
+            if _DeviceVector is not None and isinstance(obj, _DeviceVector) and key.isdigit():
+                yield f"{name}[{key}]", child
+            elif _DeviceMap is not None and isinstance(obj, _DeviceMap) and key in obj:
+                yield f"{name}[{key!r}]", child
+            else:
+                yield f"{name}.{key}", child
+        return
+    for key in getattr(obj, "component_names", ()) or ():
+        try:
+            child = getattr(obj, key)
+        except Exception:
+            continue
+        if _looks_like_device(child):
+            yield f"{name}.{key}", child
+
+
+def _walk_namespace(namespace: Mapping[str, Any]) -> dict[str, Any]:
+    """Map path -> device for all devices in ``namespace`` and their children.
+
+    Each device appears once: breadth-first order means a top-level name wins
+    over any dotted path to the same object. Among top-level aliases, the one
+    matching the device's ``name`` is preferred, then alphabetical order.
+    """
+    queue: deque[tuple[str, Any]] = deque(
+        sorted(
+            (
+                (name, obj)
+                for name, obj in namespace.items()
+                if not name.startswith("_") and _looks_like_device(obj)
+            ),
+            key=lambda kv: (kv[0] != getattr(kv[1], "name", None), kv[0]),
+        )
+    )
+    seen: set[int] = set()
+    found: dict[str, Any] = {}
+    while queue:
+        path, obj = queue.popleft()
+        if id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        found[path] = obj
+        queue.extend(_iter_children(path, obj))
+    return found
 
 
 def _looks_like_device(obj: Any) -> bool:
@@ -119,8 +185,8 @@ class NamespaceDeviceSource(DeviceSource):
 
         names = [
             name
-            for name, obj in self._namespace.items()
-            if not name.startswith("_") and self._matches(obj, types)
+            for name, obj in _walk_namespace(self._namespace).items()
+            if self._matches(obj, types)
         ]
         return sorted(names)
 
@@ -142,9 +208,10 @@ class NamespaceDeviceSource(DeviceSource):
             True if the device is valid and matches the specified types, False otherwise.
         """
 
-        if name not in self._namespace:
+        obj = _walk_namespace(self._namespace).get(name)
+        if obj is None:
             return False
-        return self._matches(self._namespace[name], types)
+        return self._matches(obj, types)
 
     @staticmethod
     def _matches(obj: Any, types: tuple[type, ...] | None) -> bool:
@@ -165,7 +232,8 @@ class NamespaceDeviceSource(DeviceSource):
 
         if types:
             return isinstance(obj, types)
-        return _looks_like_device(obj)
+        # Untyped inputs would otherwise list every signal of every device.
+        return _looks_like_device(obj) and not isinstance(obj, _SIGNAL_TYPES)
 
 
 class QueueServerDeviceSource(DeviceSource):
@@ -189,20 +257,32 @@ class QueueServerDeviceSource(DeviceSource):
             return None
         return {t.__name__ for t in types}
 
+    def _walk(self) -> dict[str, dict]:
+        """Map dotted path -> info for allowed devices and their components."""
+        found: dict[str, dict] = {}
+        queue: deque[tuple[str, Any]] = deque(sorted(self._allowed().items()))
+        while queue:
+            path, info = queue.popleft()
+            if not isinstance(info, dict) or path in found:
+                continue
+            found[path] = info
+            for key, child in (info.get("components") or {}).items():
+                queue.append((f"{path}.{key}", child))
+        return found
+
     def list_devices(self, types: tuple[type, ...] | None = None) -> list[str]:
         wanted = self._wanted_classnames(types)
         names = [
             name
-            for name, info in self._allowed().items()
-            if isinstance(info, dict)
-            and (wanted is None or info.get("classname") in wanted)
+            for name, info in self._walk().items()
+            if wanted is None or info.get("classname") in wanted
         ]
         return sorted(names)
 
     def is_valid_device(
         self, name: str, types: tuple[type, ...] | None = None
     ) -> bool:
-        info = self._allowed().get(name)
+        info = self._walk().get(name)
         if not isinstance(info, dict):
             return False
         wanted = self._wanted_classnames(types)

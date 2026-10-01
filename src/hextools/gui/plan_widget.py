@@ -48,6 +48,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from hextools.gui._ipython import run_in_ipython
 from hextools.gui.device_selector_widget import DynamicDeviceSelector
 from hextools.gui.device_sources import (
     DeviceSource,
@@ -464,31 +465,7 @@ class QtPlanWidget(QWidget):
         QTimer.singleShot(0, lambda: self._execute_cell(code))
 
     def _execute_cell(self, code: str):
-        import sys
-
-        from IPython.core.getipython import get_ipython
-
-        ipython = get_ipython()
-        if ipython is None:
-            self._set_status(
-                "No IPython shell available for in-process execution.", error=True
-            )
-            return
-        # We run from a Qt callback while IPython's prompt is active, so stdout
-        # is prompt_toolkit's patch_stdout proxy, which buffers the echo and the
-        # progress bars until the plan finishes (they "flash" at the end).
-        # Point stdout at the real terminal for the duration so they render live.
-        patched_stdout = sys.stdout
-        real_stdout = sys.__stdout__
-        if real_stdout is not None:
-            sys.stdout = real_stdout
-        try:
-            # Echo the command so the terminal shows what the GUI ran.
-            print(f"In [{ipython.execution_count}]: {code}")
-            result = ipython.run_cell(code, store_history=True)
-        finally:
-            sys.stdout = patched_stdout
-        error = result.error_in_exec or result.error_before_exec
+        error = run_in_ipython(code)
         if error is not None:
             self._set_status(f"Plan failed: {error}", error=True)
             QMessageBox.critical(

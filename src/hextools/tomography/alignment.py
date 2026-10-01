@@ -17,6 +17,7 @@ from skimage.measure._regionprops import RegionProperties
 from hextools.detectors.phantom import PhantomDetector
 from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
+from hextools.utils import ensure_available
 
 Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
 BinaryImage = np.ndarray[tuple[int, int], np.dtype[np.bool_]]
@@ -368,14 +369,14 @@ def check_alignment(
 
 def tomo_alignment_scan(
     dets: list[KinetixDetector | PhantomDetector],
-    rotation_stage: RotationMotor,
-    front_end_shutter: Shutter,
-    photon_shutter: Shutter,
     exposure_time: float,
     num_projections: int = 37,
     init_angle: float = 0.0,
     stop_angle: float = 360.0,
     base_x_offset: float = 0.0,
+    fe_shutter: Shutter | None = None,
+    photon_shutter: Shutter | None = None,
+    rot_motor: RotationMotor | None = None,
     sample_stage_x: AsyncEpicsMotor | None = None,
 ):
     """Tomography alignment scan.
@@ -403,8 +404,13 @@ def tomo_alignment_scan(
     sample_stage_x : AsyncEpicsMotor | None, optional
         The sample stage X motor, by default None.
     """
+
+    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
+    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
+    rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
+
     # Check the shutter statuses
-    fe_shutter_open = yield from bps.rd(front_end_shutter.status)
+    fe_shutter_open = yield from bps.rd(fe_shutter.status)
     photon_shutter_open = yield from bps.rd(photon_shutter.status)
 
     # FE shutter must already be open. If not, raise an error.
@@ -417,9 +423,9 @@ def tomo_alignment_scan(
         yield from bps.mv(photon_shutter, True)
 
     # Set the rotation stage to the maximum velocity before starting the scan
-    max_velocity = yield from bps.rd(rotation_stage.max_velocity)
-    yield from bps.mv(rotation_stage.velocity, max_velocity)
-    yield from bps.mv(rotation_stage, init_angle)
+    max_velocity = yield from bps.rd(rot_motor.max_velocity)
+    yield from bps.mv(rot_motor.velocity, max_velocity)
+    yield from bps.mv(rot_motor, init_angle)
 
     for det in dets:
         yield from bps.mv(det.driver.acquire_time, exposure_time)
@@ -442,5 +448,5 @@ def tomo_alignment_scan(
     if flat_uid is not None:
         _md["flat_uid"] = flat_uid
     yield from bp.scan(
-        dets, rotation_stage, init_angle, stop_angle, num_projections, md=_md
+        dets, rot_motor, init_angle, stop_angle, num_projections, md=_md
     )
