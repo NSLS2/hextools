@@ -341,6 +341,7 @@ class QtDataAcquisitionWindow:
 
         self._qt_window = QMainWindow()
         self._qt_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._qt_window.setWindowTitle("HEX Data Acquisition")
         self._qt_window.setUnifiedTitleAndToolBarOnMac(True)
         self._qt_center = QWidget(self._qt_window)
 
