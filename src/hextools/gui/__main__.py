@@ -66,13 +66,14 @@ from hextools.gui.plan_status import (
     PlanMonitor,
     QtPlanExecutionView,
     QtPlanLogView,
+    QtPlanHistory,
     QtPlanStatus,
 )
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui._theme import apply_bnl_theme
 from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.tomography.alignment import tomo_alignment_scan
-from hextools.tomography.flyscans import tomo_flyscan
+from hextools.tomography.flyscans import tomo_1d_step_scan, tomo_2d_step_scan, tomo_flyscan
 from hextools.tomography.radiography import take_radiograph
 from hextools.photon_delivery_system import change_energy
 from bluesky.plan_stubs import mv
@@ -100,6 +101,8 @@ except ImportError:
 
 RunEngineClientT = TypeVar("RunEngineClientT", bound=RunEngineClient | RunEngine)
 
+PLAN_HISTORY_FILE_ENV = "HEXTOOLS_PLAN_HISTORY_FILE"
+
 # Names must match those defined in the profile / Queue Server namespace.
 EXPECTED_DEVICES: list[tuple[str, type]] = [
     ("fe_shutter", Shutter),
@@ -118,8 +121,8 @@ EXPECTED_DEVICES: list[tuple[str, type]] = [
     ("double_obj_camera", FOV_2_4_mm_Camera),
     ("wide_fov_camera", FOV_20_40_mm_Camera),
     ("phantom", PhantomDetector),
-    ("sample_camera", VimbaDetector),
-    ("f_hutch_camera", VimbaDetector),
+    ("sample_cam", VimbaDetector),
+    ("f_hutch_cam", VimbaDetector),
 ]
 
 def _patch_setchecked_checkstate():
@@ -250,16 +253,19 @@ class QtTomographyView(QWidget):
         top = QHBoxLayout()
         # Detector viewers take the majority of the screen.
         top.addWidget(QtTabbedDetectorsWidget(
-            {f"Kinetix {i}": "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}" for i in range(1, 5)}
+            re_client,
+            {f"kinetix{i}": "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}" for i in range(1, 5)},
         ), stretch=3)
 
         # Side column: a tabbed selector offering the tomography plans. Each tab
         # validates and runs its plan per the active execution mode (in-process
         # IPython vs. Queue Server).
         plan_tabs = QTabWidget()
-        plan_tabs.addTab(QtPlanWidget(re_client, tomo_alignment_scan), "Alignment")
         plan_tabs.addTab(QtPlanWidget(re_client, tomo_flyscan), "Flyscan")
+        plan_tabs.addTab(QtPlanWidget(re_client, tomo_1d_step_scan), "1D Step")
+        plan_tabs.addTab(QtPlanWidget(re_client, tomo_2d_step_scan), "2D Step")
         plan_tabs.addTab(QtPlanWidget(re_client, take_radiograph), "Radiography")
+        plan_tabs.addTab(QtPlanWidget(re_client, tomo_alignment_scan), "Alignment")
 
         side = QVBoxLayout()
         side.addWidget(plan_tabs, stretch=1)
@@ -267,6 +273,21 @@ class QtTomographyView(QWidget):
 
         vbox.addLayout(top, stretch=1)
 
+        self.setLayout(vbox)
+
+
+class QtEDXDView(QWidget):
+    """Energy-dispersive X-ray diffraction view: the live GeRM detector viewer."""
+
+    def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._re_client = re_client
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(
+            QtTabbedDetectorsWidget(re_client, {"germ": "XF:27ID1-ES{GeRM-Det:1}"}),
+            stretch=1,
+        )
         self.setLayout(vbox)
 
 
@@ -288,10 +309,13 @@ class QtBeamlineView(QWidget):
         top = QHBoxLayout()
         # Visible-light camera viewers take the majority of the screen.
         top.addWidget(QtTabbedDetectorsWidget(
+            re_client,
             {
-                "Sample": "XF:27ID1-ES{Sample-Cam:1}",
-                "F-Hutch": "XF:27IDA-BI{GigE-Cam:5}",
-            }
+                "sample_cam": "XF:27ID1-ES{Sample-Cam:1}",
+                "f_hutch_cam": "XF:27IDA-BI{GigE-Cam:5}",
+                "diamond_window_cam": "XF:27IDA-BI{FAM:1-Cam:1}",
+                "fs_window_cam": "XF:27IDA-BI{FS:1-Cam:1}",
+            },
         ), stretch=3)
 
         # Side column: a tabbed selector offering the beamline plans. Each tab
@@ -332,31 +356,42 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             controls.addWidget(QtReExecutionControlsLocal(local=True))
         controls.addWidget(QtProposalInfo(re_client))
         controls.addWidget(QtWeatherWidget())
+        ipython = IPython.get_ipython()
+        user_ns = ipython.user_ns if ipython is not None else {}
         self._plan_monitor = (
-            PlanMonitor(re_client, parent=self) if isinstance(re_client, RunEngine) else None
+            PlanMonitor(re_client, namespace=user_ns, parent=self)
+            if isinstance(re_client, RunEngine)
+            else None
         )
         if self._plan_monitor is not None:
             controls.addWidget(QtPlanStatus(self._plan_monitor))
         controls.addStretch()
-        if isinstance(re_client, RunEngine):
-            ipython = IPython.get_ipython()
-            if ipython is not None:
-                controls.addWidget(QtShutterStatus(re_client, ipython.user_ns))
+        if isinstance(re_client, RunEngine) and ipython is not None:
+            controls.addWidget(QtShutterStatus(re_client, user_ns))
         vbox.addLayout(controls)
 
         # Technique tabs.
         tabs = QTabWidget()
         tabs.setObjectName("mainViewerTabs")
         tabs.setTabPosition(QTabWidget.TabPosition.West)
-        self._tomography = QtTomographyView(self._re_client)
-        tabs.addTab(self._tomography, "Tomography")
         self._beamline = QtBeamlineView(self._re_client)
         tabs.addTab(self._beamline, "Beamline")
+        self._tomography = QtTomographyView(self._re_client)
+        tabs.addTab(self._tomography, "Tomography")
+        self._edxd = QtEDXDView(self._re_client)
+        tabs.addTab(self._edxd, "EDXD")
         self._available_devices = QtAvailableDevices(self._re_client, EXPECTED_DEVICES)
         tabs.addTab(self._available_devices, "Available Devices")
         if self._plan_monitor is not None:
             tabs.addTab(QtPlanExecutionView(self._plan_monitor), "Plan Execution")
             tabs.addTab(QtPlanLogView(self._plan_monitor), "Log")
+            tabs.addTab(
+                QtPlanHistory(
+                    self._plan_monitor,
+                    history_file=os.environ.get(PLAN_HISTORY_FILE_ENV) or None,
+                ),
+                "History",
+            )
         vbox.addWidget(tabs, stretch=1)
 
         # Shared live per-device progress bars pinned to the bottom.
@@ -589,11 +624,20 @@ def main():
         help="Run devices in mock/simulation mode by setting"
         " HEXTOOLS_RUNNING_IN_CI=YES.",
     )
+    parser.add_argument(
+        "--history-file",
+        default=None,
+        help="JSON file to save plan history to as plans finish, and to load it"
+        f" from on startup. Can also be set with {PLAN_HISTORY_FILE_ENV}.",
+    )
 
     args = parser.parse_args()
 
     if args.mock:
         os.environ["HEXTOOLS_RUNNING_IN_CI"] = "YES"
+    if args.history_file:
+        # An env var, so it reaches the GUI built later inside the IPython session.
+        os.environ[PLAN_HISTORY_FILE_ENV] = args.history_file
 
     os.environ["BEAMLINE_ACRONYM"] = "HEX"
 

@@ -34,17 +34,19 @@ from bluesky import RunEngine
 from bluesky_queueserver_api import BPlan
 from bluesky_widgets.qt.threading import FunctionWorker
 from bluesky_widgets.models.run_engine_client import RunEngineClient
-from qtpy.QtCore import Qt, QTimer, Signal, Slot
+from qtpy.QtCore import QEvent, QSize, Qt, QTimer, Signal, Slot
 from qtpy.QtGui import QDoubleValidator, QIntValidator
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QLabel,
     QLineEdit,
     QPushButton,
     QMessageBox,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -147,6 +149,44 @@ def _element_device_types(annotation) -> tuple[type, ...] | None:
     return _device_types(args[0])
 
 
+class _VerticalScrollArea(QScrollArea):
+    """Scrolls vertically only, and is always wide enough for its content plus the scrollbar."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def setWidget(self, widget: QWidget):
+        super().setWidget(widget)
+        widget.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        # Content width changes (e.g. devices populated, rows added) must re-size the area.
+        if obj is self.widget() and event.type() == QEvent.Type.LayoutRequest:
+            self.updateGeometry()
+        return super().eventFilter(obj, event)
+
+    def _content_width(self) -> int:
+        widget = self.widget()
+        if widget is None:
+            return 0
+        return (
+            widget.minimumSizeHint().width()
+            + self.verticalScrollBar().sizeHint().width()
+            + 2 * self.frameWidth()
+        )
+
+    def minimumSizeHint(self) -> QSize:
+        hint = super().minimumSizeHint()
+        return QSize(max(hint.width(), self._content_width()), hint.height())
+
+    def sizeHint(self) -> QSize:
+        hint = super().sizeHint()
+        return QSize(max(hint.width(), self._content_width()), hint.height())
+
+
 class QtPlanWidget(QWidget):
     """Build and run an arbitrary plan, either in-process or via the Queue Server.
 
@@ -216,7 +256,15 @@ class QtPlanWidget(QWidget):
         group_box = QGroupBox(title)
         vbox = QVBoxLayout()
 
-        self._build_fields(vbox)
+        # Inputs scroll instead of growing the window; the button and status stay visible.
+        fields = QWidget()
+        fields_layout = QVBoxLayout(fields)
+        fields_layout.setContentsMargins(0, 0, 0, 0)
+        self._build_fields(fields_layout)
+        fields_layout.addStretch()
+        scroll = _VerticalScrollArea()
+        scroll.setWidget(fields)
+        vbox.addWidget(scroll, stretch=1)
 
         button_label = (
             "Run Plan"

@@ -9,6 +9,7 @@ from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
+    call_in_bluesky_event_loop,
 )
 from bluesky.utils import ProgressBarManager
 from bluesky_tiled_plugins import TiledWriter
@@ -33,7 +34,7 @@ from hextools.utils import show_docs
 
 from hextools.detectors.phantom import PhantomDetector
 from hextools.detectors.kinetix import kinetix_factory
-from hextools.machine import NSLS2StorageRing
+from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
 from hextools.motors import (
     FOV_2_4_mm_Camera,
     OpticsTable,
@@ -60,7 +61,13 @@ from hextools.utils import (
     print_version_info,
 )
 
-from hextools.tomography import tomo_flyscan, tomo_alignment_scan
+from hextools.tomography import tomo_flyscan, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_nd_step_scan
+
+from ophyd_async.sim import SimMotor
+
+# Adjust the default timeout for ophyd async to 60s
+from ophyd_async.core import DEFAULT_TIMEOUT
+DEFAULT_TIMEOUT = 60.0
 
 # Environment variables for Redis host and ophyd_async detector state preservation
 os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"
@@ -112,12 +119,12 @@ path_provider = NSLS2PathProvider(RE.md)
 
 with auto_init_devices(timeout=2.0):
     # Shutters (Front-end and photon)
-    fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front_end_shutter")
-    photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon_shutter")
+    fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
+    photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon-shutter")
 
     # Slits
-    a_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="a_slits")
-    f_slits = Slits("XF:27IDF-OP:1{Slt:2-Ax:", name="f_slits")
+    a_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="a-slits")
+    f_slits = Slits("XF:27IDF-OP:1{Slt:2-Ax:", name="f-slits")
 
     # Storage ring information
     storage_ring = NSLS2StorageRing()
@@ -128,10 +135,10 @@ with auto_init_devices(timeout=2.0):
     )
 
     # Motors for the optics table
-    optics_table = OpticsTable("XF:27IDF-OP:1{OPT:1-Ax:", name="optics_table")
+    optics_table = OpticsTable("XF:27IDF-OP:1{OPT:1-Ax:", name="optics-table")
 
     # Sample tower
-    sample_tower = SampleTower("XF:27IDF-OP:1{SMPL:1-Ax:", name="sample_tower")
+    sample_tower = SampleTower("XF:27IDF-OP:1{SMPL:1-Ax:", name="sample-tower")
     rot_motor = sample_tower.ry2
 
     # Generate filter objects from the configuration file
@@ -153,10 +160,10 @@ with auto_init_devices(timeout=2.0):
 
     # Optique-Peter microscope optics
     double_obj_camera = FOV_2_4_mm_Camera(
-        "XF:27IDF-OP:1{OPT:1-Ax:", name="double_obj_camera"
+        "XF:27IDF-OP:1{OPT:1-Ax:", name="double-obj-camera"
     )
     wide_fov_camera = FOV_20_40_mm_Camera(
-        "XF:27IDF-OP:1{OPT:2-Ax:", name="wide_fov_camera"
+        "XF:27IDF-OP:1{OPT:2-Ax:", name="wide-fov-camera"
     )
 
     phantom = PhantomDetector(
@@ -165,39 +172,36 @@ with auto_init_devices(timeout=2.0):
         name="phantom",
     )
 
-    # TODO: Re-install with ADVimba
-    # diamond_window_camera = VimbaDetector(
-    #     "XF:27IDA-BI{FAM:1-Cam:1}",
-    #     ADWriterFactory.hdf(path_provider),
-    #     name="diamond_window_camera",
-    # )
-
-    sample_camera = VimbaDetector(
-        "XF:27ID1-ES{Sample-Cam:1}",
+    diamond_window_cam = VimbaDetector(
+        "XF:27IDA-BI{FAM:1-Cam:1}",
         ADWriterFactory.hdf(path_provider),
-        name="sample_camera",
+        name="diamond-window-cam",
     )
 
-    # TODO: Re-install with ADVimba
-    # fs_window_stats = NDStatsIO(
-    #     "XF:27IDA-BI{FS:1-Cam:1}Stats1:", name="fs_window_stats"
-    # )
-    # fs_window = VimbaDetector(
-    #     "XF:27IDA-BI{FS:1-Cam:1}",
-    #     ADWriterFactory.hdf(path_provider),
-    #     name="fs_window",
-    #     plugins={"stats1": fs_window_stats},
-    # )
-    # TODO: Remove this once the StandardDetector -> StandardReadble change is merged.
-    # TODO: Use mean rather than total, once available.
-    #fs_window.add_detector_logics(
-    #    PluginSignalDataLogic(fs_window.driver, fs_window_stats.total)
-    #)
+    sample_cam = VimbaDetector(
+        "XF:27ID1-ES{Sample-Cam:1}",
+        ADWriterFactory.hdf(path_provider),
+        name="sample-cam",
+    )
 
-    f_hutch_camera = VimbaDetector(
+    fs_window_stats = NDStatsIO(
+        "XF:27IDA-BI{FS:1-Cam:1}Stats1:", name="fs-window-stats"
+    )
+    fs_window_cam = VimbaDetector(
+        "XF:27IDA-BI{FS:1-Cam:1}",
+        # ADWriterFactory.hdf(path_provider), TODO: Add this back once the dirs created
+        name="fs-window-cam",
+        plugins={"stats1": fs_window_stats},
+    )
+    # TODO: Remove this once the StandardDetector -> StandardReadble change is merged.
+    fs_window_cam.add_detector_logics(
+       PluginSignalDataLogic(fs_window_cam.driver, fs_window_stats.mean_value)
+    )
+
+    f_hutch_cam = VimbaDetector(
         "XF:27IDA-BI{GigE-Cam:5}",
         ADWriterFactory.hdf(path_provider),
-        name="f_hutch_camera",
+        name="f_hutch_cam",
     )
 
     pe_path_provider = NSLS2PathProvider(
@@ -216,19 +220,27 @@ with auto_init_devices(timeout=2.0):
         name="germ",
     )
 
-# Install a suspender to pause the RunEngine if the beam current drops below 100 mA
-# and resume when it rises above 300 mA.
+    # A few simulated motors, useful for testing
+    sim_x = SimMotor(name="sim_x", instant=False)
+    sim_y = SimMotor(name="sim_y", instant=False)
+    sim_z = SimMotor(name="sim_z", instant=False)
+
+
 RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
 
 # Configure baseline supplemental data to include in the metadata of every run.
-# sd = bpp.SupplementalData(
-#     baseline=[
-#         storage_ring.beam_current,
-#         wb_slits,
-#         pb_slits,
-#         sample_tower,
-#         #dclm,
-#         optics_table,
-#     ]
-# )
-# RE.preprocessors.append(sd)
+sd = bpp.SupplementalData(
+    baseline=[
+        storage_ring.beam_current,
+        a_slits,
+        f_slits,
+        sample_tower,
+        monochromator,
+        optics_table,
+    ]
+)
+RE.preprocessors.append(sd)
+
+# Disable bec printout of baseline readings
+# since it is kind of noisy
+bec.disable_baseline()
