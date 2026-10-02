@@ -9,6 +9,7 @@ from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
+    call_in_bluesky_event_loop,
 )
 from bluesky.utils import ProgressBarManager
 from bluesky_tiled_plugins import TiledWriter
@@ -33,7 +34,7 @@ from hextools.utils import show_docs
 
 from hextools.detectors.phantom import PhantomDetector
 from hextools.detectors.kinetix import kinetix_factory
-from hextools.machine import NSLS2StorageRing
+from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
 from hextools.motors import (
     FOV_2_4_mm_Camera,
     OpticsTable,
@@ -222,8 +223,18 @@ with auto_init_devices(timeout=2.0, verbose=False):
 
 
 # Install a suspender to pause the RunEngine if the beam current drops below 100 mA
-# and resume when it rises above 300 mA.
-# RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
+# and resume when it rises above 390 mA, unless the ring is in maintenance/shutdown.
+try:
+    _ops_mode = call_in_bluesky_event_loop(storage_ring.operating_mode.get_value())
+except Exception as e:
+    print(f"Could not read storage ring operating mode ({e}); beam suspender not installed.")
+else:
+    if _ops_mode in (NSLS2OpsMode.MAINTENANCE, NSLS2OpsMode.SHUTDOWN):
+        print(f"Storage ring in {_ops_mode.value} mode; beam suspender not installed.")
+    else:
+        RE.install_suspender(
+            SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390)
+        )
 
 # Configure baseline supplemental data to include in the metadata of every run.
 sd = bpp.SupplementalData(
