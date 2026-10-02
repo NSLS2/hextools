@@ -28,10 +28,13 @@ from ophyd_async.epics.adcore import (
     ADBaseDataType,
     ADBaseIO,
     ADHDFDataLogic,
+    ADMultipartDataLogic,
     ADWriterFactory,
     NDArrayDescription,
     NDFileHDF5IO,
     NDPluginBaseIO,
+    NDFileIO,
+    NDPluginFileIO,
     NDProcessIO,
 )
 import numpy as np
@@ -348,6 +351,7 @@ class GeRMDetector(StandardDetector):
         config_sigs: Sequence[SignalR] = (),
         name: str = "",
     ) -> None:
+        self._path_provider = path_provider
         self.driver = GeRMDetectorIO(prefix, name=name)
         if plugins is not None:
             for plugin_name, plugin in plugins.items():
@@ -355,6 +359,33 @@ class GeRMDetector(StandardDetector):
         self.add_detector_logics(GeRMTriggerLogic(self.driver))
         self.add_detector_logics(GeRMAcquireLogic(self.driver))
         self.hdf = NDFileHDF5IO(prefix + "MCA1:HDF1:", name="hdf")
+        self.tiff = NDPluginFileIO(prefix + "MCA1:TIFF1:", name="tiff")
+        self.save_as_hdf()
+        self.add_config_signals(*config_sigs)
+        super().__init__(name=name)
+
+    def save_as_tiff(self) -> None:
+        if self._data_logics and isinstance(self._data_logics[0], ADMultipartDataLogic):
+            return
+        self._data_logics = ()
+        self.add_detector_logics(
+            ADMultipartDataLogic(
+                NDArrayDescription(
+                    [self.driver.num_elements, self.driver.num_energy_bins],
+                    self.driver.data_type,
+                    self.driver.color_mode,
+                ),
+                self._path_provider,
+                self.tiff,
+                ".tiff",
+                "multipart/related;type=image/tiff"
+            )
+        )
+
+    def save_as_hdf(self) -> None:
+        if self._data_logics and isinstance(self._data_logics[0], ADHDFDataLogic):
+            return
+        self._data_logics = ()
         self.add_detector_logics(
             ADHDFDataLogic(
                 NDArrayDescription(
@@ -362,9 +393,7 @@ class GeRMDetector(StandardDetector):
                     self.driver.data_type,
                     self.driver.color_mode,
                 ),
-                path_provider,
+                self._path_provider,
                 self.hdf,
             )
         )
-        self.add_config_signals(*config_sigs)
-        super().__init__(name=name)
