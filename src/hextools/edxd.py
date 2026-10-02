@@ -6,11 +6,11 @@ from hextools.detectors.germ import GeRMDetector
 from hextools.photon_delivery_system import ensure_shutter_open, Shutter
 from hextools.photon_delivery_system.shutter import ensure_shutter_closed
 from hextools.utils import ensure_available
-from hextools.motors import AsyncMovable
 from bluesky import plan_stubs as bps, plans as bp
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 def edxd_scan(
-    movable: AsyncMovable[float],
+    movable: AsyncEpicsMotor,
     start: float,
     stop: float,
     num_points: int,

@@ -75,6 +75,7 @@ from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.tomography.alignment import tomo_alignment_scan
 from hextools.tomography.flyscans import tomo_1d_step_scan, tomo_2d_step_scan, tomo_flyscan
 from hextools.tomography.radiography import take_radiograph
+from hextools.edxd import edxd_scan
 from hextools.photon_delivery_system import change_energy
 from bluesky.plan_stubs import mv
 from ophyd_async.epics.adkinetix import KinetixDetector
@@ -255,6 +256,7 @@ class QtTomographyView(QWidget):
         top.addWidget(QtTabbedDetectorsWidget(
             re_client,
             {f"kinetix{i}": "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}" for i in range(1, 5)},
+            combined={"Dual Cam": ["kinetix1", "kinetix3"]},
         ), stretch=3)
 
         # Side column: a tabbed selector offering the tomography plans. Each tab
@@ -277,7 +279,31 @@ class QtTomographyView(QWidget):
 
 
 class QtEDXDView(QWidget):
-    """Energy-dispersive X-ray diffraction view: the live GeRM detector viewer."""
+    """Energy-dispersive X-ray diffraction view: the live GeRM viewer and EDXD plans."""
+
+    def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._re_client = re_client
+
+        top = QHBoxLayout()
+        top.addWidget(
+            QtTabbedDetectorsWidget(re_client, {"germ": "XF:27ID1-ES{GeRM-Det:1}"}),
+            stretch=3,
+        )
+
+        plan_tabs = QTabWidget()
+        plan_tabs.addTab(QtPlanWidget(re_client, edxd_scan), "EDXD Scan")
+        side = QVBoxLayout()
+        side.addWidget(plan_tabs, stretch=1)
+        top.addLayout(side, stretch=1)
+
+        vbox = QVBoxLayout()
+        vbox.addLayout(top, stretch=1)
+        self.setLayout(vbox)
+
+
+class QtXRDView(QWidget):
+    """X-ray diffraction view: the live Perkin Elmer area detector viewer."""
 
     def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -285,7 +311,7 @@ class QtEDXDView(QWidget):
 
         vbox = QVBoxLayout()
         vbox.addWidget(
-            QtTabbedDetectorsWidget(re_client, {"germ": "XF:27ID1-ES{GeRM-Det:1}"}),
+            QtTabbedDetectorsWidget(re_client, {"perkin_elmer": "XF:27ID1-ES{PE-Det:1}"}),
             stretch=1,
         )
         self.setLayout(vbox)
@@ -380,6 +406,8 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         tabs.addTab(self._tomography, "Tomography")
         self._edxd = QtEDXDView(self._re_client)
         tabs.addTab(self._edxd, "EDXD")
+        self._xrd = QtXRDView(self._re_client)
+        tabs.addTab(self._xrd, "XRD")
         self._available_devices = QtAvailableDevices(self._re_client, EXPECTED_DEVICES)
         tabs.addTab(self._available_devices, "Available Devices")
         if self._plan_monitor is not None:
