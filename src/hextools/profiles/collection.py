@@ -57,7 +57,9 @@ from hextools.utils import (
     print_version_info,
 )
 
-from hextools.tomography import tomo_flyscan
+from hextools.tomography import tomo_flyscan, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_nd_step_scan
+
+from ophyd_async.sim import SimMotor
 
 # Adjust the default timeout for ophyd async to 60s
 from ophyd_async.core import DEFAULT_TIMEOUT
@@ -214,10 +216,14 @@ with auto_init_devices(timeout=2.0, verbose=False):
         name="germ",
     )
 
+    sim_x = SimMotor(name="sim_x", instant=False)
+    sim_y = SimMotor(name="sim_y", instant=False)
+    sim_z = SimMotor(name="sim_z", instant=False)
+
 
 # Install a suspender to pause the RunEngine if the beam current drops below 100 mA
 # and resume when it rises above 300 mA.
-RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
+# RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
 
 # Configure baseline supplemental data to include in the metadata of every run.
 sd = bpp.SupplementalData(

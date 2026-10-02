@@ -3,6 +3,7 @@
 import asyncio
 
 from ophyd_async.core import (
+    DEFAULT_TIMEOUT,
     ConfinedModel,
     FlyableLogic,
     FlyMotorInfo,
@@ -54,6 +55,7 @@ class SingleAxisFlyableLogic(FlyableLogic[SingleAxisFlyscanInfo, None]):
         pcomp = self.panda.pcomp[1]
         pulse = self.panda.pulse[1]
         calc = self.panda.calc[1]  # type: ignore
+        bita = self.panda.bits.a  # type: ignore
         coros = [
             pcomp.dir.set(value.direction),
             pcomp.start.set(value.start),
@@ -61,6 +63,7 @@ class SingleAxisFlyableLogic(FlyableLogic[SingleAxisFlyscanInfo, None]):
             calc.out_units.set(value.position_dataset_units),
             calc.out_scale.set(value.position_scale),
             calc.out_offset.set(value.position_offset),
+            bita.set(0)
         ]
         if not value.time_based:
             coros.extend(
@@ -88,13 +91,18 @@ class SingleAxisFlyableLogic(FlyableLogic[SingleAxisFlyscanInfo, None]):
             )
         await asyncio.gather(*coros)
 
+        # Only enable the pcomp block after all the configuration
+        # has been set.
+        await bita.set(1)
+
     async def on_kickoff(self, ctx: None) -> None:
-        await wait_for_value(self.panda.pcomp[1].active, True, timeout=1)
+        await wait_for_value(self.panda.pcomp[1].active, True, timeout=10)
 
     async def on_complete(self, ctx: None) -> None:
         await wait_for_value(self.panda.pcomp[1].active, False, timeout=None)
 
     async def stop(self):
+        await self.panda.bits.a.set(0)  # type: ignore
         await wait_for_value(self.panda.pcomp[1].active, False, timeout=1)
 
 
