@@ -273,7 +273,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
       - pypi: https://files.pythonhosted.org/packages/08/0f/0daf459b604f61253b914b28f0e6dd16cdc8a7aa962cf901e482f5cbba67/pymongo-4.18.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
@@ -753,7 +753,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
       - pypi: https://files.pythonhosted.org/packages/08/0f/0daf459b604f61253b914b28f0e6dd16cdc8a7aa962cf901e482f5cbba67/pymongo-4.18.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
@@ -1183,7 +1183,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer#1291f36ad13f54152d1607a4622cc9f912e0d0cb
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
@@ -1211,6 +1211,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/9e/9d/872279feea98802a9c3e5f2680cb1b38cd49d7e249cd2220d07a69c7079a/suitcase_mongo-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a3/58/35da89ee790598a0700ea49b2a66594140f44dec458c07e8e3d4979137fc/ply-3.11-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/a7/5f/ed01f9a3cdffbd5a008556fc7b2a08ddb1cc6ace7effa7340604b1d16699/docstring_parser-0.18.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/af/fe/b6045c782f1fd1ae317d2a6ca1884857ce5c20f59befe6ab25a8603c43a7/ruamel_yaml-0.18.17-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b1/d3/a3e8393cdf6e40e94b3a91ab8afdb010769829b520b2fbfdc4697f31a1c3/bluesky_kafka-0.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/be/02/bce7a1d70e9d0f6ea8623c16386138c251b5855af6cd3a11433d3fba4e66/semver-3.1.0-py3-none-any.whl
@@ -1691,7 +1692,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer#1291f36ad13f54152d1607a4622cc9f912e0d0cb
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
@@ -1719,6 +1720,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/9e/9d/872279feea98802a9c3e5f2680cb1b38cd49d7e249cd2220d07a69c7079a/suitcase_mongo-0.7.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a3/58/35da89ee790598a0700ea49b2a66594140f44dec458c07e8e3d4979137fc/ply-3.11-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/a7/5f/ed01f9a3cdffbd5a008556fc7b2a08ddb1cc6ace7effa7340604b1d16699/docstring_parser-0.18.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/af/fe/b6045c782f1fd1ae317d2a6ca1884857ce5c20f59befe6ab25a8603c43a7/ruamel_yaml-0.18.17-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b1/d3/a3e8393cdf6e40e94b3a91ab8afdb010769829b520b2fbfdc4697f31a1c3/bluesky_kafka-0.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/be/02/bce7a1d70e9d0f6ea8623c16386138c251b5855af6cd3a11433d3fba4e66/semver-3.1.0-py3-none-any.whl
@@ -2182,7 +2184,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/29/ce9c8e81a6b9be7722ac00cb592ce6b652405eecb178bf410810732957ec/epicscorelibs-7.0.10.99.0.1-cp311-cp311-manylinux2014_x86_64.whl
@@ -2662,7 +2664,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
@@ -3142,7 +3144,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
       - pypi: https://files.pythonhosted.org/packages/08/0f/0daf459b604f61253b914b28f0e6dd16cdc8a7aa962cf901e482f5cbba67/pymongo-4.18.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
@@ -3528,7 +3530,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/23/ef/3b82c9a5c6fe4bcc7ebafbc4a06efe4f631929441bddd5d53541434fb941/pyOlog-4.5.1-py3-none-any.whl
@@ -3954,7 +3956,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/23/ef/3b82c9a5c6fe4bcc7ebafbc4a06efe4f631929441bddd5d53541434fb941/pyOlog-4.5.1-py3-none-any.whl
@@ -4473,7 +4475,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/23/ef/3b82c9a5c6fe4bcc7ebafbc4a06efe4f631929441bddd5d53541434fb941/pyOlog-4.5.1-py3-none-any.whl
@@ -14863,6 +14865,7 @@ packages:
   - bluesky-queueserver-api ; extra == 'gui'
   - bluesky-tiled-plugins ; extra == 'gui'
   - bluesky-widgets ; extra == 'gui'
+  - docstring-parser ; extra == 'gui'
   - matplotlib ; extra == 'gui'
   - ntnda-qt-viewer @ git+https://github.com/jwlodek/ntnda-qt-viewer@main ; extra == 'gui'
   - pyside6 ; extra == 'gui'
@@ -14901,9 +14904,9 @@ packages:
   - requests
   - shortuuid
   requires_python: '>=3.11'
-- pypi: git+https://github.com/bluesky/bluesky?rev=main#fa98c29ad596aecfa72937c62a0611ca97bb7810
+- pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
   name: bluesky
-  version: 1.15.2.dev207+gfa98c29ad
+  version: 1.15.2.dev230+g1d0640485
   requires_dist:
   - cycler
   - event-model>=1.24.0
@@ -14920,7 +14923,7 @@ packages:
   - cloudpickle ; extra == 'dev'
   - copier ; extra == 'dev'
   - coverage ; extra == 'dev'
-  - databroker ; extra == 'dev'
+  - databroker==2.0.1 ; extra == 'dev'
   - doct ; extra == 'dev'
   - doctr ; extra == 'dev'
   - flake8 ; extra == 'dev'
@@ -16265,6 +16268,17 @@ packages:
   - requests ; extra == 'telegram'
   - envwrap ; extra == 'telegram'
   - ipywidgets>=6 ; extra == 'notebook'
+  requires_python: '>=3.8'
+- pypi: https://files.pythonhosted.org/packages/a7/5f/ed01f9a3cdffbd5a008556fc7b2a08ddb1cc6ace7effa7340604b1d16699/docstring_parser-0.18.0-py3-none-any.whl
+  name: docstring-parser
+  version: 0.18.0
+  sha256: b3fcbed555c47d8479be0796ef7e19c2670d428d72e96da63f3a40122860374b
+  requires_dist:
+  - pre-commit>=2.16.0 ; python_full_version >= '3.9' and extra == 'dev'
+  - pydoctor>=25.4.0 ; extra == 'dev'
+  - pytest ; extra == 'dev'
+  - pydoctor>=25.4.0 ; extra == 'docs'
+  - pytest ; extra == 'test'
   requires_python: '>=3.8'
 - pypi: https://files.pythonhosted.org/packages/a9/df/e7c10292f348cf55178a5b3c0092a38ea68891a3945f199ae8b7b8ac9dc1/matplotlib-3.11.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
   name: matplotlib

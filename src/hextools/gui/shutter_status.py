@@ -69,8 +69,13 @@ class _ShutterButton(QPushButton):
             (top, bottom), state = _CLOSED_COLORS, "closed"
         action = "close" if self.is_open else "open"
         self.setToolTip(f"{self.shutter.name} is {state}. Click to {action}.")
+        # The app theme's QPushButton min-width/min-height override setFixedSize
+        # when the stylesheet is polished, so pin the size in the stylesheet too.
+        inner = _BUTTON_SIZE - 2  # minus the 1px border on each side
         self.setStyleSheet(
-            "QPushButton { border-radius: 6px; border: 1px solid rgba(0, 0, 0, 60);"
+            "QPushButton { border-radius: 6px; border: 1px solid rgba(0, 0, 0, 60); padding: 0;"
+            f" min-width: {inner}px; max-width: {inner}px;"
+            f" min-height: {inner}px; max-height: {inner}px;"
             f" background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {top}, stop:1 {bottom}); }}"
         )
 

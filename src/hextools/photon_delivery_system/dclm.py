@@ -1,6 +1,7 @@
 """Double crystal Laue monochromator (DCLM) device and energy change plan."""
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Final
 
 import numpy as np
@@ -10,9 +11,10 @@ from bluesky.callbacks.fitting import PeakStats
 from bluesky.preprocessors import finalize_wrapper, subs_decorator
 from ophyd_async.core import (
     AsyncMovable,
-    AsyncStatus,
     StandardReadable,
     StrictEnum,
+    WatchableAsyncStatus,
+    WatcherUpdate,
     derived_signal_r,
 )
 from ophyd_async.core import StandardReadableFormat as Format
@@ -20,7 +22,7 @@ from ophyd_async.epics.adcore import AreaDetector, NDStatsIO
 from ophyd_async.epics.core import EpicsDevice
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
-from ..utils import ensure_available, get_obj_from_ipython_ns
+from ..utils import ensure_available, forward_watcher_updates, get_obj_from_ipython_ns
 from .shutter import Shutter
 
 
@@ -130,17 +132,21 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
         bragg_angle = np.deg2rad(self.bragg_angle_offset - pitch_angle)
         return self.bragg_factor / np.sin(bragg_angle)
 
-    @AsyncStatus.wrap
+    @WatchableAsyncStatus.wrap
     async def set(self, value: BeamMode):
         if value == BeamMode.WHITE:
             xtal1_target, bs_target = self.xtal1_out, self.beam_stop_out
         else:
             xtal1_target, bs_target = self.xtal1_in, self.beam_stop_in
-        coros = (
+        statuses = [
             self.xtal1_vertical_trans.set(xtal1_target),
             self.cooled_beam_stop.set(bs_target),
-        )
-        await asyncio.gather(*coros)
+        ]
+        async for update in forward_watcher_updates(statuses, self.name, combine=False):
+            yield update
+
+
+
 
 
 def change_beam_mode(
@@ -158,7 +164,7 @@ def change_beam_mode(
         retrieve it from the IPython namespace.
     """
     dclm = ensure_available(DCLM, dclm=dclm)
-    yield from bps.mv(dclm.set(mode))
+    yield from bps.mv(dclm, mode)
 
 
 

@@ -22,11 +22,13 @@ process by sending ``RE(plan(...))`` to the IPython shell.
 from __future__ import annotations
 
 import collections.abc
+import html
 import inspect
 import types
 import typing
 from enum import Enum
 
+import docstring_parser
 import IPython
 from bluesky import RunEngine
 from bluesky_queueserver_api import BPlan
@@ -58,6 +60,26 @@ from hextools.gui.device_sources import (
 
 
 _NO_SELECTION = "\u2014"  # em dash placeholder for an unset single device
+
+
+def _param_tooltips(plan) -> dict[str, str]:
+    """Map parameter name -> rich-text tooltip from the plan's numpydoc docstring."""
+    doc = inspect.getdoc(plan)
+    if not doc:
+        return {}
+    try:
+        parsed = docstring_parser.parse(doc, style=docstring_parser.DocstringStyle.NUMPYDOC)
+    except docstring_parser.ParseError:
+        return {}
+    tooltips = {}
+    for param in parsed.params:
+        if not param.description:
+            continue
+        # Keep paragraph breaks but let single newlines reflow.
+        paragraphs = [" ".join(p.split()) for p in param.description.split("\n\n")]
+        body = "<br><br>".join(html.escape(p) for p in paragraphs)
+        tooltips[param.arg_name] = f"<p style='white-space:normal'>{body}</p>"
+    return tooltips
 
 
 def _unwrap_optional(annotation):
@@ -185,6 +207,7 @@ class QtPlanWidget(QWidget):
         self._scalar_fields: list[tuple[str, type, QWidget, bool]] = []
         self._enum_fields: list[tuple[str, QComboBox, bool]] = []
         self._device_fields: list[dict] = []
+        self._param_tooltips = _param_tooltips(plan)
 
         if title is None:
             title = plan.__name__.replace("_", " ").title()
@@ -218,6 +241,14 @@ class QtPlanWidget(QWidget):
         self._refresh_devices()
 
     # -- Form construction -----------------------------------------------------
+
+    def _add_row(self, form: QFormLayout, name: str, widget: QWidget):
+        label = QLabel(f"{name.replace('_', ' ').title()}:")
+        tooltip = self._param_tooltips.get(name)
+        if tooltip:
+            label.setToolTip(tooltip)
+            widget.setToolTip(tooltip)
+        form.addRow(label, widget)
 
     def _build_fields(self, vbox: QVBoxLayout):
         form = QFormLayout()
@@ -262,7 +293,6 @@ class QtPlanWidget(QWidget):
             vbox.addWidget(params_box)
 
     def _add_scalar_field(self, form, name, kind, param, required):
-        label = f"{name.replace('_', ' ').title()}:"
         if kind is bool:
             widget = QCheckBox()
             widget.setChecked(bool(param.default) if not required else False)
@@ -278,7 +308,7 @@ class QtPlanWidget(QWidget):
                 widget.setText(str(param.default))
             widget.setPlaceholderText("required" if required else "optional")
         self._scalar_fields.append((name, kind, widget, required))
-        form.addRow(label, widget)
+        self._add_row(form, name, widget)
 
     def _add_enum_field(self, form, name, enum_cls, param, required):
         combo = QComboBox()
@@ -289,11 +319,13 @@ class QtPlanWidget(QWidget):
             if index >= 0:
                 combo.setCurrentIndex(index)
         self._enum_fields.append((name, combo, required))
-        form.addRow(f"{name.replace('_', ' ').title()}:", combo)
+        self._add_row(form, name, combo)
 
     def _add_device_list_field(self, vbox, name, types_, required):
         selector = DynamicDeviceSelector()
         box = QGroupBox(name.replace("_", " ").title())
+        if tooltip := self._param_tooltips.get(name):
+            box.setToolTip(tooltip)
         layout = QVBoxLayout()
         layout.setContentsMargins(8, 6, 8, 6)
         layout.addWidget(selector)
@@ -312,7 +344,7 @@ class QtPlanWidget(QWidget):
 
     def _add_single_device_field(self, form, name, types_):
         combo = QComboBox()
-        form.addRow(f"{name.replace('_', ' ').title()}:", combo)
+        self._add_row(form, name, combo)
         self._device_fields.append(
             {
                 "name": name,

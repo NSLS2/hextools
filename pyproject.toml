@@ -46,6 +46,7 @@ gui = [
     "bluesky-queueserver",
     "bluesky-queueserver-api",
     "bluesky-httpserver",
+    "docstring-parser",
     "tiled[client]",
     "bluesky-tiled-plugins",
     "matplotlib",

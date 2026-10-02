@@ -62,6 +62,12 @@ from hextools.gui.re_execution_controls import (
 from typing import Generic, TypeVar
 from hextools.gui.misc import QtWeatherWidget, QtTabbedDetectorsWidget
 from hextools.gui.plan_widget import QtPlanWidget
+from hextools.gui.plan_status import (
+    PlanMonitor,
+    QtPlanExecutionView,
+    QtPlanLogView,
+    QtPlanStatus,
+)
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui._theme import apply_bnl_theme
 from hextools.photon_delivery_system.dclm import change_beam_mode
@@ -326,6 +332,11 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             controls.addWidget(QtReExecutionControlsLocal(local=True))
         controls.addWidget(QtProposalInfo(re_client))
         controls.addWidget(QtWeatherWidget())
+        self._plan_monitor = (
+            PlanMonitor(re_client, parent=self) if isinstance(re_client, RunEngine) else None
+        )
+        if self._plan_monitor is not None:
+            controls.addWidget(QtPlanStatus(self._plan_monitor))
         controls.addStretch()
         if isinstance(re_client, RunEngine):
             ipython = IPython.get_ipython()
@@ -343,6 +354,9 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         tabs.addTab(self._beamline, "Beamline")
         self._available_devices = QtAvailableDevices(self._re_client, EXPECTED_DEVICES)
         tabs.addTab(self._available_devices, "Available Devices")
+        if self._plan_monitor is not None:
+            tabs.addTab(QtPlanExecutionView(self._plan_monitor), "Plan Execution")
+            tabs.addTab(QtPlanLogView(self._plan_monitor), "Log")
         vbox.addWidget(tabs, stretch=1)
 
         # Shared live per-device progress bars pinned to the bottom.
