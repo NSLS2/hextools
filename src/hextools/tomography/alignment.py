@@ -17,6 +17,7 @@ from skimage.measure._regionprops import RegionProperties
 from hextools.detectors.phantom import PhantomDetector
 from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
+from hextools.photon_delivery_system.shutter import ShutterStatus
 from hextools.utils import ensure_available
 
 Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
@@ -410,8 +411,10 @@ def tomo_alignment_scan(
     rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
 
     # Check the shutter statuses
-    fe_shutter_open = yield from bps.rd(fe_shutter.status)
-    photon_shutter_open = yield from bps.rd(photon_shutter.status)
+    fe_shutter_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
+    photon_shutter_open = (
+        yield from bps.rd(photon_shutter.status)
+    ) == ShutterStatus.OPEN
 
     # FE shutter must already be open. If not, raise an error.
     # If the photon shutter is closed, open it.

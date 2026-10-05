@@ -27,6 +27,7 @@ from pytest_mock import MockerFixture
 
 from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
+from hextools.photon_delivery_system.shutter import ShutterStatus
 from hextools.tomography.alignment import (
     ensure_run_is_valid,
     fit_points_to_ellipse,
@@ -328,10 +329,12 @@ def shutter_factory() -> Callable[[str], Shutter]:
         with init_devices(mock=True):
             shutter = Shutter(name, name=name)
         callback_on_mock_execute(
-            shutter.open_cmd, lambda: set_mock_value(shutter.status, True)
+            shutter.open_cmd,
+            lambda: set_mock_value(shutter.status, ShutterStatus.OPEN),
         )
         callback_on_mock_execute(
-            shutter.close_cmd, lambda: set_mock_value(shutter.status, False)
+            shutter.close_cmd,
+            lambda: set_mock_value(shutter.status, ShutterStatus.CLOSED),
         )
         return shutter
 
@@ -400,8 +403,9 @@ async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
 
     fe_shutter, photon_shutter = two_shutters
     rotation_motor, _ = motors
-    assert not any(
-        await asyncio.gather(
+    assert all(
+        status is ShutterStatus.CLOSED
+        for status in await asyncio.gather(
             fe_shutter.status.get_value(), photon_shutter.status.get_value()
         )
     )
@@ -452,7 +456,7 @@ async def test_tomo_alignment_scan(
 
     set_mock_value(rotation_motor.max_velocity, 10000)
     max_velocity = await rotation_motor.max_velocity.get_value()
-    assert not await photon_shutter.status.get_value()
+    assert await photon_shutter.status.get_value() is ShutterStatus.CLOSED
 
     docs: dict[str, list[dict[str, Any]]] = {}
 
@@ -493,7 +497,7 @@ async def test_tomo_alignment_scan(
     expecting_flat_run = base_x_offset > 0.0 and include_sample_stage_x
 
     assert await rotation_motor.velocity.get_value() == max_velocity
-    assert await photon_shutter.status.get_value()
+    assert await photon_shutter.status.get_value() is ShutterStatus.OPEN
 
     for doc_type in ["start", "descriptor", "stream_resource", "stop"]:
         assert len(docs[doc_type]) == (2 if expecting_flat_run else 1)

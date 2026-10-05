@@ -156,7 +156,7 @@ def ensure_shutter_state(
     """
 
     shutter_status = yield from bps.rd(shutter.status)
-    if shutter_status != desired_state:
+    if (shutter_status == ShutterStatus.OPEN) != desired_state:
         if allow_actuation:
             yield from bps.abs_set(shutter, desired_state, group=group, wait=wait)
         else:
