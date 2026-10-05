@@ -2,7 +2,7 @@
 
 import os
 
-from hextools.detectors.germ import GeRMDetector
+from hextools.detectors.germ import GeRMDetector, GeRMStatsDataLogic
 
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
@@ -36,11 +36,13 @@ from hextools.detectors.phantom import PhantomDetector
 from hextools.detectors.kinetix import kinetix_factory
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
 from hextools.motors import (
+    CollimatorTable,
     FOV_2_4_mm_Camera,
     OpticsTable,
-    RotationMotor,
     SampleTower,
     FOV_20_40_mm_Camera,
+    Collimator,
+    EDXDTable,
 )
 from hextools.photon_delivery_system import (
     DCLM,
@@ -59,8 +61,11 @@ from hextools.utils import (
 )
 
 from hextools.tomography import tomo_flyscan, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_nd_step_scan
+from hextools.edxd import configure_test_pulses, edxd_scan
+
 
 from ophyd_async.sim import SimMotor
+
 
 # Adjust the default timeout for ophyd async to 60s
 from ophyd_async.core import DEFAULT_TIMEOUT
@@ -89,6 +94,7 @@ print_proposal_info(RE.md)
 ipython = get_ipython()
 if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
     ipython.prompts = ProposalIDPrompt(RE, ipython)
+    ipython.xmode = "Minimal"
     autoawait_in_bluesky_event_loop()
 
 # Construct our tiled clients for writing and (in an interactive session) reading.
@@ -137,6 +143,10 @@ with auto_init_devices(timeout=2.0, verbose=False):
     # Sample tower
     sample_tower = SampleTower("XF:27IDF-OP:1{SMPL:1-Ax:", name="sample-tower")
     rot_motor = sample_tower.ry2
+
+    # EDXD Table
+    edxd_table = EDXDTable("XF:27IDF-OP:1{EDXD:1-Ax:", name="edxd-table")
+    collimator_table = CollimatorTable("XF:27IDF-OP:1{CMT:1-Ax:", name="collimator-table")
 
     # Generate filter objects from the configuration file
     filters: list[Filter] = load_filters()

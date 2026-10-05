@@ -1,6 +1,7 @@
 """Ophyd async support for the GeRM detector at HEX."""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from tkinter.font import names
 from typing import Annotated as A
 
@@ -11,6 +12,7 @@ from ophyd_async.core import (
     DetectorTrigger,
     DetectorTriggerLogic,
     PathProvider,
+    SignalDataProvider,
     SignalR,
     SignalRW,
     StandardDetector,
@@ -36,6 +38,7 @@ from ophyd_async.epics.adcore import (
     NDFileIO,
     NDPluginFileIO,
     NDProcessIO,
+    NDStatsIO,
 )
 import numpy as np
 
@@ -310,7 +313,6 @@ class GeRMTriggerLogic(DetectorTriggerLogic):
 
     async def default_trigger_info(self) -> TriggerInfo:
         livetime = await self.driver.acquire_time.get_value()
-        print(livetime)
         return TriggerInfo(
             trigger=DetectorTrigger.INTERNAL,
             livetime=livetime,
@@ -340,6 +342,17 @@ class GeRMAcquireLogic(DetectorAcquireLogic):
         await set_and_wait_for_value(self.driver.acquire, False)
 
 
+@dataclass
+class GeRMStatsDataLogic(DetectorDataLogic):
+    signal: SignalR
+    hinted: bool = True
+
+    async def prepare_single(self, datakey_name: str) -> SignalDataProvider:
+        return SignalDataProvider(self.signal)
+
+    def get_hinted_fields(self, datakey_name: str) -> Sequence[str]:
+        return [self.signal.name] if self.hinted else []
+
 class GeRMDetector(StandardDetector):
     """The ophyd class for GeRM detector."""
 
@@ -360,6 +373,9 @@ class GeRMDetector(StandardDetector):
         self.add_detector_logics(GeRMAcquireLogic(self.driver))
         self.hdf = NDFileHDF5IO(prefix + "MCA1:HDF1:", name="hdf")
         self.tiff = NDPluginFileIO(prefix + "MCA1:TIFF1:", name="tiff")
+        self.stats1 = NDStatsIO(
+            "XF:27ID1-ES{GeRM-Det:1}MCA1:Stats1:", name="stats1"
+        )
         self.save_as_hdf()
         self.add_config_signals(*config_sigs)
         super().__init__(name=name)
@@ -379,7 +395,8 @@ class GeRMDetector(StandardDetector):
                 self.tiff,
                 ".tiff",
                 "multipart/related;type=image/tiff"
-            )
+            ),
+            GeRMStatsDataLogic(self.stats1.total)
         )
 
     def save_as_hdf(self) -> None:
@@ -395,5 +412,6 @@ class GeRMDetector(StandardDetector):
                 ),
                 self._path_provider,
                 self.hdf,
-            )
+            ),
+            GeRMStatsDataLogic(self.stats1.total)
         )
