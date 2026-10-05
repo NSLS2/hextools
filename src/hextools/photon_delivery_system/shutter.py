@@ -2,7 +2,7 @@
 
 import asyncio
 import random
-from typing import Callable, Hashable
+from collections.abc import Callable, Hashable
 
 from ophyd_async.core import (
     AsyncMovable,
@@ -16,13 +16,17 @@ from ophyd_async.core import (
 )
 from bluesky.protocols import Reading, Subscribable
 from bluesky import plan_stubs as bps
+from ophyd_async.core import AsyncMovable, AsyncStatus, StrictEnum, wait_for_value
 from ophyd_async.epics.core import (
     EpicsDevice,
     epics_signal_r,
     epics_triggerable_command,
 )
 
+
 class ShutterStatus(StrictEnum):
+    """Shutter position readback, as the IOC reports it."""
+
     OPEN = "Open"
     CLOSED = "Not Open"
 
@@ -62,7 +66,6 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
     """
 
     def __init__(self, prefix: str, name: str = ""):
-
         super().__init__(prefix, name=name)
         self.status = epics_signal_r(ShutterStatus, f"{prefix}Pos-Sts")
         self.open_cmd = epics_triggerable_command(f"{prefix}Cmd:Opn-Cmd")
@@ -87,14 +90,17 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
         AsyncStatus
             An object representing the status of the set operation.
         """
-
         if value:
             cmd_sig = self.open_cmd
         else:
             cmd_sig = self.close_cmd
 
         await cmd_sig.execute()
-        await wait_for_value(self.status, ShutterStatus.OPEN if value else ShutterStatus.CLOSED, timeout=10)
+        await wait_for_value(
+            self.status,
+            ShutterStatus.OPEN if value else ShutterStatus.CLOSED,
+            timeout=10,
+        )
 
 
     def subscribe_reading(self, function: Callable[[dict[str, Reading[bool]]], None]) -> None:
@@ -148,15 +154,16 @@ def ensure_shutter_state(
     desired_state : bool
         the state of the shutter (True for open, False for closed)
     allow_actuation : bool, default False
-        whether to allow the plan to actuate the shutter if it is not in the desired state
+        whether the plan may actuate the shutter when it is not already in
+        the desired state
     group : Hashable | None, optional
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
         whether to wait for the shutter to reach the desired state after actuation
     """
-
     shutter_status = yield from bps.rd(shutter.status)
-    if shutter_status != desired_state:
+    desired_status = ShutterStatus.OPEN if desired_state else ShutterStatus.CLOSED
+    if shutter_status != desired_status:
         if allow_actuation:
             yield from bps.abs_set(shutter, desired_state, group=group, wait=wait)
         else:
@@ -176,13 +183,13 @@ def ensure_shutter_open(
     shutter : Shutter
         shutter to guarantee the state of.
     allow_actuation : bool, default False
-        whether to allow the plan to actuate the shutter if it is not in the desired state
+        whether the plan may actuate the shutter when it is not already in
+        the desired state
     group : Hashable | None, optional
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
         whether to wait for the shutter to reach the desired state after actuation
     """
-
     yield from ensure_shutter_state(
         shutter, True, allow_actuation=allow_actuation, wait=wait, group=group
     )
@@ -201,13 +208,13 @@ def ensure_shutter_closed(
     shutter : Shutter
         shutter to guarantee the state of.
     allow_actuation : bool, default True
-        whether to allow the plan to actuate the shutter if it is not in the desired state
+        whether the plan may actuate the shutter when it is not already in
+        the desired state
     group : Hashable | None, optional
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
             whether to wait for the shutter to reach the desired state after actuation
     """
-
     yield from ensure_shutter_state(
         shutter, False, allow_actuation=allow_actuation, wait=wait, group=group
     )

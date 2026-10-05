@@ -2,9 +2,9 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from tkinter.font import names
 from typing import Annotated as A
 
+import numpy as np
 from ophyd_async.core import (
     DEFAULT_TIMEOUT,
     DetectorAcquireLogic,
@@ -24,7 +24,6 @@ from ophyd_async.core import (
     wait_for_value,
 )
 from ophyd_async.core import StandardReadableFormat as Format
-from ophyd_async.epics.core import EpicsDevice, PvSuffix
 from ophyd_async.epics.adcore import (
     ADBaseColorMode,
     ADBaseDataType,
@@ -40,10 +39,12 @@ from ophyd_async.epics.adcore import (
     NDProcessIO,
     NDStatsIO,
 )
-import numpy as np
+from ophyd_async.epics.core import EpicsDevice, PvSuffix
 
 
 class TDCSlopeTimes(StrictEnum):
+    """Ramp times available for the time-to-digital converter."""
+
     ONE_US = "1us"
     TWO_US = "2us"
     THREE_US = "3us"
@@ -54,16 +55,22 @@ class TDCSlopeTimes(StrictEnum):
 
 
 class TDCMode(StrictEnum):
+    """Time-of-arrival or time-over-threshold, for the TDC."""
+
     TOA = "ToA"
     TOT = "ToT"
 
 
 class InputPolarity(StrictEnum):
+    """Polarity of the preamplifier input pulse."""
+
     POSITIVE = "Positive"
     NEGATIVE = "Negative"
 
 
 class MonitorMode(StrictEnum):
+    """What the monitor output is switched to report."""
+
     OFF = "Off"
     TEMPERATURE = "Temperature"
     BASELINE = "Baseline"
@@ -73,6 +80,8 @@ class MonitorMode(StrictEnum):
 
 
 class Gain(StrictEnum):
+    """Full-scale energy range of the shaping amplifier."""
+
     GAIN_240KEV = "240keV"
     GAIN_120KEV = "120keV"
     GAIN_60KEV = "60keV"
@@ -80,6 +89,8 @@ class Gain(StrictEnum):
 
 
 class ShapingTime(StrictEnum):
+    """Shaping amplifier peaking time; longer is lower noise but lower rate."""
+
     ST_0_125_US = "0.125us"
     ST_0_25_US = "0.25us"
     ST_0_5_US = "0.5us"
@@ -91,21 +102,29 @@ class ShapingTime(StrictEnum):
 
 
 class CountMode(StrictEnum):
+    """Whether an acquisition runs for a set time or until stopped."""
+
     TIMED = "Timed"
     CONTINUOUS = "Continuous"
 
 
 class ShotMode(StrictEnum):
+    """Whether the detector takes one acquisition or counts repeatedly."""
+
     ONE_SHOT = "OneShot"
     AUTO_COUNT = "AutoCount"
 
 
 class LeakagePulseMode(StrictEnum):
+    """Whether the leakage-current pulse is the real one or simulated."""
+
     REAL = "Real"
     SIMULATED = "Simulated"
 
 
 class InternalLeakCurrent(StrictEnum):
+    """Internal leakage current injected for calibration."""
+
     OFF = "Off"
     TWO_PA = "2pA"
     EIGHT_PA = "8pA"
@@ -309,7 +328,10 @@ class GeRMTriggerLogic(DetectorTriggerLogic):
             raise ValueError(
                 "Only a single collection with a single exposure is supported."
             )
-        await self.driver.acquire_time.set(livetime)
+        # 0 means "leave the exposure time as configured" - the same contract
+        # PhantomTriggerLogic.prepare_internal honours.
+        if livetime != 0:
+            await self.driver.acquire_time.set(livetime)
 
     async def default_trigger_info(self) -> TriggerInfo:
         livetime = await self.driver.acquire_time.get_value()

@@ -129,13 +129,18 @@ class RotationMotor(AsyncEpicsMotor):
         Parameters
         ----------
         encoder_resolution : float
-            The resolution of the encoder in counts per degree.
+            The encoder step size, in degrees per count. This is the motor
+            record's ERES field, whose own definition is "Encoder Step Size
+            (EGU)" - the size of ONE count, expressed in engineering units.
 
         Returns
         -------
         int
             The number of encoder counts per revolution.
         """
+        # Counts per revolution is 360 degrees DIVIDED by the size of a count.
+        # This multiplied until 2026-09-21, which is dimensionally deg^2/count
+        # and truncated to 0 for any encoder finer than ~0.0028 deg/count.
         return int(360.0 / encoder_resolution)
 
 
@@ -161,6 +166,7 @@ class SampleTower(StandardReadable, EpicsDevice):
         # TODO: Get this prefix adjusted so it doesn't need to be ah
         self.ry2 = RotationMotor("XF:27IDF-OP:1{MC:5-Ax:4}Mtr", name="ry2")
 
+
 class CameraObjective(StrictEnum):
     """Represents the camera objective in use."""
 
@@ -175,7 +181,7 @@ class HomeStatus(StrictEnum):
     HOMED = "Homed"
 
 
-class FOV_2_4_mm_Camera(
+class FOV_2_4_mm_Camera(  # noqa: N801 - the name states the field of view in mm
     StandardReadable, EpicsDevice, AsyncMovable[CameraObjective | str]
 ):
     """HEX double objective camera."""
@@ -247,7 +253,9 @@ class FOV_2_4_mm_Camera(
         await wait_for_value(rb_check, True, timeout=None)
 
 
-class FOV_20_40_mm_Camera(StandardReadable, EpicsDevice):
+class FOV_20_40_mm_Camera(  # noqa: N801 - the name states the field of view in mm
+    StandardReadable, EpicsDevice
+):
     """HEX wide field of view camera."""
 
     def __init__(self, prefix: str, name: str = "fov_20_40_mm_camera"):

@@ -2,6 +2,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import bluesky.plan_stubs
 import pytest
 from bluesky import Msg, RunEngine
 from bluesky import plan_stubs as bps
@@ -19,6 +20,25 @@ from ophyd_async.epics.adkinetix import KinetixDetector
 from hextools.photon_delivery_system import Shutter, ShutterStatus
 from hextools.tomography.radiography import FRAME_PERIOD_MARGIN, take_radiograph
 
+
+class _FrozenClock:
+    """Stand-in for the ``time`` module whose clock never advances.
+
+    ``bps.repeat`` (which ``bp.count`` builds on) emits a sleep only when
+    ``delay - elapsed`` is still positive. With a real clock, whether the sleep
+    appears at all is a race against how fast the machine ran the acquisition -
+    which is why asserting an exact sleep count used to fail on CI, on a
+    different pair of Python versions each run. Freezing elapsed time at zero
+    makes the full delay survive every time. The only two uses of ``time`` in
+    ``bluesky.plan_stubs`` are the pair inside that delay calculation, so
+    nothing else is affected.
+    """
+
+    @staticmethod
+    def time() -> float:
+        return 0.0
+
+
 # --- shutters: same shape as tests/tomography/test_alignment.py ---------------
 
 
@@ -29,11 +49,15 @@ def shutter_factory() -> Callable[[str], Shutter]:
             shutter = Shutter(name, name=name)
         # the only two arcs Shutter.set awaits: a command put flips the status readback
         callback_on_mock_execute(
-            shutter.open_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN)
+            shutter.open_cmd,
+            lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN),
         )
         callback_on_mock_execute(
-            shutter.close_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED)
+            shutter.close_cmd,
+            lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED),
         )
+        # A mock enum signal starts at its first member, which is OPEN
+        set_mock_value(shutter.status, ShutterStatus.CLOSED)
         return shutter
 
     return _factory
@@ -100,6 +124,10 @@ async def test_take_radiograph_single_row(
 ):
     # the profile sets this; tests do not load the profile
     monkeypatch.setenv("OPHYD_ASYNC_PRESERVE_DETECTOR_STATE", "YES")
+    # Make the inter-acquisition delay deterministic rather than a race against
+    # runner speed - see _FrozenClock. Without this the sleep assertions below
+    # pass or fail depending on how loaded the machine is.
+    monkeypatch.setattr(bluesky.plan_stubs, "time", _FrozenClock)
     exposure_time, num_images, num_acquisitions, wait = 0.1, 10, 5, 0.01
 
     fe_shutter, photon_shutter = two_shutters
@@ -142,13 +170,19 @@ async def test_take_radiograph_single_row(
     assert start["plan_name"] == "take_radiograph"
 
     sleeps = messages_by_type.get("sleep", [])
+    # A gap between each pair of acquisitions and none after the last: the plan
+    # hands bp.count a finite list of num_acquisitions - 1 delays, so bps.repeat
+    # stops without the trailing sleep a scalar delay would add.
     assert len(sleeps) == num_acquisitions - 1
-    # bp.count subtracts elapsed time from the delay, so each sleep is <= wait
-    assert all(0 < m.args[0] <= wait for m in sleeps)
+    # Exact, not "<= wait": with the clock frozen the whole gap survives. If
+    # bluesky ever measures elapsed time some other way, this fails loudly
+    # instead of quietly going back to being a race.
+    assert all(m.args[0] == wait for m in sleeps)
 
     assert await ktx.driver.acquire_time.get_value() == exposure_time
     assert await ktx.driver.num_images.get_value() == num_images
-    assert await photon_shutter.status.get_value() is False  # finalizer closed it
+    # finalizer closed it
+    assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
 
     assert await ktx.driver.acquire_period.get_value() == pytest.approx(
         exposure_time + FRAME_PERIOD_MARGIN

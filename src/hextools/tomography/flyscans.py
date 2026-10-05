@@ -4,6 +4,8 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 
 from bluesky import plan_stubs as bps
+from bluesky import plans as bp
+from bluesky import preprocessors as bpp
 from bluesky.protocols import Collectable, Flyable, HasName, Movable, Readable
 from bluesky.utils import CustomPlanMetadata, MsgGenerator, plan
 from nslsii import detectors
@@ -13,19 +15,18 @@ from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from typing import Any
 
+from hextools.detectors import FRAME_PERIOD_MARGIN
+from hextools.photon_delivery_system import Shutter
 from hextools.photon_delivery_system.shutter import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )
-from hextools.utils import ensure_available, get_obj_from_ipython_ns
-from hextools.photon_delivery_system import Shutter
+from hextools.utils import ensure_available
 
 from ..detectors.phantom import PhantomDetector
 from ..flyers import SingleAxisFlyableLogic, construct_fly_info_models
 from ..motors import RotationMotor
-from bluesky import preprocessors as bpp, plans as bp
 
-from hextools.detectors import FRAME_PERIOD_MARGIN
 
 from hextools import flyers
 
@@ -142,10 +143,9 @@ def _tomo_fly_stub(
     all_detectors = [*detectors, panda]
 
     # Construct ephemeral flyer for the single axis flyscan
-    all_devices = [*all_detectors, single_axis_panda_flyer, rot_motor]
+    all_devices: list[Flyable] = [*all_detectors, single_axis_panda_flyer, rot_motor]
 
     def _body():
-
         # Get the start position in encoder counts
         encoder_res = yield from bps.rd(rot_motor.encoder_resolution)
         max_velocity = yield from bps.rd(rot_motor.max_velocity)
@@ -211,8 +211,7 @@ def _tomo_fly_stub(
         )
 
     def _cleanup():
-        """Perform post-scan cleanup, regardless of result"""
-
+        """Perform post-scan cleanup, regardless of result."""
         yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
         yield from bps.abs_set(rot_motor.motor_stop, 1)
 

@@ -9,7 +9,7 @@ from hextools.photon_delivery_system.slits import Slits
 @pytest.fixture
 async def slits() -> Slits:
     async with init_devices(mock=True):
-        device = Slits("XF:TEST:", 1)
+        device = Slits("XF:TEST:", "slits")
     # Mirror each motor setpoint to its readback so moves complete in mock mode.
     for motor in (device.inboard, device.outboard, device.bottom, device.top):
         callback_on_mock_put(
@@ -74,7 +74,7 @@ async def test_slits_set_center_keeps_gap(
 async def test_slits_set_all_gaps_and_centers_via_mv(RE: RunEngine):
     # Build under the RE loop so bps.mv can drive the device.
     with init_devices(mock=True):
-        slits = Slits("XF:TEST:", 1)
+        slits = Slits("XF:TEST:", "slits")
     for motor in (slits.inboard, slits.outboard, slits.bottom, slits.top):
         callback_on_mock_put(
             motor.user_setpoint,

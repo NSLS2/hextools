@@ -123,7 +123,7 @@ def calculate_scan_time(
     float
         The total scan time in seconds.
     """
-    if (max_velocity is None) == (travel_distance is None):
+    if (max_velocity is None) != (travel_distance is None):
         raise ValueError(
             "Both max_velocity and travel_distance must be provided"
             " together or not at all."

@@ -110,7 +110,7 @@ def test_proposal_id_prompt_tokens():
     fake_re = SimpleNamespace(md={"data_session": "pass-42"})
     fake_shell = SimpleNamespace(execution_count=7)
 
-    tokens = ProposalIDPrompt(fake_re, fake_shell).in_prompt_tokens()  # type: ignore[invalid-argument-type]
+    tokens = ProposalIDPrompt(fake_re, fake_shell).in_prompt_tokens()  # ty: ignore[invalid-argument-type]
 
     text = "".join(value for _, value in tokens)
     assert "pass-42" in text
@@ -121,7 +121,7 @@ def test_proposal_id_prompt_defaults_when_missing():
     fake_re = SimpleNamespace(md={})
     fake_shell = SimpleNamespace(execution_count=1)
 
-    prompt = ProposalIDPrompt(fake_re, fake_shell)  # type: ignore[invalid-argument-type]
+    prompt = ProposalIDPrompt(fake_re, fake_shell)  # ty: ignore[invalid-argument-type]
     text = "".join(value for _, value in prompt.in_prompt_tokens())
     assert "N/A" in text
 
@@ -222,7 +222,9 @@ def test_ensure_available_success(mock_namespace, name, value, type, expected):
 def test_ensure_available_fails_if_val_invalid_type(mock_namespace):
     with pytest.raises(
         TypeError,
-        match="Value for my_var must be of type <class 'int'> or None, is <class 'str'>",
+        match=(
+            "Value for my_var must be of type <class 'int'> or None, is <class 'str'>"
+        ),
     ):
         ensure_available(int, my_var="not an int")
 
@@ -230,6 +232,9 @@ def test_ensure_available_fails_if_val_invalid_type(mock_namespace):
 def test_ensure_available_fails_if_not_provided_and_not_in_ns(mock_namespace):
     with pytest.raises(
         ValueError,
-        match="Device non_existent_var of type <class 'int'> is not available locally, or in the IPython namespace!",
+        match=(
+            "Device non_existent_var of type <class 'int'> is not available "
+            "locally, or in the IPython namespace!"
+        ),
     ):
         ensure_available(int, non_existent_var=None)

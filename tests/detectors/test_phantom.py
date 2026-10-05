@@ -229,9 +229,94 @@ async def test_arm_logic_arm_success(
     set_mock_value(
         phantom_arm_logic.driver.array_counter, 10
     )  # Matches post_trig_frames
+    # The camera must report at least as many frames as we intend to download,
+    # or start_acquiring refuses before starting it.
+    set_mock_value(phantom_arm_logic.driver.total_frame_count, 100)
 
     await phantom_arm_logic.start_acquiring()  # Should complete without exceptions
     assert await phantom_arm_logic.driver.download.get_value()
+
+
+@pytest.mark.timeout(10)
+async def test_arm_logic_arm_trigger_stream_ends_without_trigger(
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
+):
+    # A trigger_received stream that ends on its own, without the trigger and
+    # without timing out, must be handled like a timeout: acquisition has
+    # stopped, so this raises instead of re-subscribing in a tight loop.
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
+
+    async def _ends_without_trigger(signal, done_timeout=None):
+        yield 0
+        set_mock_value(phantom_arm_logic.driver.acquire, False)
+
+    monkeypatch.setattr(
+        hextools.detectors.phantom, "observe_value", _ends_without_trigger
+    )
+
+    with pytest.raises(
+        RuntimeError, match="Acquisition stopped while waiting for event trigger!"
+    ):
+        await phantom_arm_logic.start_acquiring()
+
+
+async def test_arm_logic_arm_post_trig_overshoot_after_timeout(
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
+):
+    # If the array counter update that crossed post_trig_frames is missed and the
+    # observer times out, a counter already past the target is a completed
+    # acquisition, not a wrong frame count.
+    real_observe_value = hextools.detectors.phantom.observe_value
+
+    def _array_counter_times_out(signal, done_timeout=None):
+        if signal is phantom_arm_logic.driver.array_counter:
+            raise TimeoutError
+        return real_observe_value(signal, done_timeout=done_timeout)
+
+    monkeypatch.setattr(
+        hextools.detectors.phantom, "observe_value", _array_counter_times_out
+    )
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
+    set_mock_value(phantom_arm_logic.driver.trigger_received, True)
+    set_mock_value(phantom_arm_logic.driver.post_trig_frames, 10)
+    set_mock_value(phantom_arm_logic.driver.complete_and_valid, True)
+    set_mock_value(phantom_arm_logic.driver.array_counter, 12)  # past the target
+    set_mock_value(phantom_arm_logic.driver.total_frame_count, 100)
+
+    await phantom_arm_logic.start_acquiring()
+    assert await phantom_arm_logic.driver.download.get_value()
+
+
+async def test_arm_logic_arm_refuses_when_too_few_frames_available(
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
+):
+    monkeypatch.setattr(hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1)
+
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
+    set_mock_value(phantom_arm_logic.driver.trigger_received, True)
+    set_mock_value(phantom_arm_logic.driver.post_trig_frames, 10)
+    set_mock_value(phantom_arm_logic.driver.complete_and_valid, True)
+    set_mock_value(phantom_arm_logic.driver.array_counter, 10)
+    # Ask for 11 frames (-5..5 inclusive) when the camera only recorded 4.
+    set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)
+    set_mock_value(phantom_arm_logic.driver.download_end_frame, 5)
+    set_mock_value(phantom_arm_logic.driver.total_frame_count, 4)
+
+    with pytest.raises(
+        RuntimeError,
+        match="Requested 11 frames to download, but only 4 are available!",
+    ):
+        await phantom_arm_logic.start_acquiring()
+
+
+async def test_arm_logic_wait_for_idle_rejects_out_of_range_cine(
+    phantom_arm_logic: PhantomAcquireLogic,
+):
+    # Cines are keyed 1..num_cines; 0 is what an IOC reports before a cine has
+    # been selected, and it used to surface as a bare KeyError.
+    set_mock_value(phantom_arm_logic.driver.selected_cine, 0)
+    with pytest.raises(ValueError, match="Camera reports selected cine 0"):
+        await phantom_arm_logic.wait_for_idle()
 
 
 async def test_arm_logic_wait_for_idle_timeout(
@@ -240,12 +325,14 @@ async def test_arm_logic_wait_for_idle_timeout(
     monkeypatch.setattr(
         hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
     )  # Set a short timeout for the test
+    set_mock_value(phantom_arm_logic.driver.selected_cine, 1)
     set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)
     set_mock_value(phantom_arm_logic.driver.download_end_frame, 5)
     set_mock_value(phantom_arm_logic.driver.download, True)
+    # download_count never moves and the cine is never marked saved.
     with pytest.raises(
         TimeoutError,
-        match="Timeout waiting for download to complete! Target number of downloaded frames: 11",  # noqa: E501
+        match="Download counter stopped incrementing and cine was not marked as saved!",
     ):
         await phantom_arm_logic.wait_for_idle()
 
@@ -256,18 +343,20 @@ async def test_arm_logic_wait_for_idle_success(
     monkeypatch.setattr(
         hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.5
     )  # Set a short timeout for the test
+    set_mock_value(phantom_arm_logic.driver.selected_cine, 1)
     set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)
     set_mock_value(phantom_arm_logic.driver.download_end_frame, 5)
     set_mock_value(phantom_arm_logic.driver.download, True)
 
-    # Simulate frames being downloaded by incrementing download_count
+    selected_cine = phantom_arm_logic.driver.cines[1]
+
+    # Simulate the download progressing, then the camera marking the cine saved -
+    # which is what wait_for_idle actually completes on.
     async def _simulate_download():
-        while True:
+        for count in range(1, 12):  # 11 frames, -5 to 5 inclusive
             await asyncio.sleep(0.001)
-            count = await phantom_arm_logic.driver.download_count.get_value()
-            if count >= 11:  # Total frames to download is 11 (-5 to 5 inclusive)
-                break
-            set_mock_value(phantom_arm_logic.driver.download_count, count + 1)
+            set_mock_value(phantom_arm_logic.driver.download_count, count)
+        set_mock_value(selected_cine.cine_content_saved, True)
 
     download_task = asyncio.create_task(_simulate_download())
     try:
@@ -320,7 +409,6 @@ async def test_detector_full_stack(
     tiled_client,
     monkeypatch,
 ):
-
     monkeypatch.setenv(
         "OPHYD_ASYNC_PRESERVE_DETECTOR_STATE", "YES"
     )  # Ensure detector config is preserved across stages
@@ -336,6 +424,13 @@ async def test_detector_full_stack(
     RE.subscribe(lambda name, doc: docs_cache.setdefault(name, []).append(doc))
 
     set_mock_value(phantom.hdf.file_path_exists, True)
+    # The Proc plugin's filter count divides the image count when the detector
+    # reads back its own state; a real NDPluginProcess reports at least 1, but
+    # the mock defaults to 0.
+    # AreaDetector attaches its plugins with setattr, so .proc exists at
+    # runtime but no type checker can see it. Silenced rather than worked
+    # around: getattr would only trade this for a lint error.
+    set_mock_value(phantom.proc.num_filter, 1)  # ty: ignore[unresolved-attribute]
     set_mock_value(
         phantom.driver.select_pixel_data_format, PhantomPixelDataFormat.P_TEN
     )
@@ -344,6 +439,7 @@ async def test_detector_full_stack(
     set_mock_value(phantom.driver.post_trig_frames, 15)
     set_mock_value(phantom.driver.download_start_frame, -5)
     set_mock_value(phantom.driver.download_end_frame, 5)
+    set_mock_value(phantom.driver.selected_cine, 1)
 
     def _on_acquire(value, **kwargs):
         if value:
@@ -351,6 +447,8 @@ async def test_detector_full_stack(
             set_mock_value(phantom.driver.trigger_received, True)
             set_mock_value(phantom.driver.array_counter, 15)
             set_mock_value(phantom.driver.complete_and_valid, True)
+            # The camera has recorded into its RAM buffer by this point.
+            set_mock_value(phantom.driver.total_frame_count, 100)
 
     def _on_download(value, **kwargs):
         assert phantom.hdf is not None
@@ -358,6 +456,9 @@ async def test_detector_full_stack(
             for count in range(1, 12):
                 set_mock_value(phantom.driver.download_count, count)
                 set_mock_value(phantom.hdf.num_captured, count)
+            # The camera marks the cine saved once the download completes,
+            # which is what wait_for_idle waits on.
+            set_mock_value(phantom.driver.cines[1].cine_content_saved, True)
 
         with h5py.File(tmp_path / "scan.h5", "w") as f:
             f.create_dataset(
@@ -407,5 +508,8 @@ async def test_detector_full_stack(
     assert "primary" in run
     assert "phantom" in run["primary"]
     data = run["primary"]["phantom"].read()
-    assert data.shape == (11, 3, 4)
+    # (events, frames, y, x). One event was emitted, carrying all 11 downloaded
+    # frames - consistent with the descriptor's per-event shape [11, 3, 4] and
+    # the single stream_datum spanning indices 0..1 asserted above.
+    assert data.shape == (1, 11, 3, 4)
     assert data.dtype == np.uint16

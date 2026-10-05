@@ -32,10 +32,10 @@ from ophyd_async.epics.adcore import (
     NDFileHDF5IO,
     NDPluginBaseIO,
     NDProcessIO,
-    prepare_exposures_per_collection,
     default_trigger_info_from_detector_settings,
+    prepare_exposures_per_collection,
 )
-from ophyd_async.epics.core import EpicsDevice, PvSuffix, epics_signal_rw_rbv
+from ophyd_async.epics.core import EpicsDevice, PvSuffix
 
 
 class PhantomDownloadFrameMode(StrictEnum):
@@ -121,6 +121,8 @@ class PhantomPixelDataFormat(StrictEnum):
 
 
 class PhantomCineIO(EpicsDevice, StandardReadable):
+    """One cine: a recorded segment held in the camera's RAM."""
+
     cine_name: A[SignalR[str], PvSuffix("Name_RBV")]
     width: A[SignalR[int], PvSuffix("Width_RBV")]
     height: A[SignalR[int], PvSuffix("Height_RBV")]
@@ -374,7 +376,7 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         await self.setup_download(num)
 
     async def prepare_exposures_per_collection(self, exposures_per_collection: int):
-        """Prepare the process plugin for the specified number of exposures per collection.
+        """Prepare the process plugin for this many exposures per collection.
 
         Parameters
         ----------
@@ -442,15 +444,21 @@ class PhantomAcquireLogic(ADAcquireLogic):
         # to 1 within the timeout, check if acquisition stopped, and if so raise
         # a timeout error indicating acquisition stopped while waiting for trigger.
         # Otherwise, if acq is still running, keep waiting for trigger_received to
-        # go to 1.
-        while True:
+        # go to 1. A stream that ends without the trigger is treated as a timeout,
+        # so the acquisition check runs instead of the loop spinning.
+        got_trigger = False
+        while not got_trigger:
             try:
                 async for trigger_received in observe_value(
                     self.driver.trigger_received, done_timeout=DEFAULT_TIMEOUT
                 ):
                     if trigger_received:
+                        got_trigger = True
                         break
-                break
+                else:
+                    raise TimeoutError(
+                        "trigger_received stream ended before the event trigger"
+                    )
             except TimeoutError as exc:
                 acquiring = await self.driver.acquire.get_value()
                 if not acquiring:
@@ -465,7 +473,7 @@ class PhantomAcquireLogic(ADAcquireLogic):
             async for actual_post_trig in observe_value(
                 self.driver.array_counter, done_timeout=DEFAULT_TIMEOUT
             ):
-                if target_post_trig == actual_post_trig:
+                if actual_post_trig >= target_post_trig:
                     break
         except TimeoutError as exc:
             (
@@ -481,22 +489,22 @@ class PhantomAcquireLogic(ADAcquireLogic):
                 raise TimeoutError(
                     "Received event trigger, but writing to cine was not completed!"
                 ) from exc
-            elif actual_post_trig != target_post_trig:
+            elif actual_post_trig < target_post_trig:
                 raise ValueError(
                     f"Expected number of post trig frames {target_post_trig} "
                     f"does not match actual number {actual_post_trig}"
                 ) from exc
 
-        # If we recieved the trigger, we know at this point how many frames we'll have access to,
-        # and how many we want to download. If we are trying to DL more than we have available,
-        # raise a RuntimeError.
+        # Having received the trigger we know how many frames exist and how many
+        # were asked for. Refuse rather than download past the end.
         available_frames, total_download_frames = await asyncio.gather(
             self.driver.total_frame_count.get_value(),
             self.driver.total_download_frames.get_value(),
         )
         if total_download_frames > available_frames:
             raise RuntimeError(
-                f"Requested {total_download_frames} frames to download, but only {available_frames} are available!"
+                f"Requested {total_download_frames} frames to download, but "
+                f"only {available_frames} are available!"
             )
 
         # Finally, start the download
@@ -518,6 +526,13 @@ class PhantomAcquireLogic(ADAcquireLogic):
             self.driver.selected_cine.get_value(),
             self.driver.download_count.get_value(),
         )
+        if selected_cine_num not in self.driver.cines:
+            raise ValueError(
+                f"Camera reports selected cine {selected_cine_num}, but this device "
+                f"was built with cines {min(self.driver.cines)}-"
+                f"{max(self.driver.cines)}. Check SelectedCine on the IOC, and the "
+                f"num_cines this PhantomIO was constructed with."
+            )
         selected_cine = self.driver.cines[selected_cine_num]
 
         # As long as our download counter is counting up and has not reached the target
@@ -532,24 +547,17 @@ class PhantomAcquireLogic(ADAcquireLogic):
                     if saved:
                         return
             except TimeoutError as err:
-                # download_counter = await self.driver.download_count.get_value()
-                # if download_counter == 0:
-                #     raise TimeoutError(
-                #         "Download counter stopped incrementing and cine was not marked as saved!"
-                #     ) from err
-
                 current, saved = await asyncio.gather(
                     self.driver.download_count.get_value(),
                     selected_cine.cine_content_saved.get_value(),
-                )
-                print(
-                    f"Last value: {last_download_count}, Current value: {current}, Saved: {saved}"
                 )
                 if saved:
                     return
                 if current <= last_download_count:
                     raise TimeoutError(
-                        "Download counter stopped incrementing and cine was not marked as saved!"
+                        "Download counter stopped incrementing and cine was not "
+                        f"marked as saved! Download count held at {current} "
+                        f"(was {last_download_count}) on cine {selected_cine_num}."
                     ) from err
                 last_download_count = current
 

@@ -1,48 +1,48 @@
 """Bluesky profile for the 27-ID-1 HEX beamline at NSLS-II."""
 
 import os
+from pathlib import PureWindowsPath
 
+# bp/bps/bpp are re-exported so beamline staff can use them at the prompt.
+from bluesky import plan_stubs as bps  # noqa: F401
+from bluesky import plans as bp  # noqa: F401
+from bluesky import preprocessors as bpp  # noqa: F401 - re-exported for the prompt
 from hextools.detectors.germ import GeRMDetector, GeRMStatsDataLogic
-
-from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
     call_in_bluesky_event_loop,
 )
+from bluesky.suspenders import SuspendFloor  # noqa: F401 - the commented-out beam suspender below
 from bluesky.utils import ProgressBarManager
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
-from pathlib import PureWindowsPath
 from nslsii.ophyd_async.providers import NSLS2PathProvider
-from pathlib import Path
 from ophyd_async.epics.adcore import (
     ADWriterFactory,
+    ContAcqDetector,
     NDStatsIO,
     PluginSignalDataLogic,
-    ContAcqDetector,
 )
-from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from tiled.client import from_uri, simple
-from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
-from bluesky.suspenders import SuspendFloor
-from hextools.utils import show_docs
 
-from hextools.detectors.phantom import PhantomDetector
+from hextools.detectors.germ import GeRMDetector
 from hextools.detectors.kinetix import kinetix_factory
+from hextools.detectors.phantom import PhantomDetector
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
 from hextools.motors import (
     CollimatorTable,
     FOV_2_4_mm_Camera,
-    OpticsTable,
-    SampleTower,
-    FOV_20_40_mm_Camera,
     Collimator,
     EDXDTable,
+    FOV_20_40_mm_Camera,
+    OpticsTable,
+    RotationMotor,  # noqa: F401 - re-exported for the prompt
+    SampleTower,
 )
 from hextools.photon_delivery_system import (
     DCLM,
@@ -51,6 +51,7 @@ from hextools.photon_delivery_system import (
     Slits,
     load_filters,
 )
+from hextools.tomography import tomo_flyscan  # noqa: F401 - called interactively by staff
 from hextools.utils import (
     ProposalIDPrompt,
     auto_init_devices,
@@ -58,9 +59,15 @@ from hextools.utils import (
     is_running_in_ci,
     print_proposal_info,
     print_version_info,
+    show_docs,  # noqa: F401 - called interactively by staff
 )
 
-from hextools.tomography import tomo_flyscan, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_nd_step_scan
+from hextools.tomography import (  # noqa: F401 - called interactively by staff
+    tomo_1d_step_scan,
+    tomo_2d_step_scan,
+    tomo_alignment_scan,
+    tomo_nd_step_scan,
+)
 from hextools.edxd import configure_test_pulses, edxd_scan
 
 

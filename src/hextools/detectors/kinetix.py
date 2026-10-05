@@ -71,7 +71,7 @@ class KinetixDetectorMock(DeviceMock[KinetixDetector]):
 
 
 def kinetix_factory(num: int, path_provider, name: str):
-    """Helper factory function to create a KinetixDetector with HDF writer.
+    """Create a KinetixDetector with an HDF writer for the HEX beamline.
 
     Parameters
     ----------
@@ -87,7 +87,6 @@ def kinetix_factory(num: int, path_provider, name: str):
     KinetixDetector
         The created Kinetix detector with HDF writer.
     """
-
     return KinetixDetector(
         f"XF:27ID1-BI{{Kinetix-Det:{num}}}",
         ADWriterFactory.hdf(path_provider),
