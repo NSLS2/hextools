@@ -37,6 +37,7 @@ from bluesky_widgets.qt.run_engine_client import (
 from qtpy.QtCore import QObject, Qt, QTimer, Signal
 from qtpy.QtWidgets import (
     QApplication,
+    QCheckBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -70,7 +71,7 @@ from hextools.gui.plan_status import (
     QtPlanStatus,
 )
 from hextools.gui.shutter_status import QtShutterStatus
-from hextools.gui._theme import apply_bnl_theme
+from hextools.gui._theme import apply_bnl_theme, current_theme, save_theme, saved_theme
 from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.tomography.alignment import tomo_alignment_scan
 from hextools.tomography.flyscans import tomo_1d_step_scan, tomo_2d_step_scan, tomo_flyscan
@@ -486,6 +487,11 @@ class QtDataAcquisitionWindow:
         self._status_bar.showMessage(self._re_state_text())
         self._help = QLabel("")
         self._status_bar.addPermanentWidget(self._help)
+        self._dark_mode = QCheckBox("Dark mode")
+        self._dark_mode.setToolTip("Switch between dark and light backgrounds")
+        self._dark_mode.setChecked(current_theme() == "dark")
+        self._dark_mode.toggled.connect(self._set_dark_mode)
+        self._status_bar.addPermanentWidget(self._dark_mode)
         if isinstance(re_client, RunEngine):
             self._install_state_hook(re_client)
         else:
@@ -512,6 +518,11 @@ class QtDataAcquisitionWindow:
 
         if show:
             self.show()
+
+    def _set_dark_mode(self, checked: bool):
+        theme = "dark" if checked else "light"
+        apply_bnl_theme(theme=theme)
+        save_theme(theme)
 
     def _install_state_hook(self, re: RunEngine):
         self._state_signal = _StateSignal(self._qt_window)
@@ -629,7 +640,7 @@ def launch_local_viewer():
     # IPython's Qt event loop hook runs after startup, so create the
     # QApplication now to build widgets safely.
     app = QApplication.instance() or QApplication([])
-    apply_bnl_theme(app)
+    apply_bnl_theme(app, saved_theme())
     re = IPython.get_ipython().user_ns.get("RE", None)
     if not isinstance(re, RunEngine):
         raise RuntimeError("RE not found in IPython user namespace or is not a RunEngine instance.")
@@ -679,7 +690,7 @@ def main():
 
     if args.queueserver_uri:
         with gui_qt("HEX Queue Monitor"):
-            apply_bnl_theme()
+            apply_bnl_theme(theme=saved_theme())
             re_client = RunEngineClient(http_server_uri = args.queueserver_uri)
             QtDataAcquisitionWindow(re_client=re_client)
     else:
