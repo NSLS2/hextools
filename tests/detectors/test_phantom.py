@@ -15,6 +15,7 @@ from ophyd_async.core import (
     TriggerInfo,
     callback_on_mock_put,
     init_devices,
+    set_mock_put_proceeds,
     set_mock_value,
 )
 from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFileIO
@@ -27,6 +28,12 @@ from hextools.detectors.phantom import (
     PhantomPixelDataFormat,
     PhantomTriggerLogic,
 )
+
+
+async def _read_out(logic: PhantomAcquireLogic) -> None:
+    """Wait for the background readout start_acquiring left running."""
+    assert logic._readout is not None
+    await logic._readout
 
 
 @pytest.fixture
@@ -159,10 +166,11 @@ async def test_arm_logic_arm_timeout_waiting_for_trigger(
 
     stop_task = asyncio.create_task(_stop_acquisition())
     try:
+        await phantom_arm_logic.start_acquiring()
         with pytest.raises(
             RuntimeError, match="Acquisition stopped while waiting for event trigger!"
         ):
-            await phantom_arm_logic.start_acquiring()
+            await phantom_arm_logic.wait_for_idle()
     finally:
         stop_task.cancel()
 
@@ -182,11 +190,12 @@ async def test_arm_logic_arm_timeout_saving_to_cine(
     # so the second loop times out
     set_mock_value(phantom_arm_logic.driver.post_trig_frames, 10)
 
+    await phantom_arm_logic.start_acquiring()
     with pytest.raises(
         TimeoutError,
         match="Received event trigger, but writing to cine was not completed!",
     ):
-        await phantom_arm_logic.start_acquiring()
+        await phantom_arm_logic.wait_for_idle()
 
 
 async def test_arm_logic_arm_post_trig_frames_incorrect(
@@ -206,11 +215,12 @@ async def test_arm_logic_arm_post_trig_frames_incorrect(
         phantom_arm_logic.driver.array_counter, 5
     )  # Different from post_trig_frames
 
+    await phantom_arm_logic.start_acquiring()
     with pytest.raises(
         ValueError,
         match="Expected number of post trig frames .* does not match actual number .*",
     ):
-        await phantom_arm_logic.start_acquiring()
+        await phantom_arm_logic.wait_for_idle()
 
 
 async def test_arm_logic_arm_success(
@@ -231,7 +241,45 @@ async def test_arm_logic_arm_success(
     )  # Matches post_trig_frames
 
     await phantom_arm_logic.start_acquiring()  # Should complete without exceptions
+    await _read_out(phantom_arm_logic)  # the trigger has already come
     assert await phantom_arm_logic.driver.download.get_value()
+
+
+async def test_arm_logic_start_returns_before_the_trigger(
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
+):
+    # ophyd-async calls start_acquiring from prepare; the trigger comes later (the
+    # PandA after kickoff, or an operator). Waiting for it here hung prepare.
+    monkeypatch.setattr(hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1)
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
+    # Like the IOC: an Acquire put completes only when acquisition ends.
+    set_mock_put_proceeds(phantom_arm_logic.driver.acquire, False)
+
+    await asyncio.wait_for(phantom_arm_logic.start_acquiring(), timeout=1)
+
+    acquire = phantom_arm_logic.acquire_status
+    assert acquire is not None
+    assert not acquire.done  # the Acquire put is still in flight
+    assert phantom_arm_logic._readout is not None
+    assert not phantom_arm_logic._readout.done()  # still waiting for the trigger
+    set_mock_put_proceeds(phantom_arm_logic.driver.acquire, True)
+    await phantom_arm_logic.ensure_stopped()
+
+
+async def test_arm_logic_stop_cancels_a_readout_waiting_for_its_trigger(
+    phantom_arm_logic: PhantomAcquireLogic, monkeypatch
+):
+    monkeypatch.setattr(hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1)
+    set_mock_value(phantom_arm_logic.driver.waiting_for_trigger, True)
+    await phantom_arm_logic.start_acquiring()
+    readout = phantom_arm_logic._readout
+    assert readout is not None
+
+    await phantom_arm_logic.ensure_stopped()
+
+    assert readout.cancelled()
+    assert phantom_arm_logic._readout is None
+    assert not await phantom_arm_logic.driver.download.get_value()
 
 
 async def test_arm_logic_wait_for_idle_timeout(

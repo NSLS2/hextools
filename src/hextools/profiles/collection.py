@@ -32,6 +32,7 @@ from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
 from bluesky.suspenders import SuspendFloor
 from hextools.utils import show_docs
 
+from hextools.capture import phantom_capture  # noqa: F401 - run by name from the GUI
 from hextools.detectors.phantom import PhantomDetector
 from hextools.detectors.kinetix import kinetix_factory
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
