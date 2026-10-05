@@ -23,7 +23,8 @@ def test_unknown_theme_rejected():
         _theme.build_stylesheet("sepia")
 
 
-def test_apply_and_remember_theme(monkeypatch, tmp_path):
+@pytest.fixture
+def qt_app(monkeypatch, tmp_path):
     pytest.importorskip("qtpy")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     from qtpy.QtCore import QSettings
@@ -36,7 +37,12 @@ def test_apply_and_remember_theme(monkeypatch, tmp_path):
         QSettings.Format.IniFormat, QSettings.Scope.UserScope, str(tmp_path)
     )
     app = QApplication.instance() or QApplication([])
+    _theme.apply_bnl_theme(app, _theme.DEFAULT_THEME)
+    return app
 
+
+def test_apply_and_remember_theme(qt_app):
+    app = qt_app
     assert _theme.saved_theme() == "dark"
 
     _theme.apply_bnl_theme(app, "light")
@@ -48,3 +54,25 @@ def test_apply_and_remember_theme(monkeypatch, tmp_path):
     _theme.apply_bnl_theme(app, "dark")
     assert app.styleSheet() == _theme.STYLESHEET
     assert _theme.current_theme() == "dark"
+
+
+def test_every_switch_follows_a_theme_change(qt_app):
+    # The stylesheet is application-wide, but each window has its own switch.
+    # PR 91 review: a second window's switch kept showing the old theme.
+    from hextools.gui.theme_switch import QtThemeSwitch
+
+    first, second = QtThemeSwitch(), QtThemeSwitch()
+    assert first.isChecked() and second.isChecked()
+
+    first.setChecked(False)
+    assert _theme.current_theme() == "light"
+    assert qt_app.styleSheet() == _theme.build_stylesheet("light")
+    assert not second.isChecked()
+
+    second.setChecked(True)
+    assert _theme.current_theme() == "dark"
+    assert first.isChecked()
+
+    # A switch made after a change starts in step with it.
+    second.setChecked(False)
+    assert not QtThemeSwitch().isChecked()
