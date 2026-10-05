@@ -124,7 +124,7 @@ reportMissingImports = false  # Ignore missing stubs in imported modules
 addopts = """
     --tb=native -vv --strict-markers --doctest-modules
     --doctest-glob="*.rst" --doctest-glob="*.md"
-    --ignore=docs/examples --ignore=src/hextools/profiles
+    --ignore=docs/examples --ignore=src/hextools/profiles --ignore=src/hextools/gui
     """
 # https://iscinumpy.gitlab.io/post/bound-version-constraints/#watch-for-warnings
 filterwarnings = [

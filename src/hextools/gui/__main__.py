@@ -255,7 +255,7 @@ class QtTomographyView(QWidget):
         # Detector viewers take the majority of the screen.
         top.addWidget(QtTabbedDetectorsWidget(
             re_client,
-            {f"kinetix{i}": "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}" for i in range(1, 5)},
+            {f"kinetix{i}": "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}Pva1:Image" for i in range(1, 5)},
             combined={"Dual Cam": ["kinetix1", "kinetix3"]},
         ), stretch=3)
 
@@ -287,7 +287,7 @@ class QtEDXDView(QWidget):
 
         top = QHBoxLayout()
         top.addWidget(
-            QtTabbedDetectorsWidget(re_client, {"germ": "XF:27ID1-ES{GeRM-Det:1}"}),
+            QtTabbedDetectorsWidget(re_client, {"germ": "XF:27ID1-ES{GeRM-Det:1}MCA:Pva1:Image"}),
             stretch=3,
         )
 
@@ -311,7 +311,7 @@ class QtXRDView(QWidget):
 
         vbox = QVBoxLayout()
         vbox.addWidget(
-            QtTabbedDetectorsWidget(re_client, {"perkin_elmer": "XF:27ID1-ES{PE-Det:1}"}),
+            QtTabbedDetectorsWidget(re_client, {"perkin_elmer": "XF:27ID1-ES{PE-Det:1}Pva1:Image"}),
             stretch=1,
         )
         self.setLayout(vbox)
@@ -337,10 +337,10 @@ class QtBeamlineView(QWidget):
         top.addWidget(QtTabbedDetectorsWidget(
             re_client,
             {
-                "sample_cam": "XF:27ID1-ES{Sample-Cam:1}",
-                "f_hutch_cam": "XF:27IDA-BI{GigE-Cam:5}",
-                "diamond_window_cam": "XF:27IDA-BI{FAM:1-Cam:1}",
-                "fs_window_cam": "XF:27IDA-BI{FS:1-Cam:1}",
+                "sample_cam": "XF:27ID1-ES{Sample-Cam:1}Pva1:Image",
+                "f_hutch_cam": "XF:27IDA-BI{GigE-Cam:5}Pva1:Image",
+                "diamond_window_cam": "XF:27IDA-BI{FAM:1-Cam:1}Pva1:Image",
+                "fs_window_cam": "XF:27IDA-BI{FS:1-Cam:1}Pva1:Image",
             },
         ), stretch=3)
 

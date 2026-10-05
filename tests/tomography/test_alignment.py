@@ -407,7 +407,15 @@ async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
     )
 
     with pytest.raises(ValueError, match="Front-end shutter is closed"):
-        RE(tomo_alignment_scan([], rotation_motor, fe_shutter, photon_shutter, 0.1))
+        RE(
+            tomo_alignment_scan(
+                [],
+                0.1,
+                fe_shutter=fe_shutter,
+                photon_shutter=photon_shutter,
+                rot_motor=rotation_motor,
+            )
+        )
 
 
 @pytest.mark.parametrize(
@@ -469,14 +477,14 @@ async def test_tomo_alignment_scan(
     runs: RunEngineResult = RE(
         tomo_alignment_scan(
             [ktx1],
-            rotation_motor,
-            fe_shutter,
-            photon_shutter,
             exposure_time,
             num_projections=num_projections,
             init_angle=init_angle,
             stop_angle=stop_angle,
             base_x_offset=base_x_offset,
+            fe_shutter=fe_shutter,
+            photon_shutter=photon_shutter,
+            rot_motor=rotation_motor,
             sample_stage_x=None if not include_sample_stage_x else sample_stage_x,
         ),
         cache_docs,  # type: ignore

@@ -2,6 +2,7 @@
 
 from bluesky.preprocessors import finalize_wrapper, reset_positions_decorator
 import numpy as np
+from ophyd_async.core import StandardMovable
 
 from hextools.detectors.germ import GeRMDetector
 from hextools.photon_delivery_system import ensure_shutter_open, Shutter
@@ -53,7 +54,7 @@ def edxd_count(
 
 
 def edxd_scan(
-    motor: AsyncMovable[float],
+    motor: StandardMovable[float],
     start: float,
     stop: float,
     num_points: int,
@@ -83,7 +84,7 @@ def edxd_scan(
         if save_as_tiff:
             germ.save_as_tiff()
         else:
-            germ.save_as_hdf5()
+            germ.save_as_hdf()
 
         _md = {
             "plan_name": "edxd_scan",
@@ -101,23 +102,25 @@ def edxd_scan(
 
     return (
         yield from bps.repeat(
-            yield from finalize_wrapper(_body(), _cleanup())),
+            finalize_wrapper(_body(), _cleanup()),
             num=num_iterations,
             delay=time_between_iterations
         )
+    )
 
 
 def edxd_grid_scan(
-    outer_motor: AsyncMovable[float],
+    outer_motor: StandardMovable[float],
     outer_start: float,
     outer_stop: float,
     outer_num_steps: int,
-    inner_motor: AsyncMovable[float],
+    inner_motor: StandardMovable[float],
     inner_start: float,
     inner_stop: float,
     inner_num_steps: int,
     count_time: float,
     snake: bool = False,
+    use_shutter: bool = True,
     reset_position: bool = True,
     description: str | None = None,
     germ: GeRMDetector | None = None,
@@ -128,7 +131,7 @@ def edxd_grid_scan(
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     germ = ensure_available(GeRMDetector, germ=germ)
-    germ.save_as_hdf5()
+    germ.save_as_hdf()
 
     def _body():
         if use_shutter:
@@ -145,7 +148,7 @@ def edxd_grid_scan(
             outer_motor, outer_start, outer_stop, outer_num_steps,
             inner_motor, inner_start, inner_stop, inner_num_steps,
             md=_md,
-            snake=snake
+            snake_axes=snake
         )
 
     def _cleanup():
@@ -157,19 +160,6 @@ def edxd_grid_scan(
             yield from bps.mv(inner_motor, inner_start)
 
     return (yield from finalize_wrapper(_body(), _cleanup()))
-
-    _md = {"plan_name": "edxd_grid_scan"}
-    if description is not None:
-        _md["description"] = description
-    yield from bp.grid_scan(
-        [germ],
-        outer_motor, outer_start, outer_stop, outer_num_steps,
-        inner_motor, inner_start, inner_stop, inner_num_steps,
-        md=_md,
-        snake=snake
-    )
-
-
 
 def edxd_2theta_tilt(
     theta: float, 

@@ -42,7 +42,7 @@ from hextools.motors import (
     SampleTower,
     FOV_20_40_mm_Camera,
     move_motor,
-    Collimator,
+    CollimatorTable,
     EDXDTable,
 )
 from hextools.photon_delivery_system import (

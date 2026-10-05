@@ -22,7 +22,7 @@ from ophyd_async.epics.adcore import AreaDetector, NDStatsIO
 from ophyd_async.epics.core import EpicsDevice
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
-from ..utils import ensure_available
+from ..utils import ensure_available, forward_watcher_updates
 from .shutter import Shutter, ensure_shutter_closed
 
 

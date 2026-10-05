@@ -7,7 +7,7 @@ from bluesky import plan_stubs as bps
 from bluesky.protocols import Collectable, Flyable, HasName, Movable, Readable
 from bluesky.utils import CustomPlanMetadata, MsgGenerator, plan
 from nslsii import detectors
-from ophyd_async.core import AsyncMovable, DetectorTrigger, StandardFlyable, TriggerInfo
+from ophyd_async.core import StandardMovable, DetectorTrigger, StandardFlyable, TriggerInfo
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
@@ -393,8 +393,6 @@ def tomo_nd_step_scan(
         actual_start = start if not alternate_flyscan_dir or iteration_counter % 2 == 0 else stop
         actual_stop = stop if not alternate_flyscan_dir or iteration_counter % 2 == 0 else start
 
-        print(f"Starting flyscan from {actual_start} to {actual_stop}")
-
         # Then, run a tomo flyscan
         yield from _tomo_fly_stub(
             detectors=[
@@ -440,7 +438,7 @@ def tomo_nd_step_scan(
 
 def tomo_1d_step_scan(
     detectors: list[KinetixDetector | PhantomDetector],
-    step_motor: AsyncMovable[float],
+    step_motor: StandardMovable[float],
     step_start: float,
     step_stop: float,
     step_num: int,
@@ -466,7 +464,7 @@ def tomo_1d_step_scan(
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
         The list of detectors to use during the scan.
-    step_motor : AsyncMovable[float]
+    step_motor : StandardMovable[float]
         The motor that will be moved in steps during the scan.
     step_start : float
         The starting position for the step motor.
@@ -533,11 +531,11 @@ def tomo_1d_step_scan(
 
 def tomo_2d_step_scan(
     detectors: list[KinetixDetector | PhantomDetector],
-    outer_motor: AsyncMovable[float],
+    outer_motor: StandardMovable[float],
     outer_start: float,
     outer_stop: float,
     outer_num: int,
-    inner_motor: AsyncMovable[float],
+    inner_motor: StandardMovable[float],
     inner_start: float,
     inner_stop: float,
     inner_num: int,
@@ -567,7 +565,7 @@ def tomo_2d_step_scan(
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
         The list of detectors to use for the scan.
-    outer_motor : AsyncMovable[float]
+    outer_motor : StandardMovable[float]
         The motor controlling the outer axis of the 2-D grid.
     outer_start : float
         The starting position of the outer motor.
@@ -575,7 +573,7 @@ def tomo_2d_step_scan(
         The stopping position of the outer motor.
     outer_num : int
         The number of steps for the outer motor.
-    inner_motor : AsyncMovable[float]
+    inner_motor : StandardMovable[float]
         The motor controlling the inner axis of the 2-D grid.
     inner_start : float
         The starting position of the inner motor.
