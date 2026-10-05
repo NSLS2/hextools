@@ -6,6 +6,7 @@ import threading
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from bluesky.protocols import Subscribable
 from bluesky.suspenders import SuspendFloor
 
 
@@ -46,7 +47,8 @@ class SuspendFloorUnlessOpsMode(SuspendFloor):
     suspend_thresh : float
         Suspend if the signal falls below this value.
     ops_mode : Signal
-        The ring's operating mode.
+        The ring's operating mode. Like ``signal``, either an ophyd-async signal
+        or one following ophyd's subscription pattern.
     skip_modes : Iterable
         Modes in which a low signal does not suspend the RunEngine.
     **kwargs
@@ -66,6 +68,7 @@ class SuspendFloorUnlessOpsMode(SuspendFloor):
         self._ops_mode = ops_mode
         self._skip_modes = frozenset(skip_modes)
         self._mode = None
+        self._mode_cid = None
 
     @property
     def _skipping(self) -> bool:
@@ -77,25 +80,41 @@ class SuspendFloorUnlessOpsMode(SuspendFloor):
     def _should_resume(self, value):
         return self._skipping or super()._should_resume(value)
 
-    def _on_mode(self, reading):
-        self._mode = reading[self._ops_mode.name]["value"]
+    def _on_mode_reading(self, reading):
+        self._set_mode(reading[self._ops_mode.name]["value"])
+
+    def _on_mode_value(self, value=None, **kwargs):
+        self._set_mode(value)
+
+    def _set_mode(self, mode):
+        self._mode = mode
         if self._last_value is None:
             return
         value = self._last_value
         if self._implements_protocol:
             value = {self._sig.name: {"value": value}}
-        self(value)
+        self(value=value)
 
     def install(self, RE, *, event_type=None):
         # The mode first, so the first beam reading is judged against it.
-        _call_on_loop(RE.loop, lambda: self._ops_mode.subscribe_reading(self._on_mode))
+        if isinstance(self._ops_mode, Subscribable):
+            _call_on_loop(
+                RE.loop, lambda: self._ops_mode.subscribe_reading(self._on_mode_reading)
+            )
+        else:
+            self._mode_cid = self._ops_mode.subscribe(self._on_mode_value, run=True)
         super().install(RE, event_type=event_type)
 
     def remove(self):
         RE = self.RE
         super().remove()
-        if RE is not None:
-            _call_on_loop(RE.loop, lambda: self._ops_mode.clear_sub(self._on_mode))
+        if self._mode_cid is not None:
+            self._ops_mode.unsubscribe(self._mode_cid)
+            self._mode_cid = None
+        elif RE is not None and isinstance(self._ops_mode, Subscribable):
+            _call_on_loop(
+                RE.loop, lambda: self._ops_mode.clear_sub(self._on_mode_reading)
+            )
 
     def _get_justification(self):
         just = super()._get_justification()

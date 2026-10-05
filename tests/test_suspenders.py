@@ -65,3 +65,37 @@ def test_resumes_on_beam_recovery_in_operations(ring, suspender):
     set_mock_value(ring.beam_current, 50)
     set_mock_value(ring.beam_current, 395)
     assert not suspender.tripped
+
+
+@pytest.mark.parametrize("legacy", ["beam", "mode", "both"])
+def test_legacy_ophyd_signals(RE: RunEngine, ring: NSLS2StorageRing, legacy):
+    # SuspendFloor also takes ophyd signals, whose callbacks pass value=...
+    # rather than a reading; both sides must work in either style (PR 93 review).
+    from ophyd import Signal
+
+    beam = Signal(name="beam", value=450.0) if legacy != "mode" else ring.beam_current
+    mode = (
+        Signal(name="mode", value=NSLS2OpsMode.OPERATIONS)
+        if legacy != "beam"
+        else ring.operating_mode
+    )
+
+    def set_beam(v):
+        beam.put(v) if isinstance(beam, Signal) else set_mock_value(beam, v)
+
+    def set_mode(m):
+        mode.put(m) if isinstance(mode, Signal) else set_mock_value(mode, m)
+
+    susp = SuspendFloorUnlessOpsMode(
+        beam, 100, resume_thresh=390, ops_mode=mode, skip_modes=SKIP
+    )
+    RE.install_suspender(susp)
+    try:
+        set_beam(50)
+        assert susp.tripped
+        set_mode(NSLS2OpsMode.MAINTENANCE)
+        assert not susp.tripped
+        set_mode(NSLS2OpsMode.OPERATIONS)
+        assert susp.tripped
+    finally:
+        RE.remove_suspender(susp)
