@@ -263,3 +263,28 @@ class FOV_20_40_mm_Camera(  # noqa: N801 - the name states the field of view in 
         with self.add_children_as_readables(Format.CHILD):
             self.focus = AsyncEpicsMotor(prefix + "Focus}Mtr", name="focus")
             self.rotation = AsyncEpicsMotor(prefix + "CamRot}Mtr", name="rotation")
+
+
+class EDXDTable(StandardReadable, EpicsDevice):
+    """HEX EDXD table."""
+
+    def __init__(self, prefix: str, name: str = "edxd_table"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.CHILD):
+            self.x = AsyncEpicsMotor(prefix + "X}Mtr", name="x")
+            self.y = AsyncEpicsMotor(prefix + "Y}Mtr", name="y")
+            self.z = AsyncEpicsMotor(prefix + "Z}Mtr", name="z")
+            self.rx = AsyncEpicsMotor(prefix + "Rx}Mtr", name="rx")
+
+
+class CollimatorTable(StandardReadable, EpicsDevice):
+    """HEX collimator table."""
+
+    def __init__(self, prefix: str, name: str = "collimator"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.CHILD):
+            self.x = AsyncEpicsMotor(prefix + "CMT:1-Ax:X}Mtr", name="x")
+            self.y_coarse = AsyncEpicsMotor(prefix + "CMT:1-Ax:Yc}Mtr", name="y_coarse")
+            self.y_fine = AsyncEpicsMotor(prefix + "CMT:1-Ax:Yf}Mtr", name="y_fine")
+            # TODO: Consider renaming PV to follow format of above.
+            self.slits_pitch = AsyncEpicsMotor(prefix + "Slt:CMT-Ax:Pitch}Mtr", name="slits_pitch")

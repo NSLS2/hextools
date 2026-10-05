@@ -1,15 +1,18 @@
 """Ophyd async support for the GeRM detector at HEX."""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Annotated as A
 
 import numpy as np
 from ophyd_async.core import (
     DEFAULT_TIMEOUT,
     DetectorAcquireLogic,
+    DetectorDataLogic,
     DetectorTrigger,
     DetectorTriggerLogic,
     PathProvider,
+    SignalDataProvider,
     SignalR,
     SignalRW,
     StandardDetector,
@@ -24,10 +27,17 @@ from ophyd_async.core import StandardReadableFormat as Format
 from ophyd_async.epics.adcore import (
     ADBaseColorMode,
     ADBaseDataType,
+    ADBaseIO,
     ADHDFDataLogic,
+    ADMultipartDataLogic,
+    ADWriterFactory,
     NDArrayDescription,
     NDFileHDF5IO,
     NDPluginBaseIO,
+    NDFileIO,
+    NDPluginFileIO,
+    NDProcessIO,
+    NDStatsIO,
 )
 from ophyd_async.epics.core import EpicsDevice, PvSuffix
 
@@ -354,6 +364,17 @@ class GeRMAcquireLogic(DetectorAcquireLogic):
         await set_and_wait_for_value(self.driver.acquire, False)
 
 
+@dataclass
+class GeRMStatsDataLogic(DetectorDataLogic):
+    signal: SignalR
+    hinted: bool = True
+
+    async def prepare_single(self, datakey_name: str) -> SignalDataProvider:
+        return SignalDataProvider(self.signal)
+
+    def get_hinted_fields(self, datakey_name: str) -> Sequence[str]:
+        return [self.signal.name] if self.hinted else []
+
 class GeRMDetector(StandardDetector):
     """The ophyd class for GeRM detector."""
 
@@ -365,6 +386,7 @@ class GeRMDetector(StandardDetector):
         config_sigs: Sequence[SignalR] = (),
         name: str = "",
     ) -> None:
+        self._path_provider = path_provider
         self.driver = GeRMDetectorIO(prefix, name=name)
         if plugins is not None:
             for plugin_name, plugin in plugins.items():
@@ -372,6 +394,37 @@ class GeRMDetector(StandardDetector):
         self.add_detector_logics(GeRMTriggerLogic(self.driver))
         self.add_detector_logics(GeRMAcquireLogic(self.driver))
         self.hdf = NDFileHDF5IO(prefix + "MCA1:HDF1:", name="hdf")
+        self.tiff = NDPluginFileIO(prefix + "MCA1:TIFF1:", name="tiff")
+        self.stats1 = NDStatsIO(
+            "XF:27ID1-ES{GeRM-Det:1}MCA1:Stats1:", name="stats1"
+        )
+        self.save_as_hdf()
+        self.add_config_signals(*config_sigs)
+        super().__init__(name=name)
+
+    def save_as_tiff(self) -> None:
+        if self._data_logics and isinstance(self._data_logics[0], ADMultipartDataLogic):
+            return
+        self._data_logics = ()
+        self.add_detector_logics(
+            ADMultipartDataLogic(
+                NDArrayDescription(
+                    [self.driver.num_elements, self.driver.num_energy_bins],
+                    self.driver.data_type,
+                    self.driver.color_mode,
+                ),
+                self._path_provider,
+                self.tiff,
+                ".tiff",
+                "multipart/related;type=image/tiff"
+            ),
+            GeRMStatsDataLogic(self.stats1.total)
+        )
+
+    def save_as_hdf(self) -> None:
+        if self._data_logics and isinstance(self._data_logics[0], ADHDFDataLogic):
+            return
+        self._data_logics = ()
         self.add_detector_logics(
             ADHDFDataLogic(
                 NDArrayDescription(
@@ -379,9 +432,8 @@ class GeRMDetector(StandardDetector):
                     self.driver.data_type,
                     self.driver.color_mode,
                 ),
-                path_provider,
+                self._path_provider,
                 self.hdf,
-            )
+            ),
+            GeRMStatsDataLogic(self.stats1.total)
         )
-        self.add_config_signals(*config_sigs)
-        super().__init__(name=name)

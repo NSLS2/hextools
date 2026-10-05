@@ -163,7 +163,6 @@ def take_radiograph(
         )
 
     def _cleanup():
-        if use_shutter:
-            yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
+        yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
