@@ -34,10 +34,10 @@ def test_resume_button_resumes_a_paused_plan(given):
     matplotlib.use("qtagg")
     app = QApplication.instance() or QApplication([])
     shell = InteractiveShell.instance()
-    engine = RunEngine({})
+    RE = RunEngine({})
     shell.user_ns.update(
-        RE=engine if given == "shell" else RunEngine({}),
-        engine=engine,
+        RE=RE if given == "shell" else RunEngine({}),
+        test_RE=RE,
         bp=bp,
         det=det,
         motor=motor,
@@ -46,19 +46,19 @@ def test_resume_button_resumes_a_paused_plan(given):
     if given == "shell":
         controls = QtReExecutionControls(local=True, namespace=shell.user_ns)
     elif given == "re":
-        controls = QtReExecutionControls(local=True, re=engine)
+        controls = QtReExecutionControls(local=True, re=RE)
     else:
-        controls = QtReExecutionControls(local=True, namespace={"RE": engine})
+        controls = QtReExecutionControls(local=True, namespace={"RE": RE})
     seen = []
 
     def resume():
-        seen.append(engine.state)
+        seen.append(RE.state)
         controls._pb_plan_resume_clicked()
 
     QTimer.singleShot(
         0,
         lambda: run_in_ipython(
-            "engine(bp.scan([det], motor, 0, 1, 10, per_step=_slow_step))"
+            "test_RE(bp.scan([det], motor, 0, 1, 10, per_step=_slow_step))"
         ),
     )
     QTimer.singleShot(300, controls._pb_plan_pause_immediate_clicked)
@@ -68,5 +68,47 @@ def test_resume_button_resumes_a_paused_plan(given):
     controls._timer.stop()
 
     assert seen == ["paused"]
-    assert engine.state == "idle", f"plan did not resume: state={engine.state}"
+    assert RE.state == "idle", f"plan did not resume: state={RE.state}"
     assert motor.position == pytest.approx(1)
+
+
+# PR 94 review: a double-click on Resume must resume once, not queue a second
+# resume() that could run through a later pause or hit an idle engine.
+def test_double_click_on_resume_resumes_once():
+    matplotlib.use("qtagg")
+    app = QApplication.instance() or QApplication([])
+    shell = InteractiveShell.instance()
+    RE = RunEngine({})
+    shell.user_ns.update(RE=RE, bp=bp, det=det, motor=motor, _slow_step=_slow_step)
+    controls = QtReExecutionControls(local=True, namespace=shell.user_ns)
+    resumes = []
+    real_resume = RE.resume
+
+    def counting_resume():
+        resumes.append(RE.state)
+        return real_resume()
+
+    RE.resume = counting_resume
+    enabled_after_click = []
+
+    def double_click():
+        controls._poll_local_state()
+        controls._pb_plan_resume_clicked()
+        enabled_after_click.append(controls._pb_plan_resume.isEnabled())
+        controls._pb_plan_resume_clicked()
+
+    QTimer.singleShot(
+        0,
+        lambda: run_in_ipython(
+            "RE(bp.scan([det], motor, 0, 1, 10, per_step=_slow_step))"
+        ),
+    )
+    QTimer.singleShot(300, controls._pb_plan_pause_immediate_clicked)
+    QTimer.singleShot(800, double_click)
+    QTimer.singleShot(5000, app.quit)
+    app.exec()
+    controls._timer.stop()
+
+    assert resumes == ["paused"], f"resume() called {len(resumes)} times: {resumes}"
+    assert enabled_after_click == [False]
+    assert RE.state == "idle"

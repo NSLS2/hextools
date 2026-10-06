@@ -75,6 +75,7 @@ class QtReExecutionControls(_QtReExecutionControls):
         self._re_name = re_name
         self._namespace = namespace
         self._timer = None
+        self._resume_pending = False
 
         super().__init__(_NullModel() if local else model, parent)
 
@@ -105,7 +106,7 @@ class QtReExecutionControls(_QtReExecutionControls):
         paused = state == "paused"
         self._pb_plan_pause_deferred.setEnabled(running)
         self._pb_plan_pause_immediate.setEnabled(running)
-        self._pb_plan_resume.setEnabled(paused)
+        self._pb_plan_resume.setEnabled(paused and not self._resume_pending)
         self._pb_plan_stop.setEnabled(paused)
         self._pb_plan_abort.setEnabled(paused)
         self._pb_plan_halt.setEnabled(paused)
@@ -133,17 +134,23 @@ class QtReExecutionControls(_QtReExecutionControls):
         if not self._local:
             return super()._pb_plan_resume_clicked()
         run_engine = self._resolve_re()
-        if run_engine is None:
+        if run_engine is None or self._resume_pending:
             return
+        # A second click before resume() returns would queue another resume().
+        self._resume_pending = True
+        self._pb_plan_resume.setEnabled(False)
         # resume() installs a SIGINT handler, which only the main thread may do,
         # so run it after this click returns, never on a worker thread.
         QTimer.singleShot(0, lambda: self._resume_on_main_thread(run_engine))
 
     def _resume_on_main_thread(self, run_engine):
-        if _ipython_namespace().get(self._re_name) is run_engine:
-            run_in_ipython(f"{self._re_name}.resume()")
-        else:
-            self._call_re("resume")
+        try:
+            if _ipython_namespace().get(self._re_name) is run_engine:
+                run_in_ipython(f"{self._re_name}.resume()")
+            else:
+                self._call_re("resume")
+        finally:
+            self._resume_pending = False
 
     def _pb_plan_stop_clicked(self):
         if not self._local:
