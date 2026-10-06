@@ -72,10 +72,9 @@ from hextools.gui.plan_status import (
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui._theme import apply_bnl_theme, saved_theme
 from hextools.gui.theme_switch import QtThemeSwitch
-from hextools.capture import phantom_capture
 from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.tomography.alignment import tomo_alignment_scan
-from hextools.tomography.flyscans import tomo_1d_step_scan, tomo_2d_step_scan, tomo_flyscan
+from hextools.tomography.flyscans import capture, tomo_1d_step_scan, tomo_2d_step_scan, tomo_flyscan
 from hextools.tomography.radiography import take_radiograph
 from hextools.edxd import configure_test_pulses, edxd_2theta_tilt, edxd_calib_scan, edxd_count, edxd_custom_pos_list_grid, edxd_grid_scan, edxd_scan
 from hextools.photon_delivery_system import change_energy
@@ -270,7 +269,7 @@ class QtTomographyView(QWidget):
         plan_tabs.addTab(QtPlanWidget(re_client, tomo_2d_step_scan), "2D Step")
         plan_tabs.addTab(QtPlanWidget(re_client, take_radiograph), "Radiography")
         plan_tabs.addTab(QtPlanWidget(re_client, tomo_alignment_scan), "Alignment")
-        plan_tabs.addTab(QtPlanWidget(re_client, phantom_capture), "Phantom Capture")
+        plan_tabs.addTab(QtPlanWidget(re_client, capture), "Capture")
 
         side = QVBoxLayout()
         side.addWidget(plan_tabs, stretch=1)

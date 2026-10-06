@@ -32,7 +32,6 @@ from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
 from bluesky.suspenders import SuspendFloor
 from hextools.utils import show_docs
 
-from hextools.capture import phantom_capture  # noqa: F401 - run by name from the GUI
 from hextools.detectors.phantom import PhantomDetector
 from hextools.detectors.kinetix import kinetix_factory
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
@@ -65,6 +64,7 @@ from hextools.utils import (
 )
 
 from hextools.tomography import tomo_flyscan, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_nd_step_scan
+from hextools.tomography import capture  # noqa: F401 - run by name from the GUI
 from hextools.edxd import configure_test_pulses, edxd_scan, edxd_count, edxd_grid_scan, edxd_2theta_tilt, edxd_calib_scan, edxd_custom_pos_list_grid
 
 
