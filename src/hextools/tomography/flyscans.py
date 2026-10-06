@@ -7,7 +7,13 @@ from bluesky import plan_stubs as bps
 from bluesky.protocols import Collectable, Flyable, HasName, Movable, Readable
 from bluesky.utils import CustomPlanMetadata, MsgGenerator, plan
 from nslsii import detectors
-from ophyd_async.core import StandardMovable, DetectorTrigger, StandardFlyable, TriggerInfo
+from ophyd_async.core import (
+    DetectorTrigger,
+    StandardDetector,
+    StandardFlyable,
+    StandardMovable,
+    TriggerInfo,
+)
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
@@ -648,4 +654,56 @@ def tomo_2d_step_scan(
         photon_shutter=photon_shutter,
         md={"plan_name": "tomo_2d_step_scan"},
     ))
+
+
+def capture(
+    detectors: list[StandardDetector],
+    num_images: int,
+    exposure_time: float,
+    timeout: float = 600,
+    sample_name: str | None = None,
+):
+    """Take ``num_images`` frames on each detector as one reading (``bp.count``).
+
+    Works with any ophyd-async detector. A Phantom arms and waits for its event
+    trigger (the GUI's Trigger button, a hardware trigger or the camera's own
+    screen), then downloads the first ``num_images`` post-trigger frames; other
+    cameras take the frames straight away.
+
+    Parameters
+    ----------
+    detectors : list of StandardDetector
+        The detectors to capture with.
+    num_images : int
+        Frames to record in the reading, at least 1.
+    exposure_time : float
+        Exposure time per frame, in seconds.
+    timeout : float, optional
+        How long to wait for the frames, including any wait for a trigger, in
+        seconds. Default 600.
+    sample_name : str, optional
+        Recorded in the run's metadata.
+    """
+    info = TriggerInfo(
+        livetime=exposure_time,
+        collections_per_event=num_images,
+        exposure_timeout=timeout,
+    )
+    md = {
+        "plan_name": "capture",
+        "num_images": num_images,
+        "exposure_time": exposure_time,
+    }
+    if sample_name is not None:
+        md["sample_name"] = sample_name
+
+    # bp.count stages the detectors, which clears any earlier prepare, so prepare
+    # in per_shot, after staging and before the reading.
+    def _prepare_then_read(dets, take_reading=None):
+        for det in dets:
+            yield from bps.prepare(det, info, group="capture_prepare")
+        yield from bps.wait(group="capture_prepare")
+        yield from bps.one_shot(dets, take_reading=take_reading)
+
+    return (yield from bp.count(detectors, per_shot=_prepare_then_read, md=md))
 

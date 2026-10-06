@@ -1,6 +1,7 @@
 """Ophyd async support for Phantom VEO camera at HEX."""
 
 import asyncio
+import contextlib
 from collections.abc import Sequence
 from typing import Annotated as A
 
@@ -413,31 +414,51 @@ class PhantomAcquireLogic(ADAcquireLogic):
     def __init__(self, driver: PhantomIO):
         super().__init__(driver, driver.acquire)
         self.driver = driver
+        self._readout: asyncio.Future[None] | None = None
 
     async def start_acquiring(self):
-        """Start the acquisition and the image data download.
+        """Arm the camera, and return once it is waiting for the event trigger.
 
-        Start the acquisition, wait for the event trigger,
-        wait for any post trigger frames, and start the download.
+        The camera records into its cine until the event trigger, then records the
+        post-trigger frames; the image download starts after that. Those waits run
+        in the background (see `_read_out_after_trigger`) and `wait_for_idle`
+        collects their result, because ophyd-async calls this from ``prepare`` for
+        externally triggered detectors: the trigger comes later, from the PandA once
+        a fly scan's motion starts at kickoff, or from an operator pressing it while
+        watching the live image. Waiting for it here would stop ``prepare`` ever
+        finishing.
 
         Raises
         ------
-        RuntimeError
-            If acquisition stops before we receive the event trigger.
         TimeoutError
-            If we timeout waiting for the cine to be marked as valid.
-        ValueError
-            If the number of post trigger frames recorded is not what was expected.
+            If the camera does not report waiting for a trigger.
         """
-        # Start the acquisition, and wait for waiting for trigger to be True
-        await set_and_wait_for_other_value(
+        # Not waiting for the Acquire write itself: an areaDetector Acquire put
+        # completes only when acquisition ends, after the trigger. wait_for_idle
+        # collects it.
+        self.acquire_status = await set_and_wait_for_other_value(
             self.driver.acquire,
             True,
             self.driver.waiting_for_trigger,
             True,
             timeout=DEFAULT_TIMEOUT,
+            wait_for_set_completion=False,
         )
+        self._readout = asyncio.ensure_future(self._read_out_after_trigger())
 
+    async def _read_out_after_trigger(self):
+        """Wait for the event trigger and the post-trigger frames; start the download.
+
+        Raises
+        ------
+        RuntimeError
+            If acquisition stops before we receive the event trigger, or more
+            frames are requested than the camera recorded.
+        TimeoutError
+            If we timeout waiting for the cine to be marked as valid.
+        ValueError
+            If the number of post trigger frames recorded is not what was expected.
+        """
         # Wait for trigger_received to go to 1. If trigger_received does not go
         # to 1 within the timeout, check if acquisition stopped, and if so raise
         # a timeout error indicating acquisition stopped while waiting for trigger.
@@ -503,14 +524,18 @@ class PhantomAcquireLogic(ADAcquireLogic):
         await self.driver.download.set(True)
 
     async def wait_for_idle(self):
-        """Wait for the camera to finish downloading and return to idle state.
+        """Wait for the trigger and readout, then for the download to finish.
 
         Raises
         ------
         TimeoutError
             If we timeout waiting for the download to complete.
         """
-        # First, make sure our arm process is complete.
+        # First, the readout started by start_acquiring: its errors surface here.
+        if self._readout is not None:
+            readout, self._readout = self._readout, None
+            await readout
+        # Then make sure our arm process is complete.
         if self.acquire_status:
             await self.acquire_status
 
@@ -552,6 +577,15 @@ class PhantomAcquireLogic(ADAcquireLogic):
                         "Download counter stopped incrementing and cine was not marked as saved!"
                     ) from err
                 last_download_count = current
+
+    async def ensure_stopped(self):
+        """Stop a readout still waiting for its trigger, then stop the camera."""
+        if self._readout is not None:
+            readout, self._readout = self._readout, None
+            readout.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await readout
+        await super().ensure_stopped()
 
 
 class PhantomDetector(AreaDetector[PhantomIO]):
