@@ -30,7 +30,7 @@ from enum import Enum
 
 try:
     from ophyd import Device
-except:
+except ImportError:
     Device = None
 
 try:
@@ -350,9 +350,9 @@ class QtPlanWidget(QWidget):
                 self._add_enum_field(form, name, enum_cls, param, required)
                 continue
 
-            print(f"Processing parameter '{name}' with annotation '{annotation}'")
-            print(f"Required: {required}")
-            print(f"Is list: {_is_list_annotation(annotation)}, is device list: {_is_device_list_annotation(annotation)}")
+            # print(f"Processing parameter '{name}' with annotation '{annotation}'")
+            # print(f"Required: {required}")
+            # print(f"Is list: {_is_list_annotation(annotation)}, is device list: {_is_device_list_annotation(annotation)}")
             if _is_device_list_annotation(annotation):
                 types_ = _element_device_types(annotation)
                 self._add_device_list_field(vbox, name, types_, required)
@@ -379,7 +379,7 @@ class QtPlanWidget(QWidget):
     def _add_scalar_list_field(self, form, name, kind, param, required):
         widget = QLineEdit()
         if not required and param.default is not None:
-            widget.setText(str(param.default))
+            widget.setText(", ".join(str(v) for v in param.default))
         widget.setPlaceholderText("required" if required else "optional")
         self._scalar_list_fields.append((name, kind, widget, required))
         self._add_row(form, name, widget)

@@ -148,7 +148,7 @@ async def test_take_radiograph_single_row(
 
     assert await ktx.driver.acquire_time.get_value() == exposure_time
     assert await ktx.driver.num_images.get_value() == num_images
-    assert await photon_shutter.status.get_value() is False  # finalizer closed it
+    assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED  # finalizer closed it
 
     assert await ktx.driver.acquire_period.get_value() == pytest.approx(
         exposure_time + FRAME_PERIOD_MARGIN

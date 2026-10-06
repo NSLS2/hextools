@@ -149,7 +149,11 @@ async def test_change_energy_with_auto_tune(
 
     RE(
         change_energy(
-            energy, dclm=dclm, fs_camera=fs_camera, photon_shutter=photon_shutter
+            energy,
+            auto_tune=True,
+            dclm=dclm,
+            fs_window_cam=fs_camera,
+            photon_shutter=photon_shutter,
         )
     )
 
@@ -176,7 +180,11 @@ async def test_change_energy_no_peak_coarse_scan(
     with pytest.raises(RuntimeError, match="No peak found in coarse scan"):
         RE(
             change_energy(
-                10.0, dclm=dclm, fs_camera=fs_camera, photon_shutter=photon_shutter
+                10.0,
+                auto_tune=True,
+                dclm=dclm,
+                fs_window_cam=fs_camera,
+                photon_shutter=photon_shutter,
             )
         )
 
@@ -196,7 +204,11 @@ async def test_change_energy_no_peak_fine_scan(
     with pytest.raises(RuntimeError, match="No peak found in fine scan"):
         RE(
             change_energy(
-                10.0, dclm=dclm, fs_camera=fs_camera, photon_shutter=photon_shutter
+                10.0,
+                auto_tune=True,
+                dclm=dclm,
+                fs_window_cam=fs_camera,
+                photon_shutter=photon_shutter,
             )
         )
 
