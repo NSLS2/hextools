@@ -12,6 +12,7 @@ from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from typing import Any
+from hextools.utils import Steppable
 
 from hextools.photon_delivery_system.shutter import (
     ensure_shutter_closed,
@@ -438,7 +439,7 @@ def tomo_nd_step_scan(
 
 def tomo_1d_step_scan(
     detectors: list[KinetixDetector | PhantomDetector],
-    step_motor: StandardMovable[float],
+    step_motor: Steppable,
     step_start: float,
     step_stop: float,
     step_num: int,
@@ -464,7 +465,7 @@ def tomo_1d_step_scan(
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
         The list of detectors to use during the scan.
-    step_motor : StandardMovable[float]
+    step_motor : Steppable
         The motor that will be moved in steps during the scan.
     step_start : float
         The starting position for the step motor.
@@ -531,11 +532,11 @@ def tomo_1d_step_scan(
 
 def tomo_2d_step_scan(
     detectors: list[KinetixDetector | PhantomDetector],
-    outer_motor: StandardMovable[float],
+    outer_motor: Steppable,
     outer_start: float,
     outer_stop: float,
     outer_num: int,
-    inner_motor: StandardMovable[float],
+    inner_motor: Steppable,
     inner_start: float,
     inner_stop: float,
     inner_num: int,
@@ -565,7 +566,7 @@ def tomo_2d_step_scan(
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
         The list of detectors to use for the scan.
-    outer_motor : StandardMovable[float]
+    outer_motor : Steppable
         The motor controlling the outer axis of the 2-D grid.
     outer_start : float
         The starting position of the outer motor.
@@ -573,7 +574,7 @@ def tomo_2d_step_scan(
         The stopping position of the outer motor.
     outer_num : int
         The number of steps for the outer motor.
-    inner_motor : StandardMovable[float]
+    inner_motor : Steppable
         The motor controlling the inner axis of the 2-D grid.
     inner_start : float
         The starting position of the inner motor.

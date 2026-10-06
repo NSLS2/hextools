@@ -274,7 +274,7 @@ environments:
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/08/0f/0daf459b604f61253b914b28f0e6dd16cdc8a7aa962cf901e482f5cbba67/pymongo-4.18.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
@@ -754,7 +754,7 @@ environments:
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/08/0f/0daf459b604f61253b914b28f0e6dd16cdc8a7aa962cf901e482f5cbba67/pymongo-4.18.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
@@ -1184,8 +1184,8 @@ environments:
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
-      - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer#5e55d709f47876132a6e9f9413d423ba72a3fef4
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+      - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer#56342d36e507dbdba3b2a9ebeada0d4467e4a068
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/23/ef/3b82c9a5c6fe4bcc7ebafbc4a06efe4f631929441bddd5d53541434fb941/pyOlog-4.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/26/c2/2ec71837ac862d823de280e72c245686b37de6dde0a18a02c9c18f589c39/setuptools_dso-2.12.4-py2.py3-none-any.whl
@@ -1693,8 +1693,8 @@ environments:
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
-      - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer#5e55d709f47876132a6e9f9413d423ba72a3fef4
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+      - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer#56342d36e507dbdba3b2a9ebeada0d4467e4a068
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/23/ef/3b82c9a5c6fe4bcc7ebafbc4a06efe4f631929441bddd5d53541434fb941/pyOlog-4.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/26/c2/2ec71837ac862d823de280e72c245686b37de6dde0a18a02c9c18f589c39/setuptools_dso-2.12.4-py2.py3-none-any.whl
@@ -2185,7 +2185,7 @@ environments:
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/12/29/ce9c8e81a6b9be7722ac00cb592ce6b652405eecb178bf410810732957ec/epicscorelibs-7.0.10.99.0.1-cp311-cp311-manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
@@ -2665,7 +2665,7 @@ environments:
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
@@ -3145,7 +3145,7 @@ environments:
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/08/0f/0daf459b604f61253b914b28f0e6dd16cdc8a7aa962cf901e482f5cbba67/pymongo-4.18.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
@@ -3531,7 +3531,7 @@ environments:
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/23/ef/3b82c9a5c6fe4bcc7ebafbc4a06efe4f631929441bddd5d53541434fb941/pyOlog-4.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/26/c2/2ec71837ac862d823de280e72c245686b37de6dde0a18a02c9c18f589c39/setuptools_dso-2.12.4-py2.py3-none-any.whl
@@ -3957,7 +3957,7 @@ environments:
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/23/ef/3b82c9a5c6fe4bcc7ebafbc4a06efe4f631929441bddd5d53541434fb941/pyOlog-4.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/26/c2/2ec71837ac862d823de280e72c245686b37de6dde0a18a02c9c18f589c39/setuptools_dso-2.12.4-py2.py3-none-any.whl
@@ -4476,7 +4476,7 @@ environments:
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#93ef2e4a24892699debc56d6f9891e57dc2205d5
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#1d0640485b94e451a9c05909e347d861999114aa
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/23/ef/3b82c9a5c6fe4bcc7ebafbc4a06efe4f631929441bddd5d53541434fb941/pyOlog-4.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/26/c2/2ec71837ac862d823de280e72c245686b37de6dde0a18a02c9c18f589c39/setuptools_dso-2.12.4-py2.py3-none-any.whl
@@ -8308,7 +8308,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/msgpack?source=compressed-mapping
+  - pkg:pypi/msgpack?source=hash-mapping
   run_exports: {}
   size: 114896
   timestamp: 1788525095321
@@ -10403,7 +10403,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/sqlalchemy?source=compressed-mapping
+  - pkg:pypi/sqlalchemy?source=hash-mapping
   run_exports: {}
   size: 3863012
   timestamp: 1786535232010
@@ -14650,7 +14650,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/vcs-versioning?source=compressed-mapping
+  - pkg:pypi/vcs-versioning?source=hash-mapping
   run_exports: {}
   size: 89186
   timestamp: 1788463774792
@@ -14993,23 +14993,23 @@ packages:
   - zict<3 ; extra == 'old-persistentdict'
   - bluesky[cmd,common,dev,ipython,olog,plotting,streamz,tools,zmq] ; extra == 'all'
   requires_python: '>=3.10'
-- pypi: git+https://github.com/jwlodek/ntnda-qt-viewer#5e55d709f47876132a6e9f9413d423ba72a3fef4
+- pypi: git+https://github.com/jwlodek/ntnda-qt-viewer#56342d36e507dbdba3b2a9ebeada0d4467e4a068
   name: ntnda-qt-viewer
-  version: 0.0.3.dev2+g5e55d709f
+  version: 0.0.3.dev6+g56342d36e
   requires_dist:
   - p4p>=4.2.2
   - pyqtgraph>=0.14.0
   - qtpy>=2.4.3
-  - pyside6 ; extra == 'pyside6'
-  - pyqt6 ; extra == 'pyqt6'
+  - pyside6>=6.9,<6.10 ; extra == 'pyside6'
+  - pyqt6>=6.9,<6.10 ; extra == 'pyqt6'
   - blosc2 ; extra == 'codecs'
   - lz4 ; extra == 'codecs'
   - pillow ; extra == 'codecs'
   - imagecodecs ; extra == 'codecs'
   requires_python: '>=3.11'
-- pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#d148390b321cd2d711d5de72ab07d2616c26ee39
+- pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
   name: ophyd-async
-  version: 0.1.dev1049+gd148390b3
+  version: 0.1.dev1064+gc831a174a
   requires_dist:
   - numpy
   - bluesky>=1.13.1rc2
@@ -15027,7 +15027,7 @@ packages:
   - pytango>=10.1.3 ; extra == 'tango'
   - ipython ; extra == 'demo'
   - matplotlib ; extra == 'demo'
-  - pyqt6 ; extra == 'demo'
+  - pyqt6<6.10 ; extra == 'demo'
   - pytest ; extra == 'demo'
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/08/0f/0daf459b604f61253b914b28f0e6dd16cdc8a7aa962cf901e482f5cbba67/pymongo-4.18.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl

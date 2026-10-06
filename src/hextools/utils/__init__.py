@@ -22,14 +22,17 @@ from ophyd_async.core import (
     WatcherUpdate,
     wait_for_connection,
 )
+from ophyd_async.sim import SimMotor
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from pygments.token import Token
 from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
 from rich.console import Console
 from .msg_hooks import nl_msg_hook
 
-NSVarT = TypeVar("NSVarT")
+Steppable = AsyncEpicsMotor | SimMotor
 
+NSVarT = TypeVar("NSVarT")
 
 def get_obj_from_ipython_ns(var_name: str, var_type: type[NSVarT]) -> NSVarT | None:
     """Get an obj from the IPython ns if it exists and is of the correct type."""

@@ -64,7 +64,7 @@ from hextools.utils import (
 )
 
 from hextools.tomography import tomo_flyscan, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_nd_step_scan
-from hextools.edxd import configure_test_pulses, edxd_scan
+from hextools.edxd import configure_test_pulses, edxd_scan, edxd_count, edxd_grid_scan, edxd_2theta_tilt, edxd_calib_scan, edxd_custom_pos_list_grid
 
 
 from ophyd_async.sim import SimMotor
@@ -123,7 +123,7 @@ RE.subscribe(bec)
 # Define our global default path provider for the beamline
 path_provider = NSLS2PathProvider(RE.md)
 
-with auto_init_devices(timeout=2.0):
+with auto_init_devices(timeout=2.0, verbose=True):
     # Shutters (Front-end and photon)
     fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon-shutter")
@@ -149,7 +149,7 @@ with auto_init_devices(timeout=2.0):
 
     # EDXD Table
     edxd_table = EDXDTable("XF:27IDF-OP:1{EDXD:1-Ax:", name="edxd-table")
-    collimator_table = CollimatorTable("XF:27IDF-OP:1{CMT:1-Ax:", name="collimator-table")
+    collimator_table = CollimatorTable("XF:27IDF-OP:1{", name="collimator-table")
 
     # Generate filter objects from the configuration file
     filters: list[Filter] = load_filters()
@@ -247,6 +247,8 @@ sd = bpp.SupplementalData(
         sample_tower,
         monochromator,
         optics_table,
+        edxd_table,
+        # collimator_table,
     ]
 )
 RE.preprocessors.append(sd)

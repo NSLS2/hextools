@@ -75,7 +75,7 @@ from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.tomography.alignment import tomo_alignment_scan
 from hextools.tomography.flyscans import tomo_1d_step_scan, tomo_2d_step_scan, tomo_flyscan
 from hextools.tomography.radiography import take_radiograph
-from hextools.edxd import edxd_scan
+from hextools.edxd import configure_test_pulses, edxd_2theta_tilt, edxd_calib_scan, edxd_count, edxd_custom_pos_list_grid, edxd_grid_scan, edxd_scan
 from hextools.photon_delivery_system import change_energy
 from bluesky.plan_stubs import mv
 from ophyd_async.epics.adkinetix import KinetixDetector
@@ -253,11 +253,11 @@ class QtTomographyView(QWidget):
 
         top = QHBoxLayout()
         # Detector viewers take the majority of the screen.
-        top.addWidget(QtTabbedDetectorsWidget(
-            re_client,
-            {f"kinetix{i}": "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}Pva1:Image" for i in range(1, 5)},
-            combined={"Dual Cam": ["kinetix1", "kinetix3"]},
-        ), stretch=3)
+        detectors = QtTabbedDetectorsWidget(re_client)
+        for i in range(1, 5):
+            detectors.add_detector(f"kinetix{i}", "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}")
+        detectors.add_combined("Dual Cam", ["kinetix1", "kinetix3"])
+        top.addWidget(detectors, stretch=3)
 
         # Side column: a tabbed selector offering the tomography plans. Each tab
         # validates and runs its plan per the active execution mode (in-process
@@ -286,13 +286,25 @@ class QtEDXDView(QWidget):
         self._re_client = re_client
 
         top = QHBoxLayout()
-        top.addWidget(
-            QtTabbedDetectorsWidget(re_client, {"germ": "XF:27ID1-ES{GeRM-Det:1}MCA:Pva1:Image"}),
-            stretch=3,
+        detectors = QtTabbedDetectorsWidget(re_client)
+        detectors.add_detector(
+            "germ",
+            "XF:27ID1-ES{GeRM-Det:1}MCA",
+            raw_waveform=True,
+            image_shape=(4096, 192),
+            colormap="JET",
+            roi_suffix_pattern="1:ROI{}:",
         )
+        top.addWidget(detectors, stretch=3)
 
         plan_tabs = QTabWidget()
-        plan_tabs.addTab(QtPlanWidget(re_client, edxd_scan), "EDXD Scan")
+        plan_tabs.addTab(QtPlanWidget(re_client, edxd_2theta_tilt), "2Theta Tilt")
+        plan_tabs.addTab(QtPlanWidget(re_client, edxd_calib_scan), "Calibration")
+        plan_tabs.addTab(QtPlanWidget(re_client, edxd_scan), "Scan")
+        plan_tabs.addTab(QtPlanWidget(re_client, edxd_grid_scan), "Grid Scan")
+        plan_tabs.addTab(QtPlanWidget(re_client, edxd_custom_pos_list_grid), "Custom Pos List Grid")
+        plan_tabs.addTab(QtPlanWidget(re_client, edxd_count), "Count")
+        plan_tabs.addTab(QtPlanWidget(re_client, configure_test_pulses), "Configure Test Pulses")
         side = QVBoxLayout()
         side.addWidget(plan_tabs, stretch=1)
         top.addLayout(side, stretch=1)
@@ -310,10 +322,9 @@ class QtXRDView(QWidget):
         self._re_client = re_client
 
         vbox = QVBoxLayout()
-        vbox.addWidget(
-            QtTabbedDetectorsWidget(re_client, {"perkin_elmer": "XF:27ID1-ES{PE-Det:1}Pva1:Image"}),
-            stretch=1,
-        )
+        detectors = QtTabbedDetectorsWidget(re_client)
+        detectors.add_detector("perkin_elmer", "XF:27ID1-ES{PE-Det:1}")
+        vbox.addWidget(detectors, stretch=1)
         self.setLayout(vbox)
 
 
@@ -334,15 +345,12 @@ class QtBeamlineView(QWidget):
 
         top = QHBoxLayout()
         # Visible-light camera viewers take the majority of the screen.
-        top.addWidget(QtTabbedDetectorsWidget(
-            re_client,
-            {
-                "sample_cam": "XF:27ID1-ES{Sample-Cam:1}Pva1:Image",
-                "f_hutch_cam": "XF:27IDA-BI{GigE-Cam:5}Pva1:Image",
-                "diamond_window_cam": "XF:27IDA-BI{FAM:1-Cam:1}Pva1:Image",
-                "fs_window_cam": "XF:27IDA-BI{FS:1-Cam:1}Pva1:Image",
-            },
-        ), stretch=3)
+        cameras = QtTabbedDetectorsWidget(re_client)
+        cameras.add_detector("sample_cam", "XF:27ID1-ES{Sample-Cam:1}")
+        cameras.add_detector("f_hutch_cam", "XF:27IDA-BI{GigE-Cam:5}")
+        cameras.add_detector("diamond_window_cam", "XF:27IDA-BI{FAM:1-Cam:1}")
+        cameras.add_detector("fs_window_cam", "XF:27IDA-BI{FS:1-Cam:1}")
+        top.addWidget(cameras, stretch=3)
 
         # Side column: a tabbed selector offering the beamline plans. Each tab
         # validates and runs its plan per the active execution mode (in-process

@@ -126,7 +126,7 @@ class QtReMetadataMonitor(QWidget):
             keys = key.split("/")
             value = metadata
             for k in keys:
-                if isinstance(value, dict) and k in value:
+                if isinstance(value, Mapping) and k in value:
                     value = value[k]
                 else:
                     return None
