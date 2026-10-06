@@ -16,8 +16,9 @@ from collections.abc import Mapping
 from bluesky_widgets.qt.run_engine_client import (
     QtReExecutionControls as _QtReExecutionControls,
 )
-from bluesky_widgets.qt.threading import FunctionWorker
 from qtpy.QtCore import QTimer
+
+from hextools.gui._ipython import run_in_ipython
 
 
 class _NullSignal:
@@ -74,7 +75,6 @@ class QtReExecutionControls(_QtReExecutionControls):
         self._re_name = re_name
         self._namespace = namespace
         self._timer = None
-        self._resume_worker = None
 
         super().__init__(_NullModel() if local else model, parent)
 
@@ -132,16 +132,11 @@ class QtReExecutionControls(_QtReExecutionControls):
     def _pb_plan_resume_clicked(self):
         if not self._local:
             return super()._pb_plan_resume_clicked()
-        # resume() blocks until the plan pauses or completes; run it off-thread.
-        run_engine = self._resolve_re()
-        if run_engine is None or self._resume_worker is not None:
+        if self._resolve_re() is None:
             return
-        self._resume_worker = FunctionWorker(run_engine.resume)
-        self._resume_worker.finished.connect(self._on_resume_finished)
-        self._resume_worker.start()
-
-    def _on_resume_finished(self):
-        self._resume_worker = None
+        # resume() installs a SIGINT handler, which only the main thread may do,
+        # so run it like RE(plan): an IPython cell, after this click returns.
+        QTimer.singleShot(0, lambda: run_in_ipython(f"{self._re_name}.resume()"))
 
     def _pb_plan_stop_clicked(self):
         if not self._local:
