@@ -26,24 +26,39 @@ def _slow_step(detectors, step, pos_cache):
 
 # RE.resume() installs a SIGINT handler, which Python allows only on the main
 # thread; resuming from a worker thread raised and the plan stayed paused.
-def test_resume_button_resumes_a_paused_plan():
+# PR 94 review: Resume must act on the engine the controls hold, even when the
+# shell's RE is a different one.
+@pytest.mark.parametrize("given", ["shell", "re", "namespace"])
+def test_resume_button_resumes_a_paused_plan(given):
     # As in the GUI: with a Qt matplotlib backend, RE() keeps Qt events flowing.
     matplotlib.use("qtagg")
     app = QApplication.instance() or QApplication([])
     shell = InteractiveShell.instance()
-    RE = RunEngine({})
-    shell.user_ns.update(RE=RE, bp=bp, det=det, motor=motor, _slow_step=_slow_step)
-    controls = QtReExecutionControls(local=True, namespace=shell.user_ns)
+    engine = RunEngine({})
+    shell.user_ns.update(
+        RE=engine if given == "shell" else RunEngine({}),
+        engine=engine,
+        bp=bp,
+        det=det,
+        motor=motor,
+        _slow_step=_slow_step,
+    )
+    if given == "shell":
+        controls = QtReExecutionControls(local=True, namespace=shell.user_ns)
+    elif given == "re":
+        controls = QtReExecutionControls(local=True, re=engine)
+    else:
+        controls = QtReExecutionControls(local=True, namespace={"RE": engine})
     seen = []
 
     def resume():
-        seen.append(RE.state)
+        seen.append(engine.state)
         controls._pb_plan_resume_clicked()
 
     QTimer.singleShot(
         0,
         lambda: run_in_ipython(
-            "RE(bp.scan([det], motor, 0, 1, 10, per_step=_slow_step))"
+            "engine(bp.scan([det], motor, 0, 1, 10, per_step=_slow_step))"
         ),
     )
     QTimer.singleShot(300, controls._pb_plan_pause_immediate_clicked)
@@ -53,5 +68,5 @@ def test_resume_button_resumes_a_paused_plan():
     controls._timer.stop()
 
     assert seen == ["paused"]
-    assert RE.state == "idle", f"plan did not resume: RE.state={RE.state}"
+    assert engine.state == "idle", f"plan did not resume: state={engine.state}"
     assert motor.position == pytest.approx(1)

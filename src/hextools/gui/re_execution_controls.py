@@ -132,11 +132,18 @@ class QtReExecutionControls(_QtReExecutionControls):
     def _pb_plan_resume_clicked(self):
         if not self._local:
             return super()._pb_plan_resume_clicked()
-        if self._resolve_re() is None:
+        run_engine = self._resolve_re()
+        if run_engine is None:
             return
         # resume() installs a SIGINT handler, which only the main thread may do,
-        # so run it like RE(plan): an IPython cell, after this click returns.
-        QTimer.singleShot(0, lambda: run_in_ipython(f"{self._re_name}.resume()"))
+        # so run it after this click returns, never on a worker thread.
+        QTimer.singleShot(0, lambda: self._resume_on_main_thread(run_engine))
+
+    def _resume_on_main_thread(self, run_engine):
+        if _ipython_namespace().get(self._re_name) is run_engine:
+            run_in_ipython(f"{self._re_name}.resume()")
+        else:
+            self._call_re("resume")
 
     def _pb_plan_stop_clicked(self):
         if not self._local:
