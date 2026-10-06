@@ -1,7 +1,7 @@
 """BNL brand theming for the HEX GUI.
 
-A dark theme built on the Brookhaven National Laboratory brand palette
-(https://www.bnl.gov/brandcenter/palette.php).
+Dark (default) and light themes built on the Brookhaven National Laboratory
+brand palette (https://www.bnl.gov/brandcenter/palette.php).
 """
 
 from __future__ import annotations
@@ -60,7 +60,36 @@ BNL_COLORS = {
     "jade": JADE,
 }
 
-STYLESHEET = f"""
+# Surface/text colors that differ between themes; accents are shared.
+THEMES = {
+    "dark": {
+        "BACKGROUND": BACKGROUND,
+        "SURFACE": SURFACE,
+        "ALT_ROW": ALT_ROW,
+        "BORDER": BORDER,
+        "BORDER_STRONG": BORDER_STRONG,
+        "TEXT": TEXT,
+        "TEXT_MUTED": TEXT_MUTED,
+        "ACCENT_TEXT": CERULEAN,
+    },
+    "light": {
+        "BACKGROUND": "#F4F5F2",
+        "SURFACE": "#FFFFFF",
+        "ALT_ROW": "#EEF0EC",
+        "BORDER": "#D3D6D2",
+        "BORDER_STRONG": LIGHT_GRAY,
+        "TEXT": "#1E2227",
+        "TEXT_MUTED": GRAY,
+        # Cerulean text is too low-contrast on white.
+        "ACCENT_TEXT": TEAL,
+    },
+}
+DEFAULT_THEME = "dark"
+_SETTINGS_KEY = "ui/theme"
+_current_theme = DEFAULT_THEME
+
+# A str.format template: literal braces are doubled.
+_TEMPLATE = """
 QWidget {{
     background-color: {BACKGROUND};
     color: {TEXT};
@@ -88,7 +117,7 @@ QGroupBox::title {{
     left: 12px;
     top: 8px;
     padding: 0 4px;
-    color: {CERULEAN};
+    color: {ACCENT_TEXT};
     font-weight: 600;
 }}
 
@@ -170,13 +199,13 @@ QTabBar::tab:last, QTabBar::tab:only-one {{
 }}
 QTabBar::tab:selected {{
     background: {SURFACE};
-    color: {CERULEAN};
+    color: {ACCENT_TEXT};
     font-weight: 600;
     border-top: 3px solid {LIME};
     padding-top: 1px;
     margin-bottom: -1px;
 }}
-QTabBar::tab:hover:!selected {{ color: {CERULEAN}; background: {ALT_ROW}; }}
+QTabBar::tab:hover:!selected {{ color: {ACCENT_TEXT}; background: {ALT_ROW}; }}
 
 /* Main viewer uses a vertical (West) tab bar. Scope with '>' so the
    nested plan-editor (North) tab bar does not inherit these rules. */
@@ -280,14 +309,57 @@ QSplitter::handle:horizontal {{ width: 4px; }}
 QSplitter::handle:vertical {{ height: 4px; }}
 QStatusBar {{ background: {TEAL}; color: {ON_ACCENT}; }}
 QStatusBar::item {{ border: none; }}
+QStatusBar QCheckBox {{ color: {ON_ACCENT}; }}
 """
 
 
-def apply_bnl_theme(app=None):
+def build_stylesheet(theme: str = DEFAULT_THEME) -> str:
+    """Return the BNL-branded stylesheet for ``theme`` (``"dark"`` or ``"light"``)."""
+    if theme not in THEMES:
+        raise ValueError(f"Unknown theme {theme!r}; expected one of {sorted(THEMES)}")
+    return _TEMPLATE.format(
+        _ASSET_URL=_ASSET_URL,
+        TEAL=TEAL,
+        TEAL_DARK=TEAL_DARK,
+        TEAL_HOVER=TEAL_HOVER,
+        CERULEAN=CERULEAN,
+        LIME=LIME,
+        ON_ACCENT=ON_ACCENT,
+        **THEMES[theme],
+    )
+
+
+STYLESHEET = build_stylesheet(DEFAULT_THEME)
+
+
+def current_theme() -> str:
+    """Return the name of the theme most recently applied."""
+    return _current_theme
+
+
+def saved_theme() -> str:
+    """Return the user's saved theme choice, or the default if none/invalid."""
+    from qtpy.QtCore import QSettings
+
+    value = QSettings("NSLS2", "hextools-gui").value(_SETTINGS_KEY, DEFAULT_THEME)
+    return value if value in THEMES else DEFAULT_THEME
+
+
+def save_theme(theme: str) -> None:
+    """Remember ``theme`` as the user's choice for future sessions."""
+    from qtpy.QtCore import QSettings
+
+    QSettings("NSLS2", "hextools-gui").setValue(_SETTINGS_KEY, theme)
+
+
+def apply_bnl_theme(app=None, theme: str = DEFAULT_THEME):
     """Apply the BNL-branded stylesheet to the given (or current) QApplication."""
+    global _current_theme
+    stylesheet = build_stylesheet(theme)
     if app is None:
         from qtpy.QtWidgets import QApplication
 
         app = QApplication.instance()
     if app is not None:
-        app.setStyleSheet(STYLESHEET)
+        app.setStyleSheet(stylesheet)
+        _current_theme = theme
