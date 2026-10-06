@@ -99,3 +99,48 @@ def test_legacy_ophyd_signals(RE: RunEngine, ring: NSLS2StorageRing, legacy):
         assert susp.tripped
     finally:
         RE.remove_suspender(susp)
+
+
+def test_beam_update_during_mode_change_is_not_lost(RE: RunEngine):
+    # PR 93 review: a beam reading arriving on another thread while a mode
+    # change re-evaluates must not be overwritten by the stale replayed value.
+    import threading
+
+    from ophyd import Signal
+
+    beam = Signal(name="beam", value=0.0)
+    mode = Signal(name="mode", value=NSLS2OpsMode.OPERATIONS)
+
+    class Racing(SuspendFloorUnlessOpsMode):
+        armed = False
+        reads = 0
+
+        @property
+        def _last_value(self):
+            value = self.__dict__.get("_lv")
+            if self.armed and threading.current_thread() is threading.main_thread():
+                self.reads += 1
+                if self.reads == 2:  # after the None check, before the replay
+                    self.armed = False
+                    other = threading.Thread(target=beam.put, args=(450.0,))
+                    other.start()
+                    other.join(timeout=0.5)
+                    self._racer = other
+            return value
+
+        @_last_value.setter
+        def _last_value(self, value):
+            self.__dict__["_lv"] = value
+
+    susp = Racing(beam, 100, resume_thresh=390, ops_mode=mode, skip_modes=SKIP)
+    RE.install_suspender(susp)
+    try:
+        beam.put(50.0)
+        assert susp.tripped
+        susp.armed = True
+        mode.put(NSLS2OpsMode.MAINTENANCE)
+        susp._racer.join()
+        mode.put(NSLS2OpsMode.OPERATIONS)
+        assert not susp.tripped, "judged against the stale beam current"
+    finally:
+        RE.remove_suspender(susp)

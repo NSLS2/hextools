@@ -69,6 +69,8 @@ class SuspendFloorUnlessOpsMode(SuspendFloor):
         self._skip_modes = frozenset(skip_modes)
         self._mode = None
         self._mode_cid = None
+        # The base _lock is not reentrant, and _set_mode calls back into __call__.
+        self._eval_lock = threading.RLock()
 
     @property
     def _skipping(self) -> bool:
@@ -86,14 +88,19 @@ class SuspendFloorUnlessOpsMode(SuspendFloor):
     def _on_mode_value(self, value=None, **kwargs):
         self._set_mode(value)
 
+    def __call__(self, value, **kwargs):
+        with self._eval_lock:
+            super().__call__(value, **kwargs)
+
     def _set_mode(self, mode):
-        self._mode = mode
-        if self._last_value is None:
-            return
-        value = self._last_value
-        if self._implements_protocol:
-            value = {self._sig.name: {"value": value}}
-        self(value=value)
+        with self._eval_lock:
+            self._mode = mode
+            if self._last_value is None:
+                return
+            value = self._last_value
+            if self._implements_protocol:
+                value = {self._sig.name: {"value": value}}
+            self(value=value)
 
     def install(self, RE, *, event_type=None):
         # The mode first, so the first beam reading is judged against it.
