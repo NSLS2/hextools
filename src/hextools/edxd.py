@@ -9,7 +9,6 @@ from hextools.photon_delivery_system.shutter import ensure_shutter_closed
 from hextools.utils import ensure_available, Steppable
 from hextools.motors import CollimatorTable, EDXDTable, SampleTower
 from bluesky import plan_stubs as bps, plans as bp, preprocessors as bpp
-from tests.photon_delivery_system.test_dclm import photon_shutter
 
 def configure_test_pulses(
     use_test_pulses: bool,
@@ -274,7 +273,7 @@ def edxd_custom_pos_list_grid(
     count_time: float,
     snake: bool = False,
     use_shutter: bool = True,
-    reset_position: bool = True,
+    reset_positions: bool = True,
     description: str | None = None,
     germ: GeRMDetector | None = None,
     fe_shutter: Shutter | None = None,
@@ -287,6 +286,7 @@ def edxd_custom_pos_list_grid(
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     germ.save_as_hdf()
 
+    @bpp.reset_position_decorator([outer_motor, inner_motor] if reset_positions else [])
     def _body():
         if use_shutter:
             yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
@@ -309,8 +309,6 @@ def edxd_custom_pos_list_grid(
         if use_shutter:
             yield from ensure_shutter_closed(fe_shutter)
             yield from ensure_shutter_closed(photon_shutter)
-        if reset_position:
-            yield from bps.mv(inner_motor, inner_start)
 
     return (yield from finalize_wrapper(_body(), _cleanup()))
 
@@ -369,6 +367,7 @@ def edxd_2theta_tilt(
 def edxd_calib_scan(
     start: float,
     stop: float,
+    iterations: int = 2,
     count_time: float = 3000,
     description: str | None = None,
     sample_tower: SampleTower | None = None,
@@ -386,14 +385,24 @@ def edxd_calib_scan(
     if description is not None:
         _md["description"] = description
 
-    initial_z1 = yield from bps.rd(sample_tower.z1.user_readback)
+    z1_max_velocity = yield from bps.rd(sample_tower.z1.max_velocity)
 
+    required_velo = (abs(start - stop) * iterations) / count_time
+    if required_velo > z1_max_velocity:
+        raise ValueError(f"Velocity {required_velo} exceeds max velocity {z1_max_velocity}")
+
+    @bpp.reset_positions_decorator([sample_tower.z1, sample_tower.z1.velocity])
     @bpp.stage_decorator([germ])
     @bpp.run_decorator(md=_md)
     def _body():
         yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
         yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
-        yield from bps.mv(germ.driver.acquire_time, count_time)
+        yield from bps.mv(
+            sample_tower.z1, start,
+            germ.driver.acquire_time, count_time,
+            sample_tower.z1.velocity, required_velo
+        )
+
         count_status = yield from bps.trigger(germ, wait=False, group="germ")
 
         sweep_to_stop = True
@@ -413,9 +422,6 @@ def edxd_calib_scan(
         return reading
 
     def _cleanup():
-        yield from ensure_shutter_closed(fe_shutter, allow_actuation=True)
         yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
-        yield from bps.mv(sample_tower.z1, initial_z1)
-
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))

@@ -28,6 +28,16 @@ import types
 import typing
 from enum import Enum
 
+try:
+    from ophyd import Device
+except:
+    Device = None
+
+try:
+    from ophyd_async.core import Device as AsyncDevice
+except ImportError:
+    AsyncDevice = None
+
 import docstring_parser
 import IPython
 from bluesky import RunEngine
@@ -123,19 +133,34 @@ def _is_list_annotation(annotation) -> bool:
         collections.abc.Iterable,
     )
 
+def _list_element_type(annotation):
+    """Return the type of elements in a list/tuple/set/frozenset annotation, or None."""
+    base, _ = _unwrap_optional(annotation)
+    args = typing.get_args(base)
+    if not args:
+        return None
+    return args[0]
+
+def _is_device_list_annotation(annotation) -> bool:
+    if _is_list_annotation(annotation) and _device_types(_list_element_type(annotation)) is not None:
+        return True
+    return False
+
+
 
 def _device_types(annotation) -> tuple[type, ...] | None:
     """Return the concrete device classes named by ``annotation``, or None."""
     base, _ = _unwrap_optional(annotation)
     origin = typing.get_origin(base)
+    device_bases = [b for b in (Device, AsyncDevice) if b is not None]
     if origin is typing.Union or isinstance(base, types.UnionType):
         members = [
             a
             for a in typing.get_args(base)
-            if a is not type(None) and isinstance(a, type)
+            if a is not type(None) and isinstance(a, type) and issubclass(a, tuple(device_bases))
         ]
         return tuple(members) or None
-    if isinstance(base, type):
+    if isinstance(base, type) and issubclass(base, tuple(device_bases)):
         return (base,)
     return None
 
@@ -245,6 +270,7 @@ class QtPlanWidget(QWidget):
             self._device_source = NamespaceDeviceSource(ipython.user_ns)
         self._worker = None
         self._scalar_fields: list[tuple[str, type, QWidget, bool]] = []
+        self._scalar_list_fields: list[tuple[str, type, QWidget, bool]] = []
         self._enum_fields: list[tuple[str, QComboBox, bool]] = []
         self._device_fields: list[dict] = []
         self._param_tooltips = _param_tooltips(plan)
@@ -324,9 +350,18 @@ class QtPlanWidget(QWidget):
                 self._add_enum_field(form, name, enum_cls, param, required)
                 continue
 
-            if _is_list_annotation(annotation):
+            print(f"Processing parameter '{name}' with annotation '{annotation}'")
+            print(f"Required: {required}")
+            print(f"Is list: {_is_list_annotation(annotation)}, is device list: {_is_device_list_annotation(annotation)}")
+            if _is_device_list_annotation(annotation):
                 types_ = _element_device_types(annotation)
                 self._add_device_list_field(vbox, name, types_, required)
+                continue
+
+            # For non-device lists, just use a comma separated string for now
+            if _is_list_annotation(annotation):
+                list_elem_type = _list_element_type(annotation)
+                self._add_scalar_list_field(form, name, list_elem_type, param, required)
                 continue
 
             # Single device parameter.
@@ -339,6 +374,15 @@ class QtPlanWidget(QWidget):
             params_box = QGroupBox("Parameters")
             params_box.setLayout(form)
             vbox.addWidget(params_box)
+
+
+    def _add_scalar_list_field(self, form, name, kind, param, required):
+        widget = QLineEdit()
+        if not required and param.default is not None:
+            widget.setText(str(param.default))
+        widget.setPlaceholderText("required" if required else "optional")
+        self._scalar_list_fields.append((name, kind, widget, required))
+        self._add_row(form, name, widget)
 
     def _add_scalar_field(self, form, name, kind, param, required):
         if kind is bool:
@@ -478,6 +522,24 @@ class QtPlanWidget(QWidget):
                 )
             except ValueError as ex:
                 raise ValueError(f"'{name}' is not a valid {kind.__name__}") from ex
+
+        for name, kind, widget, required in self._scalar_list_fields:
+            text = widget.text().strip()
+            elems = [e.strip() for e in text.split(",") if e.strip()]
+            if not elems:
+                if required:
+                    raise ValueError(f"'{name}' is required")
+                continue
+            try:
+                kwargs[name] = (
+                    [int(e) for e in elems]
+                    if kind is int
+                    else [float(e) for e in elems]
+                    if kind is float
+                    else elems
+                )
+            except ValueError as ex:
+                raise ValueError(f"'{name}' contains invalid {kind.__name__} values") from ex
 
         for name, combo, required in self._enum_fields:
             value = combo.currentData()

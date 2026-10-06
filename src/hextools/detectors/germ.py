@@ -2,7 +2,6 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from tkinter.font import names
 from typing import Annotated as A
 
 from ophyd_async.core import (
@@ -394,7 +393,8 @@ class GeRMDetector(StandardDetector):
                 self._path_provider,
                 self.tiff,
                 ".tiff",
-                "multipart/related;type=image/tiff"
+                "multipart/related;type=image/tiff",
+                hinted=False,
             ),
             GeRMStatsDataLogic(self.stats1.total)
         )
@@ -412,6 +412,7 @@ class GeRMDetector(StandardDetector):
                 ),
                 self._path_provider,
                 self.hdf,
+                hinted=False,
             ),
             GeRMStatsDataLogic(self.stats1.total)
         )
