@@ -96,3 +96,20 @@ async def test_slits_set_all_gaps_and_centers_via_mv(RE: RunEngine):
     assert await slits.horizontal_center.get_value() == pytest.approx(10.0)
     assert await slits.vertical_gap.get_value() == pytest.approx(4.0)
     assert await slits.vertical_center.get_value() == pytest.approx(2.0)
+
+
+async def test_slits_set_reports_blade_progress_to_watchers(slits: Slits):
+    for motor in (slits.inboard, slits.outboard, slits.bottom, slits.top):
+        set_mock_value(motor.user_readback, 0.0)
+    updates = []
+
+    status = slits.set((10, 10, 4, 2))
+    status.watch(lambda **kw: updates.append(kw["name"]))
+    await status
+
+    assert {
+        slits.inboard.name,
+        slits.outboard.name,
+        slits.bottom.name,
+        slits.top.name,
+    } <= set(updates)
