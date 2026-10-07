@@ -1,5 +1,7 @@
 
 
+import itertools
+
 from bluesky.preprocessors import finalize_wrapper
 import numpy as np
 
@@ -286,7 +288,7 @@ def edxd_custom_pos_list_grid(
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     germ.save_as_hdf()
 
-    @bpp.reset_position_decorator([outer_motor, inner_motor] if reset_positions else [])
+    @bpp.reset_positions_decorator([outer_motor, inner_motor] if reset_positions else [])
     def _body():
         if use_shutter:
             yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
@@ -386,8 +388,17 @@ def edxd_calib_scan(
         _md["description"] = description
 
     z1_max_velocity = yield from bps.rd(sample_tower.z1.max_velocity)
+    z1_curr_position = yield from bps.rd(sample_tower.z1.user_readback)
 
-    required_velo = (abs(start - stop) * iterations) / count_time
+    low, high = sorted((start, stop))
+    in_range = low <= z1_curr_position <= high
+    if in_range:
+        scan_origin = z1_curr_position
+    else:
+        scan_origin = start if abs(z1_curr_position - start) <= abs(z1_curr_position - stop) else stop
+
+    # One iteration is origin -> stop -> start -> origin, i.e. two full spans.
+    required_velo = (2 * abs(start - stop) * iterations) / count_time
     if required_velo > z1_max_velocity:
         raise ValueError(f"Velocity {required_velo} exceeds max velocity {z1_max_velocity}")
 
@@ -397,22 +408,24 @@ def edxd_calib_scan(
     def _body():
         yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
         yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+        if not in_range:
+            yield from bps.mv(sample_tower.z1.velocity, z1_max_velocity)
+            yield from bps.mv(sample_tower.z1, scan_origin)
+
         yield from bps.mv(
-            sample_tower.z1, start,
             germ.driver.acquire_time, count_time,
             sample_tower.z1.velocity, required_velo
         )
 
         count_status = yield from bps.trigger(germ, wait=False, group="germ")
 
-        sweep_to_stop = True
+        waypoints = itertools.cycle((stop, start, scan_origin))
         while not count_status.done:
-            move_sts = yield from bps.abs_set(sample_tower.z1, stop if sweep_to_stop else start, wait=False)
+            move_sts = yield from bps.abs_set(sample_tower.z1, next(waypoints), wait=False)
             while move_sts.done is False:
                 yield from bps.sleep(0.1)
                 if count_status.done:
                     break
-            sweep_to_stop = False
 
         yield from bps.mv(sample_tower.z1.motor_stop, 1)
 

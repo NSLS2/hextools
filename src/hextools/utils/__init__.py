@@ -29,6 +29,7 @@ from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
 from rich.console import Console
 from .msg_hooks import nl_msg_hook
+from bluesky import plan_stubs as bps
 
 Steppable = AsyncEpicsMotor | SimMotor
 
@@ -342,3 +343,11 @@ async def forward_watcher_updates(
     # Propagate any child failure.
     await all_done
 
+
+def reset_scan_id(
+    new_scan_id: int = 0,
+    RE: RunEngine | None = None
+):
+    RE = ensure_available(RunEngine, RE=RE)
+    RE.md["scan_id"] = new_scan_id
+    yield from bps.null()

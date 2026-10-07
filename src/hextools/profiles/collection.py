@@ -61,6 +61,7 @@ from hextools.utils import (
     is_running_in_ci,
     print_proposal_info,
     print_version_info,
+    reset_scan_id,
 )
 
 from hextools.tomography import tomo_flyscan, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_nd_step_scan
@@ -121,7 +122,7 @@ bec = BestEffortCallback()
 RE.subscribe(bec)
 
 # Define our global default path provider for the beamline
-path_provider = NSLS2PathProvider(RE.md)
+path_provider = NSLS2PathProvider(RE.md, include_scan_id_dir=True, granularity="year")
 
 with auto_init_devices(timeout=2.0, verbose=True):
     # Shutters (Front-end and photon)
@@ -131,6 +132,7 @@ with auto_init_devices(timeout=2.0, verbose=True):
     # Slits
     a_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="a-slits")
     f_slits = Slits("XF:27IDF-OP:1{Slt:2-Ax:", name="f-slits")
+    edxd_slits = Slits("XF:27ID1F-OP:1{Slt:CMT-Ax:", name="edxd-slits")
 
     # Storage ring information
     storage_ring = NSLS2StorageRing()

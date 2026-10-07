@@ -92,6 +92,7 @@ from hextools.motors import (
     move_motor,
 )
 from hextools.photon_delivery_system import DCLM, Shutter, Slits
+from hextools.utils import reset_scan_id
 
 from ._event_loop import gui_qt, get_our_app_name
 from ._threading import wait_for_workers_to_quit
@@ -360,6 +361,7 @@ class QtBeamlineView(QWidget):
         plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
+        plan_tabs.addTab(QtPlanWidget(re_client, reset_scan_id), "Reset Scan ID")
 
         side = QVBoxLayout()
         side.addWidget(plan_tabs, stretch=1)
