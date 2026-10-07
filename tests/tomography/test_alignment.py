@@ -397,6 +397,7 @@ def kinetix_det_factory(
 
 async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
     RE: RunEngine,
+    kinetix_det_factory: Callable[[int], KinetixDetector],
     two_shutters: tuple[Shutter, Shutter],
     motors: tuple[RotationMotor, AsyncEpicsMotor],
 ):
@@ -413,7 +414,7 @@ async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
     with pytest.raises(ValueError, match="Front-end shutter is closed"):
         RE(
             tomo_alignment_scan(
-                [],
+                kinetix_det_factory(1),
                 0.1,
                 fe_shutter=fe_shutter,
                 photon_shutter=photon_shutter,
@@ -480,7 +481,7 @@ async def test_tomo_alignment_scan(
 
     runs: RunEngineResult = RE(
         tomo_alignment_scan(
-            [ktx1],
+            ktx1,
             exposure_time,
             num_projections=num_projections,
             init_angle=init_angle,
@@ -494,29 +495,29 @@ async def test_tomo_alignment_scan(
         cache_docs,  # type: ignore
     )  # type: ignore
 
-    expecting_flat_run = base_x_offset > 0.0 and include_sample_stage_x
+    expecting_flat = base_x_offset > 0.0 and include_sample_stage_x
 
     assert await rotation_motor.velocity.get_value() == max_velocity
     assert await photon_shutter.status.get_value() is ShutterStatus.OPEN
 
-    for doc_type in ["start", "descriptor", "stream_resource", "stop"]:
-        assert len(docs[doc_type]) == (2 if expecting_flat_run else 1)
+    # The flat-field image, if any, is a "flat" stream in the same single run.
+    assert len(runs.run_start_uids) == 1
+    for doc_type in ["start", "stop"]:
+        assert len(docs[doc_type]) == 1
+    stream_names = [d["name"] for d in docs["descriptor"]]
+    assert stream_names == (["flat", "primary"] if expecting_flat else ["primary"])
 
-    for doc_type in ["stream_datum", "event"]:
-        expected_num_events = (
-            num_projections + 1 if expecting_flat_run else num_projections
-        )
-        assert len(docs[doc_type]) == expected_num_events
+    flat_uid = next((d["uid"] for d in docs["descriptor"] if d["name"] == "flat"), None)
+    flat_events = [e for e in docs["event"] if e["descriptor"] == flat_uid]
+    assert len(flat_events) == (1 if expecting_flat else 0)
+    assert len(docs["event"]) - len(flat_events) == num_projections
+    assert docs["start"][0]["plan_name"] == "tomography_alignment_scan"
+    assert "flat_uid" not in docs["start"][0]
 
     assert await ktx1.driver.acquire_time.get_value() == exposure_time
     assert await rotation_motor.user_readback.get_value() == stop_angle
 
-    if not expecting_flat_run:
-        assert len(runs.run_start_uids) == 1
-    else:
-        assert len(runs.run_start_uids) == 2
-        assert docs["start"][1]["flat_uid"] == runs.run_start_uids[0]
-
+    if expecting_flat:
         sample_staged_move_counter = 0
         for msg in messages_by_type["set"]:
             if msg.obj == sample_stage_x:
@@ -528,9 +529,10 @@ async def test_tomo_alignment_scan(
         assert sample_staged_move_counter == 2
         assert await sample_stage_x.user_readback.get_value() == 0.0
 
-    for i, msg in enumerate(messages):
-        if msg.command == "open_run" and msg.kwargs["plan_name"] == "scan":
-            send_motor_to_init_msg = messages[i + 2]
-            assert send_motor_to_init_msg.command == "set"
-            assert send_motor_to_init_msg.obj == rotation_motor
-            assert send_motor_to_init_msg.args == np.float64(init_angle)
+    open_run = next(i for i, msg in enumerate(messages) if msg.command == "open_run")
+    first_rotation = next(
+        msg
+        for msg in messages[open_run:]
+        if msg.command == "set" and msg.obj == rotation_motor
+    )
+    assert first_rotation.args == np.float64(init_angle)

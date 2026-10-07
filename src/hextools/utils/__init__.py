@@ -48,7 +48,7 @@ def ensure_available(var_type: type[NSVarT], **kwargs: NSVarT | None) -> NSVarT:
     """Ensure that an object with a given name is available in the current scope, or it can be retrieved from the IPython namespace."""
 
     if len(kwargs) != 1:
-        raise ValueError("Can only check availability of a single device at a time.")
+        raise ValueError("Can only check availability of a single object at a time.")
 
     name = next(iter(kwargs))
     value = kwargs[name]
@@ -63,7 +63,7 @@ def ensure_available(var_type: type[NSVarT], **kwargs: NSVarT | None) -> NSVarT:
         if value is not None:
             return value
         raise ValueError(
-            f"Device {name} of type {var_type} is not available locally, or in the IPython namespace!"
+            f"Object {name} of type {var_type} is not available locally, or in the IPython namespace!"
         )
 
 async def merge_async_iterables(*aiterables):
