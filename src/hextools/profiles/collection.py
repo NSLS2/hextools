@@ -29,12 +29,13 @@ from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from tiled.client import from_uri, simple
 from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
-from bluesky.suspenders import SuspendFloor
+from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
 from hextools.utils import show_docs
 
 from hextools.detectors.phantom import PhantomDetector
 from hextools.detectors.kinetix import kinetix_factory
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
+from hextools.suspenders import SuspendFloorUnlessOpsMode
 from hextools.motors import (
     CollimatorTable,
     FOV_2_4_mm_Camera,
@@ -236,7 +237,18 @@ with auto_init_devices(timeout=2.0, verbose=True):
     sim_z = SimMotor(name="sim_z", instant=False)
 
 
-RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
+# Pause the RunEngine if the beam current drops below 100 mA and resume above
+# 390 mA. Always installed; it ignores low beam while the ring is in maintenance
+# or shutdown, checking the mode each time rather than once at startup.
+RE.install_suspender(
+    SuspendFloorUnlessOpsMode(
+        storage_ring.beam_current,
+        100,
+        resume_thresh=390,
+        ops_mode=storage_ring.operating_mode,
+        skip_modes=(NSLS2OpsMode.MAINTENANCE, NSLS2OpsMode.SHUTDOWN),
+    )
+)
 
 # Configure baseline supplemental data to include in the metadata of every run.
 sd = bpp.SupplementalData(
