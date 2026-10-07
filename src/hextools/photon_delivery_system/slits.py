@@ -5,9 +5,10 @@ from functools import partial
 
 from ophyd_async.core import (
     AsyncMovable,
-    AsyncStatus,
     StandardReadable,
+    WatchableAsyncStatus,
     derived_signal_rw,
+    forward_watcher_updates,
 )
 from ophyd_async.core import StandardReadableFormat as Format
 from ophyd_async.epics.core import EpicsDevice
@@ -106,10 +107,10 @@ class Slits(
         """
         return (low + high) / 2
 
-    @AsyncStatus.wrap
+    @WatchableAsyncStatus.wrap
     async def _set_gap(
         self, low_motor: AsyncEpicsMotor, high_motor: AsyncEpicsMotor, gap: float
-    ) -> None:
+    ):
         """Set the gap while holding the center fixed.
 
         Parameters
@@ -126,15 +127,17 @@ class Slits(
             high_motor.user_readback.get_value(),
         )
         center = (low + high) / 2
-        await asyncio.gather(
+        statuses = [
             low_motor.set(center - gap / 2),
             high_motor.set(center + gap / 2),
-        )
+        ]
+        async for update in forward_watcher_updates(statuses, self.name, combine=False):
+            yield update
 
-    @AsyncStatus.wrap
+    @WatchableAsyncStatus.wrap
     async def _set_center(
         self, low_motor: AsyncEpicsMotor, high_motor: AsyncEpicsMotor, center: float
-    ) -> None:
+    ):
         """Set the center while holding the gap fixed.
 
         Parameters
@@ -151,12 +154,14 @@ class Slits(
             high_motor.user_readback.get_value(),
         )
         shift = center - (low + high) / 2
-        await asyncio.gather(
+        statuses = [
             low_motor.set(low + shift),
             high_motor.set(high + shift),
-        )
+        ]
+        async for update in forward_watcher_updates(statuses, self.name, combine=False):
+            yield update
 
-    @AsyncStatus.wrap
+    @WatchableAsyncStatus.wrap
     async def set(
         self,
         value: tuple[tuple[float, float], tuple[float, float]]
@@ -180,12 +185,16 @@ class Slits(
             )
 
         # Set gaps first to preserve centers, then set centers to preserve gaps.
-        await asyncio.gather(
-            self.horizontal_gap.set(h_gap),
-            self.vertical_gap.set(v_gap),
-        )
+        gaps = [
+            self._set_gap(self.inboard, self.outboard, h_gap),
+            self._set_gap(self.bottom, self.top, v_gap),
+        ]
+        async for update in forward_watcher_updates(gaps, self.name, combine=False):
+            yield update
 
-        await asyncio.gather(
-            self.horizontal_center.set(h_center),
-            self.vertical_center.set(v_center),
-        )
+        centers = [
+            self._set_center(self.inboard, self.outboard, h_center),
+            self._set_center(self.bottom, self.top, v_center),
+        ]
+        async for update in forward_watcher_updates(centers, self.name, combine=False):
+            yield update
