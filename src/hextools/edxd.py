@@ -286,7 +286,7 @@ def edxd_custom_pos_list_grid(
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     germ.save_as_hdf()
 
-    @bpp.reset_position_decorator([outer_motor, inner_motor] if reset_positions else [])
+    @bpp.reset_positions_decorator([outer_motor, inner_motor] if reset_positions else [])
     def _body():
         if use_shutter:
             yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
@@ -375,6 +375,31 @@ def edxd_calib_scan(
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
 ):
+    """Perform a sweeping edxd calibration scan.
+
+    Parameters
+    ----------
+    start : float
+        The starting position for the sweep motion.
+    stop : float
+        The stopping position for the sweep motion.
+    iterations : int, default 2
+        The number of sweeps to perform. Each move from start-stop or stop-start is counted as one sweep.
+    count_time : float, default 3000
+        The total run-time of the scan. Motor velocity will be adjusted to achieve the requested number of sweeps
+        within this count time.
+    description : str | None, optional
+        A description for the scan. If None, no description is added.
+    sample_tower : SampleTower | None, optional
+        The sample tower device. If None, will pull from global namespace.
+    germ : GeRMDetector | None, optional
+        The GeRM detector device. If None, will pull from global namespace.
+    fe_shutter : Shutter | None, optional
+        The front-end shutter device. If None, will pull from global namespace.
+    photon_shutter : Shutter | None, optional
+        The photon shutter device. If None, will pull from global namespace.
+    """
+    
     germ = ensure_available(GeRMDetector, germ=germ)
     sample_tower = ensure_available(SampleTower, sample_tower=sample_tower)
 

@@ -178,19 +178,19 @@ with auto_init_devices(timeout=2.0, verbose=True):
 
     phantom = PhantomDetector(
         "XF:27ID1-ES{Phantom-Det:1}",
-        ADWriterFactory.hdf(path_provider),
+        ADWriterFactory.hdf(path_provider, hinted=False),
         name="phantom",
     )
 
     diamond_window_cam = VimbaDetector(
         "XF:27IDA-BI{FAM:1-Cam:1}",
-        ADWriterFactory.hdf(path_provider),
+        ADWriterFactory.hdf(path_provider, hinted=False),
         name="diamond-window-cam",
     )
 
     sample_cam = VimbaDetector(
         "XF:27ID1-ES{Sample-Cam:1}",
-        ADWriterFactory.hdf(path_provider),
+        ADWriterFactory.hdf(path_provider, hinted=False),
         name="sample-cam",
     )
 
@@ -199,7 +199,7 @@ with auto_init_devices(timeout=2.0, verbose=True):
     )
     fs_window_cam = VimbaDetector(
         "XF:27IDA-BI{FS:1-Cam:1}",
-        # ADWriterFactory.hdf(path_provider), TODO: Add this back once the dirs created
+        ADWriterFactory.hdf(path_provider, hinted=False),
         name="fs-window-cam",
         plugins={"stats1": fs_window_stats},
     )
@@ -210,16 +210,18 @@ with auto_init_devices(timeout=2.0, verbose=True):
 
     f_hutch_cam = VimbaDetector(
         "XF:27IDA-BI{GigE-Cam:5}",
-        ADWriterFactory.hdf(path_provider),
+        ADWriterFactory.hdf(path_provider, hinted=False),
         name="f_hutch_cam",
     )
 
+    # For the Perkin-Elmer detector, we use a separate path provider
+    # Since we need to specify the write directory as a windows path.
     pe_path_provider = NSLS2PathProvider(
         RE.md, base_write_dir=PureWindowsPath("Z:\\proposals")
     )
     perkin_elmer = ContAcqDetector(
         "XF:27ID1-ES{PE-Det:1}",
-        ADWriterFactory.hdf(pe_path_provider),
+        ADWriterFactory.hdf(pe_path_provider, hinted=False),
         name="perkin-elmer",
         proc_suffix="Proc1:",
     )

@@ -6,8 +6,7 @@ import algotom.util.calibration as calib
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.ndimage as ndi
-from bluesky import plan_stubs as bps
-from bluesky import plans as bp
+from bluesky import plan_stubs as bps, plans as bp, preprocessors as bpp
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
@@ -17,7 +16,7 @@ from skimage.measure._regionprops import RegionProperties
 from hextools.detectors.phantom import PhantomDetector
 from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
-from hextools.photon_delivery_system.shutter import ShutterStatus
+from hextools.photon_delivery_system.shutter import ShutterStatus, ensure_shutter_closed, ensure_shutter_open
 from hextools.utils import ensure_available
 
 Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
@@ -410,46 +409,43 @@ def tomo_alignment_scan(
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
 
-    # Check the shutter statuses
-    fe_shutter_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
-    photon_shutter_open = (
-        yield from bps.rd(photon_shutter.status)
-    ) == ShutterStatus.OPEN
+    @bpp.reset_positions_decorator([rot_motor.velocity] + ([sample_stage_x] if sample_stage_x is not None else []))
+    def _body():
 
-    # FE shutter must already be open. If not, raise an error.
-    # If the photon shutter is closed, open it.
-    if not fe_shutter_open:
-        raise ValueError(
-            "Front-end shutter is closed. Please open it before starting the scan."
+        yield from ensure_shutter_open(fe_shutter)
+        yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+
+        # Set the rotation stage to the maximum velocity before starting the scan
+        max_velocity = yield from bps.rd(rot_motor.max_velocity)
+        yield from bps.mv(rot_motor.velocity, max_velocity)
+        yield from bps.mv(rot_motor, init_angle)
+
+        for det in dets:
+            yield from bps.mv(det.driver.acquire_time, exposure_time)
+            yield from bps.mv(
+                det.driver.acquire_period, exposure_time + 0.002
+            )  # TODO: Don't hard code this
+
+        # Optionally, take a single flat image
+        flat_uid = None
+        if abs(base_x_offset) > 0.0 and sample_stage_x is not None:
+            yield from bps.mvr(sample_stage_x, base_x_offset)
+            flat_uid = yield from bp.count(
+                dets, md={"description": "Flat-field image for tomography alignment"}
+            )
+            yield from bps.mvr(sample_stage_x, -base_x_offset)
+
+        _md = {
+            "description": "Tomography alignment scan",
+            "plan_name": "tomography_alignment_scan"
+        }
+        if flat_uid is not None:
+            _md["flat_uid"] = flat_uid
+        yield from bp.scan(
+            dets, rot_motor, init_angle, stop_angle, num_projections, md=_md
         )
-    if not photon_shutter_open:
-        yield from bps.mv(photon_shutter, True)
 
-    # Set the rotation stage to the maximum velocity before starting the scan
-    max_velocity = yield from bps.rd(rot_motor.max_velocity)
-    yield from bps.mv(rot_motor.velocity, max_velocity)
-    yield from bps.mv(rot_motor, init_angle)
+    def _cleanup():
+        yield from ensure_shutter_closed(photon_shutter)
 
-    for det in dets:
-        yield from bps.mv(det.driver.acquire_time, exposure_time)
-        yield from bps.mv(
-            det.driver.acquire_period, exposure_time + 0.002
-        )  # TODO: Don't hard code this
-
-    # Optionally, take a single flat image
-    flat_uid = None
-    if abs(base_x_offset) > 0.0 and sample_stage_x is not None:
-        yield from bps.mvr(sample_stage_x, base_x_offset)
-        flat_uid = yield from bp.count(
-            dets, md={"description": "Flat-field image for tomography alignment"}
-        )
-        yield from bps.mvr(sample_stage_x, -base_x_offset)
-
-    _md = {
-        "description": "Tomography alignment scan",
-    }
-    if flat_uid is not None:
-        _md["flat_uid"] = flat_uid
-    yield from bp.scan(
-        dets, rot_motor, init_angle, stop_angle, num_projections, md=_md
-    )
+    return (bpp.finalize_wrapper(_body(), _cleanup()))

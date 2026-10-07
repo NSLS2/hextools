@@ -24,9 +24,13 @@ from ophyd_async.epics.core import (
     epics_signal_rw,
     epics_triggerable_command,
 )
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor, VeloAndAcclRespectingMotorMock
 
 import bluesky.plan_stubs as bps
+
+# Make every Motor respect velocity/acceleration in mock mode by default.
+default_mock_class(VeloAndAcclRespectingMotorMock)(AsyncEpicsMotor)
+
 
 def get_encoder_value_from_pos(
     current_position: float, encoder_resolution: float, encoder_pos_at_zero: int
@@ -50,73 +54,10 @@ def get_encoder_value_from_pos(
     return int(current_position / encoder_resolution + encoder_pos_at_zero)
 
 
-class OpticsTable(StandardReadable, EpicsDevice):
-    """HEX optics table."""
-
-    def __init__(self, prefix: str, name="optics_table"):
-        super().__init__(prefix, name=name)
-        with self.add_children_as_readables(Format.CHILD):
-            self.x2 = AsyncEpicsMotor(prefix + "X2}Mtr", name="x2")
-            self.y2 = AsyncEpicsMotor(prefix + "Y2}Mtr", name="y2")
-            self.rx3 = AsyncEpicsMotor(prefix + "Rx3}Mtr", name="rx3")
-            self.ry3 = AsyncEpicsMotor(prefix + "Ry3}Mtr", name="ry3")
-            self.x3 = AsyncEpicsMotor(prefix + "X3}Mtr", name="x3")
-            self.y3 = AsyncEpicsMotor(prefix + "Y3}Mtr", name="y3")
-            self.ry4 = AsyncEpicsMotor(prefix + "Ry4}Mtr", name="ry4")
-            self.x4 = AsyncEpicsMotor(prefix + "X4}Mtr", name="x4")
-            self.a1 = AsyncEpicsMotor(prefix + "A1}Mtr", name="a1")
-            self.z0 = AsyncEpicsMotor(prefix + "Z0}Mtr", name="z0")
-
-
-# TODO: Get this upstreamed to ophyd_async and remove it from here.
-# It is a general utility that is not specific to HEX.
-class VelocityRespectingMotorMock(DeviceMock[AsyncEpicsMotor]):
-    """Mock behaviour that respects motor velocity and acceleration time."""
-
-    async def connect(self, device: AsyncEpicsMotor) -> None:
-        """Mock signals to simulate a move respecting velocity and acceleration."""
-        set_mock_value(device.velocity, 10)
-        set_mock_value(device.max_velocity, 100)
-        set_mock_value(device.acceleration_time, 0.01)
-
-        # Motor starts in "done" state (not moving)
-        set_mock_value(device.motor_done_move, 1)
-
-        async def _do_move(target: float):
-            current = await device.user_readback.get_value()
-            velocity = await device.velocity.get_value()
-            acceleration_time = await device.acceleration_time.get_value()
-            move_time = abs(target - current) / velocity + 2 * acceleration_time
-            set_mock_value(device.motor_done_move, 0)
-            elapsed = 0.0
-            while elapsed < move_time:
-                await asyncio.sleep(min(1.0, move_time - elapsed))
-                elapsed += 1.0
-                fraction = min(elapsed / move_time, 1.0)
-                position = current + (target - current) * fraction
-                set_mock_value(device.user_readback, position)
-            set_mock_value(device.user_readback, target)
-            set_mock_value(device.motor_done_move, 1)
-            set_mock_put_proceeds(device.user_setpoint, True)
-
-        def _on_setpoint_write(value):
-            set_mock_put_proceeds(device.user_setpoint, False)
-            asyncio.ensure_future(_do_move(value))
-
-        callback_on_mock_put(device.user_setpoint, _on_setpoint_write)
-
-
-# Make every Motor respect velocity/acceleration in mock mode by default.
-default_mock_class(VelocityRespectingMotorMock)(AsyncEpicsMotor)
-
-
-@default_mock_class(VelocityRespectingMotorMock)
 class RotationMotor(AsyncEpicsMotor):
     """A motor that can be used for rotation scans.
 
-    This class is a subclass of the AsyncEpicsMotor class and is used to represent
-    a motor that can be used for rotation scans. It has additional attributes and
-    methods that are specific to rotation scans.
+    Adds derived signal to find the number of encoder counts per revolution.
     """
 
     def __init__(self, prefix: str, name: str = ""):
@@ -165,6 +106,25 @@ class SampleTower(StandardReadable, EpicsDevice):
 
         # TODO: Get this prefix adjusted so it doesn't need to be ah
         self.ry2 = RotationMotor("XF:27IDF-OP:1{MC:5-Ax:4}Mtr", name="ry2")
+
+
+class OpticsTable(StandardReadable, EpicsDevice):
+    """HEX optics table."""
+
+    def __init__(self, prefix: str, name="optics_table"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.CHILD):
+            self.x2 = AsyncEpicsMotor(prefix + "X2}Mtr", name="x2")
+            self.y2 = AsyncEpicsMotor(prefix + "Y2}Mtr", name="y2")
+            self.rx3 = AsyncEpicsMotor(prefix + "Rx3}Mtr", name="rx3")
+            self.ry3 = AsyncEpicsMotor(prefix + "Ry3}Mtr", name="ry3")
+            self.x3 = AsyncEpicsMotor(prefix + "X3}Mtr", name="x3")
+            self.y3 = AsyncEpicsMotor(prefix + "Y3}Mtr", name="y3")
+            self.ry4 = AsyncEpicsMotor(prefix + "Ry4}Mtr", name="ry4")
+            self.x4 = AsyncEpicsMotor(prefix + "X4}Mtr", name="x4")
+            self.a1 = AsyncEpicsMotor(prefix + "A1}Mtr", name="a1")
+            self.z0 = AsyncEpicsMotor(prefix + "Z0}Mtr", name="z0")
+
 
 class CameraObjective(StrictEnum):
     """Represents the camera objective in use."""
@@ -289,6 +249,9 @@ class CollimatorTable(StandardReadable, EpicsDevice):
 
 def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = None):
     """Move the specified motor to the given position.
+
+    Wraps the `bps.mv` plan stub to create a plan signature more conducive to creating
+    a user-friendly GUI input.
 
     Parameters
     ----------

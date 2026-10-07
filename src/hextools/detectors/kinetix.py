@@ -90,7 +90,7 @@ def kinetix_factory(num: int, path_provider, name: str):
 
     return KinetixDetector(
         f"XF:27ID1-BI{{Kinetix-Det:{num}}}",
-        ADWriterFactory.hdf(path_provider),
+        ADWriterFactory.hdf(path_provider, hinted=False),
         proc_suffix="Proc1:",
         name=name,
     )

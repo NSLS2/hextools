@@ -22,7 +22,7 @@ class NSLS2OpsMode(StrictEnum):
 class MockStorageRing(DeviceMock["NSLS2StorageRing"]):
     """Mock storage ring device.
 
-    Sets the beam current to 450 mA, to not trip a suspender in mock mode.
+    Sets the beam current to 450 mA, to not trip a suspender by default in mock mode.
     """
 
     async def connect(self, device: "NSLS2StorageRing"):
@@ -32,7 +32,15 @@ class MockStorageRing(DeviceMock["NSLS2StorageRing"]):
 
 @default_mock_class(MockStorageRing)
 class NSLS2StorageRing(StandardReadable, EpicsDevice):
-    """NSLS-II storage ring device."""
+    """NSLS-II storage ring device.
+
+    Attributes
+    ----------
+    operating_mode : SignalR[NSLS2OpsMode]
+        The current operating mode of the storage ring.
+    beam_current : SignalR[float]
+        The current beam current of the storage ring.
+    """
 
     def __init__(self):
         self.operating_mode = epics_signal_r(NSLS2OpsMode, "SR-OPS{}Mode-Sts")

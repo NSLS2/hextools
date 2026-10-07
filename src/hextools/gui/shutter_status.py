@@ -89,6 +89,8 @@ class _ShutterButton(QPushButton):
         self._loop.call_soon_threadsafe(_clear)
 
 
+# TODO: Once ophyd as a service exists, this widget should use that when
+# running in remote mode.
 class QtShutterStatus(QWidget):
     """Shutter indicators; click one to toggle it (local mode only).
 

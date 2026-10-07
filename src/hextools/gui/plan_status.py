@@ -44,7 +44,7 @@ from qtpy.QtWidgets import (
 
 from hextools.gui._ipython import run_in_ipython
 from hextools.gui.device_sources import _walk_namespace
-from hextools.utils.msg_hooks import MsgHookNarrator, nl_msg_hook
+from hextools.utils.nl_msg_hook import MsgHookNarrator, nl_msg_hook
 
 _NO_PLAN = "\u2014"  # em dash
 _NOT_APPLICABLE = "N/A"
@@ -675,14 +675,29 @@ class QtPlanHistory(QWidget):
     def _save(self):
         if self._history_file is None:
             return
-        entries = [record.to_json() for record in reversed(self._records)]
-        tmp = self._history_file.with_name(self._history_file.name + ".tmp")
         try:
-            self._history_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp.write_text(json.dumps(entries, indent=2, default=str))
-            os.replace(tmp, self._history_file)  # atomic, so a crash can't truncate the file
+            self._write(self._history_file)
         except OSError as ex:
             logger.warning("Failed to save plan history to %s: %s", self._history_file, ex)
+
+    def save_as(self, path: str | Path):
+        """Write the history to ``path`` and keep saving there as plans finish.
+
+        Raises
+        ------
+        OSError
+            If the file can't be written; the previous save file is kept.
+        """
+        path = Path(path).expanduser()
+        self._write(path)
+        self._history_file = path
+
+    def _write(self, path: Path):
+        entries = [record.to_json() for record in reversed(self._records)]
+        tmp = path.with_name(path.name + ".tmp")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(entries, indent=2, default=str))
+        os.replace(tmp, path)  # atomic, so a crash can't truncate the file
 
     @staticmethod
     def _fmt_time(timestamp: float | None) -> str:

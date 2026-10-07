@@ -15009,7 +15009,7 @@ packages:
   requires_python: '>=3.11'
 - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#c831a174ae48b85cc400b48949d53e57aff93e6b
   name: ophyd-async
-  version: 0.1.dev1064+gc831a174a
+  version: 0.21.3.dev48+gc831a174a
   requires_dist:
   - numpy
   - bluesky>=1.13.1rc2

@@ -38,6 +38,7 @@ from qtpy.QtCore import QObject, Qt, QTimer, Signal
 from qtpy.QtWidgets import (
     QApplication,
     QFileDialog,
+    QMessageBox,
     QFrame,
     QHBoxLayout,
     QMainWindow,
@@ -71,7 +72,7 @@ from hextools.gui.plan_status import (
 )
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui._theme import apply_bnl_theme, saved_theme
-from hextools.gui.theme_switch import QtThemeSwitch
+from hextools.gui.theme_switch import QtThemeAction
 from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.tomography.alignment import tomo_alignment_scan
 from hextools.tomography.flyscans import tomo_1d_step_scan, tomo_2d_step_scan, tomo_flyscan
@@ -422,13 +423,13 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         if self._plan_monitor is not None:
             tabs.addTab(QtPlanExecutionView(self._plan_monitor), "Plan Execution")
             tabs.addTab(QtPlanLogView(self._plan_monitor), "Log")
-            tabs.addTab(
-                QtPlanHistory(
-                    self._plan_monitor,
-                    history_file=os.environ.get(PLAN_HISTORY_FILE_ENV) or None,
-                ),
-                "History",
+            self.plan_history = QtPlanHistory(
+                self._plan_monitor,
+                history_file=os.environ.get(PLAN_HISTORY_FILE_ENV) or None,
             )
+            tabs.addTab(self.plan_history, "History")
+        else:
+            self.plan_history = None
         vbox.addWidget(tabs, stretch=1)
 
         # Shared live per-device progress bars pinned to the bottom.
@@ -484,18 +485,17 @@ class QtDataAcquisitionWindow:
         self._qt_window.setStatusBar(self._status_bar)
 
         self._re_client = re_client
-        self._status_bar.showMessage(self._re_state_text())
+        # A label, not showMessage(): hovering menu items clears the status bar's message.
+        self._re_state_label = QLabel(self._re_state_text())
+        self._status_bar.addWidget(self._re_state_label)
         self._help = QLabel("")
         self._status_bar.addPermanentWidget(self._help)
-        self._dark_mode = QtThemeSwitch()
-        self._status_bar.addPermanentWidget(self._dark_mode)
+        self._build_menus()
         if isinstance(re_client, RunEngine):
             self._install_state_hook(re_client)
         else:
             self._re_state_timer = QTimer(self._qt_window)
-            self._re_state_timer.timeout.connect(
-                lambda: self._status_bar.showMessage(self._re_state_text())
-            )
+            self._re_state_timer.timeout.connect(self._update_re_state)
             self._re_state_timer.start(250)
 
         layout = self._qt_center.layout()
@@ -516,11 +516,41 @@ class QtDataAcquisitionWindow:
         if show:
             self.show()
 
+    def _build_menus(self):
+        menu_bar = self._qt_window.menuBar()
+
+        self.file_menu = menu_bar.addMenu("&File")
+        save_history = self.file_menu.addAction("Save Plan History As…")
+        save_history.triggered.connect(self._on_save_history_as)
+        if self.qt_widget.plan_history is None:
+            save_history.setEnabled(False)
+            save_history.setToolTip("Plan history is only recorded when running plans locally.")
+
+        self.settings_menu = menu_bar.addMenu("&Settings")
+        self.settings_menu.addAction(QtThemeAction(self._qt_window))
+
+    def _on_save_history_as(self):
+        history = self.qt_widget.plan_history
+        if history is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self._qt_window,
+            "Save Plan History As",
+            str(Path.home() / "plan_history.json"),
+            "JSON files (*.json);;All files (*)",
+        )
+        if not path:
+            return
+        try:
+            history.save_as(path)
+        except OSError as ex:
+            QMessageBox.critical(self._qt_window, "Save failed", f"Couldn't save plan history:\n{ex}")
+            return
+        self._status_bar.showMessage(f"Plan history saved to {path}", 5000)
+
     def _install_state_hook(self, re: RunEngine):
         self._state_signal = _StateSignal(self._qt_window)
-        self._state_signal.changed.connect(
-            lambda: self._status_bar.showMessage(self._re_state_text())
-        )
+        self._state_signal.changed.connect(self._update_re_state)
         previous_hook = re.state_hook
 
         # Called from the RunEngine's event-loop thread.
@@ -530,6 +560,9 @@ class QtDataAcquisitionWindow:
                 previous_hook(new_state, old_state)
 
         re.state_hook = state_hook
+
+    def _update_re_state(self):
+        self._re_state_label.setText(self._re_state_text())
 
     def _re_state_text(self) -> str:
         if isinstance(self._re_client, RunEngine):
