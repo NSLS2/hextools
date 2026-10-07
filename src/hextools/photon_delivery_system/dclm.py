@@ -17,13 +17,13 @@ from ophyd_async.core import (
     WatcherUpdate,
     derived_signal_r,
 )
-from ophyd_async.core import StandardReadableFormat as Format
+from ophyd_async.core import StandardReadableFormat as Format, forward_watcher_updates
 from ophyd_async.epics.adcore import AreaDetector, NDStatsIO
 from ophyd_async.epics.core import EpicsDevice
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
-from ..utils import ensure_available, forward_watcher_updates
-from .shutter import Shutter, ensure_shutter_closed
+from ..utils import ensure_available
+from .shutter import Shutter, ensure_shutter_open, ensure_shutter_closed
 
 
 class BeamMode(StrictEnum):
@@ -146,9 +146,6 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
             yield update
 
 
-
-
-
 def change_beam_mode(
     mode: BeamMode,
     dclm: DCLM | None = None,
@@ -158,14 +155,13 @@ def change_beam_mode(
     Parameters
     ----------
     mode : BeamMode
-        The target beam mode to set.
+        The target beam mode for the DCLM
     dclm : DCLM, optional
         The DCLM instance to control. If None, the function will attempt to
         retrieve it from the IPython namespace.
     """
     dclm = ensure_available(DCLM, dclm=dclm)
     yield from bps.mv(dclm, mode)
-
 
 
 def change_energy(
@@ -190,25 +186,27 @@ def change_energy(
     ----------
     energy : float
         Target energy in keV.
+    auto_tune : bool, optional
+        Whether to perform auto-tuning using the fluorescence screen camera.
+    coarse_angle_range : float
+        Half-width of the coarse pitch auto-tune scan in degrees.
+    coarse_num_steps : int
+        Number of points in the coarse auto-tune scan.
+    fine_angle_range : float
+        Half-width of the fine pitch auto-tune scan in degrees.
+    fine_num_steps : int
+        Number of points in the fine auto-tune scan.
     dclm : DCLM, optional
         Must be in monochromatic mode. If None, the function will attempt to
         retrieve it from the IPython namespace.
     fs_window_cam : AreaDetector, optional
-        Fluorescence screen camera for auto-tuning. If None, motors are
-        moved without feedback.
-    auto_tune : bool, optional
-        Whether to perform auto-tuning using the fluorescence screen camera.
-    coarse_angle_range : float
-        Half-width of the coarse pitch scan in degrees.
-    coarse_num_steps : int
-        Number of points in the coarse scan.
-    fine_angle_range : float
-        Half-width of the fine pitch scan in degrees.
-    fine_num_steps : int
-        Number of points in the fine scan.
+        Fluorescence screen camera for auto-tuning. If None, with auto_tune
+        enabled, it will attempt to be retrieved from the IPython namespace.
+        Otherwise, motors are moved without feedback.
     photon_shutter : Shutter, optional
-        Shutter to close on exit. Falls back to the ``photon_shutter`` in the
-        IPython namespace when not provided.
+        Shutter to open during the auto-tuning process, and close afterwards.
+        If None, with auto_tune enabled, it will attempt to be retrieved from the IPython namespace.
+        Otherwise, it will not be actuated.
 
     Raises
     ------
@@ -216,6 +214,7 @@ def change_energy(
         If the monochromator is not in monochromatic mode.
     """
 
+    # If not provided
     dclm = ensure_available(DCLM, monochromator=dclm)
     if auto_tune:
         photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
@@ -274,9 +273,7 @@ def change_energy(
                 f"'{fs_stats_plugin_name}' plugin configured!"
             )
 
-        photon_shutter_sts = yield from bps.rd(photon_shutter.status)
-        if not photon_shutter_sts:
-            yield from bps.mv(photon_shutter, True)
+        yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
 
         # Create a PeakStats object to monitor the fluorescence screen camera signal
         # and find the position of the crystal 2 pitch that produces a peak.
@@ -327,7 +324,7 @@ def change_energy(
         yield from bps.mv(dclm.xtal2_pitch, peak - 0.05)
         yield from bps.mv(dclm.xtal2_pitch, peak)
 
-    yield from finalize_wrapper(
+    yield from (finalize_wrapper(
         _inner_change_energy(),
         _reset_and_close(),
-    )
+    ))

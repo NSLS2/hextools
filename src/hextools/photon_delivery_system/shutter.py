@@ -5,6 +5,7 @@ import random
 from typing import Callable, Hashable
 
 from ophyd_async.core import (
+    DEFAULT_TIMEOUT,
     AsyncMovable,
     AsyncStatus,
     DeviceMock,
@@ -21,6 +22,8 @@ from ophyd_async.epics.core import (
     epics_signal_r,
     epics_triggerable_command,
 )
+
+DEFAULT_SHUTTER_TIMEOUT = 10
 
 class ShutterStatus(StrictEnum):
     OPEN = "Open"
@@ -94,7 +97,7 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
             cmd_sig = self.close_cmd
 
         await cmd_sig.execute()
-        await wait_for_value(self.status, ShutterStatus.OPEN if value else ShutterStatus.CLOSED, timeout=10)
+        await wait_for_value(self.status, ShutterStatus.OPEN if value else ShutterStatus.CLOSED, timeout=DEFAULT_SHUTTER_TIMEOUT)
 
 
     def subscribe_reading(self, function: Callable[[dict[str, Reading[bool]]], None]) -> None:
@@ -107,6 +110,8 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
         """
 
         def _translate(readings: dict[str, Reading[ShutterStatus]]) -> None:
+            """Translate readings from ShutterStatus to bool."""
+
             function(
                 {
                     self.name: {
@@ -120,6 +125,7 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
         self._sub_translators[function] = _translate
         self.status.subscribe_reading(_translate)
 
+
     def clear_sub(self, function: Callable[[dict[str, Reading[bool]]], None]) -> None:
         """Remove a subscription previously passed to `subscribe_reading`.
 
@@ -128,23 +134,24 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
         function : Callable[[dict[str, Reading[bool]]], None]
             The callback to remove.
         """
+
         translator = self._sub_translators.pop(function)
         self.status.clear_sub(translator)
 
 
 def ensure_shutter_state(
-    shutter: Shutter,
+    shutter: Shutter | list[Shutter],
     desired_state: bool,
     allow_actuation: bool = False,
     group: Hashable | None = None,
     wait: bool = True,
 ):
-    """Plan stub to guarantees that the shutter is in the desired state.
+    """Plan stub to guarantees that the shutter(s) is/are in the desired state.
 
     Parameters
     ----------
-    shutter : Shutter
-        shutter to guarantee the state of.
+    shutter : Shutter | list[Shutter]
+        shutter(s) to guarantee the state of.
     desired_state : bool
         the state of the shutter (True for open, False for closed)
     allow_actuation : bool, default False
@@ -155,26 +162,37 @@ def ensure_shutter_state(
         whether to wait for the shutter to reach the desired state after actuation
     """
 
-    shutter_status = yield from bps.rd(shutter.status)
-    if (shutter_status == ShutterStatus.OPEN) != desired_state:
-        if allow_actuation:
-            yield from bps.abs_set(shutter, desired_state, group=group, wait=wait)
-        else:
-            raise RuntimeError(f"Shutter {shutter.name} is not in the desired state!")
+    shutters = shutter if isinstance(shutter, list) else [shutter]
+
+    shutter_statuses = {}
+    for s in shutters:
+        shutter_statuses[s.name] = yield from bps.rd(s.status)
+
+    actuated = False
+    for s in shutters:
+        if (shutter_statuses[s.name] == ShutterStatus.OPEN) != desired_state:
+            if allow_actuation:
+                yield from bps.abs_set(s, desired_state, group=group, wait=False)
+                actuated = True
+            else:
+                raise RuntimeError(f"Shutter {s.name} is not in the desired state!")
+
+    if wait and actuated:
+        yield from bps.wait(group=group, timeout=DEFAULT_SHUTTER_TIMEOUT)
 
 
 def ensure_shutter_open(
-    shutter: Shutter,
+    shutter: Shutter | list[Shutter],
     allow_actuation: bool = False,
     group: Hashable | None = None,
     wait: bool = True,
 ):
-    """Plan stub to guarantee that the shutter is open.
+    """Plan stub to guarantee that the shutter(s) is/are open.
 
     Parameters
     ----------
-    shutter : Shutter
-        shutter to guarantee the state of.
+    shutter : Shutter | list[Shutter]
+        shutter(s) to guarantee the state of.
     allow_actuation : bool, default False
         whether to allow the plan to actuate the shutter if it is not in the desired state
     group : Hashable | None, optional
@@ -189,7 +207,7 @@ def ensure_shutter_open(
 
 
 def ensure_shutter_closed(
-    shutter: Shutter,
+    shutter: Shutter | list[Shutter],
     allow_actuation: bool = True,
     group: Hashable | None = None,
     wait: bool = True,
@@ -198,8 +216,8 @@ def ensure_shutter_closed(
 
     Parameters
     ----------
-    shutter : Shutter
-        shutter to guarantee the state of.
+    shutter : Shutter | list[Shutter]
+        shutter(s) to guarantee the state of.
     allow_actuation : bool, default True
         whether to allow the plan to actuate the shutter if it is not in the desired state
     group : Hashable | None, optional
