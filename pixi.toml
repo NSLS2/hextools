@@ -14,6 +14,8 @@ numpy = ">=2.4.6,<3"
 # ophyd-async = ">=0.21.1,<0.22"
 scipy = ">=1.17.1,<2"
 scikit-image = ">=0.26.0,<0.27"
+h5netcdf = ">=1.8.1,<2"
+nexpy = ">=2.1.0,<3"
 # nslsii = ">=0.11.9,<0.12"
 
 [pypi-dependencies]
@@ -96,7 +98,7 @@ qtpy = ">=2.4.3,<3"
 # Install the `gui` extra (bluesky-widgets, ntnda-qt-viewer, ...) in this env.
 [feature.gui.pypi-dependencies]
 hextools = { path = ".", editable = true, extras = ["gui"] }
-ntnda-qt-viewer = { git = "https://github.com/jwlodek/ntnda-qt-viewer" }
+ntnda-qt-viewer = { git = "https://github.com/jwlodek/ntnda-qt-viewer", rev="main" }
 
 
 [feature.gui.tasks]

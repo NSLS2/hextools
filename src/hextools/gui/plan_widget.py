@@ -106,7 +106,6 @@ def _unwrap_optional(annotation):
         return annotation, is_optional
     return annotation, False
 
-
 def _scalar_type(annotation):
     """Return int/float/bool/str for a scalar annotation, else None."""
     base, _ = _unwrap_optional(annotation)

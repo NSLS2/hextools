@@ -294,9 +294,11 @@ class QtEDXDView(QWidget):
             "germ",
             "XF:27ID1-ES{GeRM-Det:1}MCA",
             raw_waveform=True,
-            image_shape=(4096, 192),
+            image_shape=(192, 4096),
             colormap="JET",
             roi_suffix_pattern="1:ROI{}:",
+            log_scale=True,
+            use_ca=True,
         )
         top.addWidget(detectors, stretch=3)
 
