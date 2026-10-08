@@ -301,6 +301,18 @@ _VALIDATORS: dict[str, Callable[[BlueskyRunV3, str | None], None]] = {
     ]
 }
 
+#: Every spec defined here.
+ALL_SPECS: list[Spec] = [
+    TOMO_FLYSCAN_V1,
+    TOMO_STEP_SCAN_V1,
+    TOMO_ALIGNMENT_SCAN_V1,
+    RADIOGRAPH_V1,
+    EDXD_SCAN_V1,
+    EDXD_CALIBRATION_V1,
+    XRD_CALIBRATION_V1,
+    ENERGY_AUTO_TUNE_V1,
+]
+
 
 def validate_run(run: BlueskyRunV3, spec: Spec) -> None:
     """Validate ``run`` against ``spec``.
