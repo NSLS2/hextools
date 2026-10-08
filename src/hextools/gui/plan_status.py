@@ -556,6 +556,7 @@ class QtPlanExecutionView(QWidget):
         progress_tabs = QTabWidget()
         progress_tabs.addTab(QtPlanProgressView(monitor), "Progress")
         progress_tabs.addTab(self._messages, "Debug")
+        self._tabs = progress_tabs
 
         vbox = QVBoxLayout()
         vbox.addWidget(call_box)
@@ -564,6 +565,10 @@ class QtPlanExecutionView(QWidget):
 
         monitor.plan_started.connect(self._on_plan_started)
         monitor.line.connect(self._on_line)
+
+    def add_tab(self, widget: QWidget, label: str) -> None:
+        """Add a tab beside Progress and Debug."""
+        self._tabs.addTab(widget, label)
 
     @Slot(str, str)
     def _on_plan_started(self, name: str, call: str):

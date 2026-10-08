@@ -63,6 +63,8 @@ from hextools.gui.re_execution_controls import (
 from typing import Generic, TypeVar
 from hextools.gui.misc import QtWeatherWidget, QtTabbedDetectorsWidget
 from hextools.gui.plan_widget import QtPlanWidget
+from hextools.gui.scan_browser import QtScanBrowser
+from hextools.specs import ALL_SPECS
 from hextools.gui.plan_status import (
     PlanMonitor,
     QtPlanExecutionView,
@@ -421,7 +423,14 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         self._available_devices = QtAvailableDevices(self._re_client, EXPECTED_DEVICES)
         tabs.addTab(self._available_devices, "Available Devices")
         if self._plan_monitor is not None:
-            tabs.addTab(QtPlanExecutionView(self._plan_monitor), "Plan Execution")
+            execution_view = QtPlanExecutionView(self._plan_monitor)
+            tiled_client = user_ns.get("tiled_reading_client") or user_ns.get("c")
+            if tiled_client is not None and isinstance(re_client, RunEngine):
+                self.scan_browser = QtScanBrowser(tiled_client, ALL_SPECS, re_client)
+                execution_view.add_tab(self.scan_browser, "Scan Browser")
+            else:
+                self.scan_browser = None
+            tabs.addTab(execution_view, "Plan Execution")
             tabs.addTab(QtPlanLogView(self._plan_monitor), "Log")
             self.plan_history = QtPlanHistory(
                 self._plan_monitor,
@@ -430,6 +439,7 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             tabs.addTab(self.plan_history, "History")
         else:
             self.plan_history = None
+            self.scan_browser = None
         vbox.addWidget(tabs, stretch=1)
 
         # Shared live per-device progress bars pinned to the bottom.
