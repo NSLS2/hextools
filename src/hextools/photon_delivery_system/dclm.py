@@ -1,14 +1,21 @@
 """Double crystal Laue monochromator (DCLM) device and energy change plan."""
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from functools import partial
 from typing import Final
 
+import matplotlib.pyplot as plt
 import numpy as np
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
+from bluesky import preprocessors as bpp
+from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.callbacks.fitting import PeakStats
-from bluesky.preprocessors import finalize_wrapper, subs_decorator
+from bluesky.callbacks.mpl_plotting import QtAwareCallback, plot_peak_stats
+from bluesky.preprocessors import finalize_wrapper, subs_wrapper
+from IPython.core.getipython import get_ipython
+from matplotlib.figure import Figure
 from ophyd_async.core import (
     AsyncMovable,
     StandardReadable,
@@ -18,9 +25,12 @@ from ophyd_async.core import (
     derived_signal_r,
 )
 from ophyd_async.core import StandardReadableFormat as Format, forward_watcher_updates
-from ophyd_async.epics.adcore import AreaDetector, NDStatsIO
+from ophyd_async.epics.adcore import NDStatsIO
+from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.epics.core import EpicsDevice
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+
+from hextools.detectors.utils import enable_preview_mode
 
 from ..utils import ensure_available
 from .shutter import Shutter, ensure_shutter_open, ensure_shutter_closed
@@ -31,6 +41,40 @@ class BeamMode(StrictEnum):
 
     MONOCHROMATIC = "Monochromatic"
     WHITE = "White"
+
+
+def _figure_factory() -> Callable[[str], Figure]:
+    """Return the session BestEffortCallback's figure factory, which the GUI embeds."""
+    ipython = get_ipython()
+    if ipython is not None:
+        for obj in ipython.user_ns.values():
+            if isinstance(obj, BestEffortCallback):
+                return obj._fig_factory  # noqa: SLF001
+    return partial(plt.figure, layout="constrained")
+
+
+class _PeakStatsPlot(QtAwareCallback):
+    """Plot a PeakStats' results when its run stops, on the Qt thread if there is one."""
+
+    def __init__(self, peak_stats: PeakStats, title: str, fig_factory: Callable[[str], Figure]):
+        super().__init__()
+        self._peak_stats = peak_stats
+        self._title = title
+        self._fig_factory = fig_factory
+        self._scan_id = None
+
+    def start(self, doc):
+        self._scan_id = doc.get("scan_id")
+
+    def stop(self, doc):
+        if getattr(self._peak_stats, "x_data", None) is None:
+            return
+        title = f"{self._title} (scan {self._scan_id})"
+        figure = self._fig_factory(title)
+        ax = figure.add_subplot()
+        plot_peak_stats(self._peak_stats, ax=ax)
+        ax.set_title(title)
+        figure.canvas.draw_idle()
 
 
 class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
@@ -149,6 +193,7 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
 def change_beam_mode(
     mode: BeamMode,
     dclm: DCLM | None = None,
+    fe_shutter: Shutter | None = None,
 ):
     """Bluesky plan to change the beam mode of the DCLM.
 
@@ -160,8 +205,17 @@ def change_beam_mode(
         The DCLM instance to control. If None, the function will attempt to
         retrieve it from the IPython namespace.
     """
+
     dclm = ensure_available(DCLM, dclm=dclm)
+    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
+    current_mode = yield from bps.rd(dclm.beam_mode)
+    if current_mode == mode:
+        return
+    if mode == BeamMode.WHITE:
+        yield from ensure_shutter_closed(fe_shutter)
+
     yield from bps.mv(dclm, mode)
+    yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
 
 
 def change_energy(
@@ -171,10 +225,10 @@ def change_energy(
     fine_angle_range: float = 0.025,
     fine_num_steps: int = 26,
     fs_stats_plugin_name: str = "stats1",
-    auto_tune: bool = False,
+    exposure_time: float = 0.5,
+    auto_tune: bool = True,
     dclm: DCLM | None = None,
-    fs_window_cam: AreaDetector | None = None,
-    photon_shutter: Shutter | None = None,
+    fs_window_cam: VimbaDetector | None = None,
 ):
     """Bluesky plan to change monochromator energy for Si(111).
 
@@ -199,15 +253,12 @@ def change_energy(
     dclm : DCLM, optional
         Must be in monochromatic mode. If None, the function will attempt to
         retrieve it from the IPython namespace.
-    fs_window_cam : AreaDetector, optional
+    fs_window_cam : VimbaDetector, optional
         Fluorescence screen camera for auto-tuning. If None, with auto_tune
         enabled, it will attempt to be retrieved from the IPython namespace.
         Otherwise, motors are moved without feedback.
-    photon_shutter : Shutter, optional
-        Shutter to open during the auto-tuning process, and close afterwards.
-        If None, with auto_tune enabled, it will attempt to be retrieved from the IPython namespace.
-        Otherwise, it will not be actuated.
-
+    exposure_time : float, optional
+        Exposure time for the fluorescence screen camera during auto-tuning.
     Raises
     ------
     RuntimeError
@@ -217,16 +268,10 @@ def change_energy(
     # If not provided
     dclm = ensure_available(DCLM, monochromator=dclm)
     if auto_tune:
-        photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
-        fs_window_cam = ensure_available(AreaDetector, fs_window_cam=fs_window_cam)
+        fs_window_cam = ensure_available(VimbaDetector, fs_window_cam=fs_window_cam)
 
-    def _reset_and_close():
-        # Reset the fluorescence screen and close the shutter on the way out.
-        yield from bps.mv(dclm.flourescence_screen, dclm.fs_out)
-        if photon_shutter is not None:
-            yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
-
-    def _inner_change_energy():
+    @bpp.reset_positions_decorator([fs_window_cam.driver.acquire_time, fs_window_cam.driver.acquire_period] if fs_window_cam is not None else [])
+    def _body():
         mode = yield from bps.rd(dclm.beam_mode)
         if mode != BeamMode.MONOCHROMATIC:
             raise RuntimeError("Monochromator is not in monochromatic mode.")
@@ -244,7 +289,7 @@ def change_energy(
         z = dclm.fixed_beam_offset / np.tan(
             2 * bragg_angle
         )  # Crystal 2 z for fixed beam offset of 25 mm
-        if auto_tune:
+        if not auto_tune:
             fluo_y = dclm.fs_distance * np.tan(
                 2 * bragg_angle
             )  # Fluorescence screen y at 1428 mm downstream
@@ -263,7 +308,7 @@ def change_energy(
         # fmt: on
 
         # No feedback available without a camera, so just move the motors and return.
-        if fs_window_cam is None or photon_shutter is None or not auto_tune:
+        if fs_window_cam is None or not auto_tune:
             return
 
         fs_stats = fs_window_cam.get_plugin_by_name(fs_stats_plugin_name, NDStatsIO)
@@ -273,58 +318,54 @@ def change_energy(
                 f"'{fs_stats_plugin_name}' plugin configured!"
             )
 
-        yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+        # set camera exposure time
+        yield from bps.mv(fs_window_cam.driver.acquire_time, exposure_time)
 
-        # Create a PeakStats object to monitor the fluorescence screen camera signal
-        # and find the position of the crystal 2 pitch that produces a peak.
-        ps = PeakStats(
-            dclm.xtal2_pitch.name,
-            fs_window_cam.get_plugin_by_name(fs_stats_plugin_name, NDStatsIO).total.name,
+        fig_factory = _figure_factory()
+
+        # Scan the crystal 2 pitch and return the center of the fluorescence peak.
+        # A fresh PeakStats per scan, so the GUI can plot one while the next runs.
+        def energy_auto_tune(scan_name: str, angle_range: float, num_steps: int):
+            ps = PeakStats(dclm.xtal2_pitch.name, fs_stats.mean_value.name)
+            plotter = _PeakStatsPlot(ps, f"energy_auto_tune {scan_name}", fig_factory)
+            # ps must come first so its stats are computed before plotter sees 'stop'.
+            yield from subs_wrapper(
+                bp.scan(
+                    [fs_window_cam],  # type: ignore  # TODO: allow AsyncReadable
+                    dclm.xtal2_pitch,
+                    angle - angle_range,
+                    angle + angle_range,
+                    num_steps,
+                    md={"plan_name": "energy_auto_tune"},
+                ),
+                [ps, plotter],
+            )
+            if ps.cen is None:  # type: ignore
+                raise RuntimeError(
+                    f"No peak found in {scan_name} scan. "
+                    "Check the fluorescence screen."
+                )
+            return float(ps.cen)  # type: ignore
+
+        coarse_center = yield from energy_auto_tune(
+            "coarse", coarse_angle_range, coarse_num_steps
         )
+        yield from bps.mv(dclm.xtal2_pitch, coarse_center)
 
-        # Perform a scan around the current position of the crystal 2 pitch,
-        # and feed the produced events into the PeakStats object to find the peak
-        # position.
-        @subs_decorator(ps)
-        def energy_auto_tune(angle_range: float, num_steps: int):
-            # TODO: Fix type hint to allow AsyncReadable
-            yield from bp.scan(
-                [fs_window_cam],  # type: ignore
-                dclm.xtal2_pitch,
-                angle - angle_range,
-                angle + angle_range,
-                num_steps,
-                md={"plan_name": "energy_auto_tune"},
-            )
-
-        yield from energy_auto_tune(coarse_angle_range, coarse_num_steps)  # Coarse scan
-
-        peak: float | None = ps.com  # type: ignore
-        if peak is None:
-            raise RuntimeError(
-                "No peak found in coarse scan. Check the fluorescence screen."
-            )
-
-        # Move to the peak found by the coarse scan
-        yield from bps.mv(dclm.xtal2_pitch, peak)
-
-        # Clear coarse scan events so the fine scan computes from its own data only
-        ps.reset()
-
-        yield from energy_auto_tune(fine_angle_range, fine_num_steps)  # Fine scan
-
-        peak = ps.com  # type: ignore
-        if peak is None:
-            raise RuntimeError(
-                "No peak found in fine scan. Check the fluorescence screen."
-            )
+        fine_center = yield from energy_auto_tune("fine", fine_angle_range, fine_num_steps)
 
         # To minimize issues with backlash, always approach the final position
         # from below.
-        yield from bps.mv(dclm.xtal2_pitch, peak - 0.05)
-        yield from bps.mv(dclm.xtal2_pitch, peak)
+        yield from bps.mv(dclm.xtal2_pitch, fine_center - 0.05)
+        yield from bps.mv(dclm.xtal2_pitch, fine_center)
+
+    def _cleanup():
+        # Reset the fluorescence screen and close the shutter on the way out.
+        yield from bps.mv(dclm.flourescence_screen, dclm.fs_out)
+        if fs_window_cam is not None:
+            yield from enable_preview_mode(fs_window_cam)
 
     yield from (finalize_wrapper(
-        _inner_change_energy(),
-        _reset_and_close(),
+        _body(),
+        _cleanup(),
     ))

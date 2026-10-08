@@ -22,6 +22,19 @@ from .phantom import (
     PhantomTrigEdge,
 )
 
+from .germ import (
+    Gain,
+    GeRMDetector
+)
+
+from .kinetix import (
+    KinetixTriggerMode,
+    kinetix_factory
+)
+from .utils import (
+    enable_preview_mode
+)
+
 __all__ = [
     "PhantomDetector",
     "PhantomAuxPinMode",
@@ -33,4 +46,9 @@ __all__ = [
     "PhantomReadySignal",
     "PhantomTrigEdge",
     "PhantomSettingsSlot",
+    "Gain",
+    "GeRMDetector",
+    "KinetixTriggerMode",
+    "enable_preview_mode",
+    "kinetix_factory",
 ]

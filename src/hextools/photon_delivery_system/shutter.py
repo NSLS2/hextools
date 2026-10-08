@@ -180,6 +180,10 @@ def ensure_shutter_state(
     if wait and actuated:
         yield from bps.wait(group=group, timeout=DEFAULT_SHUTTER_TIMEOUT)
 
+        # It seems that the shutter status in EPICS is not reliable enough to consider the
+        # shutter fully opened/closed.
+        yield from bps.sleep(4)
+
 
 def ensure_shutter_open(
     shutter: Shutter | list[Shutter],

@@ -15,7 +15,7 @@ from bluesky.utils import ProgressBarManager
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
-from pathlib import PureWindowsPath
+from pathlib import PurePath, PureWindowsPath
 from nslsii.ophyd_async.providers import NSLS2PathProvider
 from pathlib import Path
 from ophyd_async.epics.adcore import (
@@ -64,7 +64,9 @@ from hextools.utils import (
     reset_scan_id,
 )
 
-from hextools.tomography import tomo_flyscan, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_nd_step_scan
+from hextools.tomography import (
+    tomo_flyscan,tomo_flyscan_loop, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_dark_flat, LastDarkFlatUIDTracker
+)
 from hextools.edxd import configure_test_pulses, edxd_scan, edxd_count, edxd_grid_scan, edxd_2theta_tilt, edxd_calib_scan, edxd_custom_pos_list_grid
 
 
@@ -121,8 +123,24 @@ RE.subscribe(TiledWriter(tiled_writing_client))
 bec = BestEffortCallback()
 RE.subscribe(bec)
 
+# Keep track of last dark-flat scan UID
+RE.subscribe(LastDarkFlatUIDTracker(RE.md))
+
+# TODO: Get this upstream
+class HEXPathProvider(NSLS2PathProvider):
+
+    def __init__(self, *args, scan_id_padding: int = 6, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._scan_id_padding = scan_id_padding
+
+    def _generate_directory_path(self, base_path: PurePath, datakey_name: str) -> PurePath:
+        base_path = super()._generate_directory_path(base_path, datakey_name)
+        if self._include_scan_id_dir:
+            base_path = base_path.parent / f"scan_{self._metadata_dict['scan_id']:0{self._scan_id_padding}d}"
+        return base_path
+
 # Define our global default path provider for the beamline
-path_provider = NSLS2PathProvider(RE.md, include_scan_id_dir=True, granularity="year")
+path_provider = HEXPathProvider(RE.md, include_scan_id_dir=True, granularity="year", scan_id_padding=5)
 
 with auto_init_devices(timeout=2.0, verbose=True):
     # Shutters (Front-end and photon)
