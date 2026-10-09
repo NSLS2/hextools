@@ -41,10 +41,16 @@ def _fmt_value(value: Any) -> str:
     return str(value)
 
 
+_DEVICE_REPR = _re.compile(r"^(\w+)\(.*?\bname=(['\"])(.*?)\2.*\)$", _re.DOTALL)
+
+
 def _fmt_obj(obj: str | None) -> str:
-    """Format a device/object name."""
+    """Format a device/object name, turning a ``Type(name="x", ...)`` repr into ``Type 'x'``."""
     if not obj:
         return "the device"
+    match = _DEVICE_REPR.match(obj)
+    if match:
+        return f"{match.group(1)} '{match.group(3)}'"
     return f"'{obj}'"
 
 

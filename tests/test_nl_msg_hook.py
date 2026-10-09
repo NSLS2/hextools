@@ -69,6 +69,33 @@ def test_describe_message_unknown_command_falls_back():
     assert describe_message(_msg(None)) == "Performing 'an operation'."
 
 
+@pytest.mark.parametrize(
+    ("obj", "expected"),
+    [
+        ('Motor(name="f-slits-top")', "Setting Motor 'f-slits-top' to 0.1."),
+        ("EpicsMotor(prefix='XF:27ID', name='m1', read_attrs=['user_readback'])", "Setting EpicsMotor 'm1' to 0.1."),
+        ("Thing(prefix='X')", "Setting 'Thing(prefix='X')' to 0.1."),
+    ],
+)
+def test_describe_message_shortens_device_reprs(obj, expected):
+    assert describe_message(_msg("set", obj, [0.1])) == expected
+
+
+def test_device_reprs_are_shortened_in_collapsed_lines():
+    lines = narrate_stream(
+        [
+            _msg("set", 'Motor(name="f-slits-top")', [0.1], {"group": "g"}),
+            _msg("wait", kwargs={"group": "g"}),
+            _msg("read", 'Slits(name="f-slits")'),
+            _msg("read", 'KinetixDetector(name="kinetix1")'),
+        ]
+    )
+    assert lines == [
+        "Moving Motor 'f-slits-top' to 0.1 and waiting for it to arrive, as part of group 'g'.",
+        "Reading the current values of Slits 'f-slits' and KinetixDetector 'kinetix1'.",
+    ]
+
+
 def test_describe_message_group_clause_names_auto_group_after_command():
     msg = _msg("set", "motor", [1], {"group": AUTO_GROUP_1})
     assert describe_message(msg) == "Setting 'motor' to 1, as part of group 'set'."
