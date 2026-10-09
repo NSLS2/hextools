@@ -18,7 +18,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui._ipython import run_in_ipython
+from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.photon_delivery_system.shutter import (
     Shutter,
     ensure_shutter_closed,
@@ -147,7 +147,7 @@ class QtShutterStatus(QWidget):
     def _execute_cell(self, code: str):
         error = run_in_ipython(code)
         if error is not None:
-            QMessageBox.critical(self, "Shutter actuation failed", f"{type(error).__name__}: {error}")
+            show_plan_error(self, "Shutter actuation failed", error)
 
     def closeEvent(self, event):
         for button in self._buttons:

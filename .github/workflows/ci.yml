@@ -81,6 +81,31 @@ jobs:
       - name: Run tests
         run: pixi run --as-is -e ${{ steps.pixi.outputs.env }} pytest --cov=src/hextools --cov-report=xml --cov-report=term
 
+  gui-test:
+    name: GUI Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Qt system libraries
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
+        with:
+          pixi-version: v0.79.0
+          environments: gui-dev
+          cache: false
+          frozen: true
+
+      - name: Run GUI tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pixi run --as-is -e gui-dev pytest tests/gui
+
       # Uncomment once codecov is enabled.
       # - name: Upload coverage to Codecov
       #   uses: codecov/codecov-action@v5

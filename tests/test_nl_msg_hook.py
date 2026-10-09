@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 import pytest
@@ -67,6 +68,33 @@ def test_describe_message(msg, expected):
 def test_describe_message_unknown_command_falls_back():
     assert describe_message(_msg("frobnicate_thing", "dev")) == "Performing 'frobnicate thing' on 'dev'."
     assert describe_message(_msg(None)) == "Performing 'an operation'."
+
+
+@pytest.mark.parametrize(
+    ("obj", "expected"),
+    [
+        ('Motor(name="f-slits-top")', "Setting Motor 'f-slits-top' to 0.1."),
+        ("EpicsMotor(prefix='XF:27ID', name='m1', read_attrs=['user_readback'])", "Setting EpicsMotor 'm1' to 0.1."),
+        ("Thing(prefix='X')", "Setting 'Thing(prefix='X')' to 0.1."),
+    ],
+)
+def test_describe_message_shortens_device_reprs(obj, expected):
+    assert describe_message(_msg("set", obj, [0.1])) == expected
+
+
+def test_device_reprs_are_shortened_in_collapsed_lines():
+    lines = narrate_stream(
+        [
+            _msg("set", 'Motor(name="f-slits-top")', [0.1], {"group": "g"}),
+            _msg("wait", kwargs={"group": "g"}),
+            _msg("read", 'Slits(name="f-slits")'),
+            _msg("read", 'KinetixDetector(name="kinetix1")'),
+        ]
+    )
+    assert lines == [
+        "Moving Motor 'f-slits-top' to 0.1 and waiting for it to arrive, as part of group 'g'.",
+        "Reading the current values of Slits 'f-slits' and KinetixDetector 'kinetix1'.",
+    ]
 
 
 def test_describe_message_group_clause_names_auto_group_after_command():
@@ -321,10 +349,58 @@ def test_hook_flush_and_due_emit_buffered_lines():
     assert emitted[-1] == "Reading the current value of 'det'."
 
 
-def test_hook_defaults_to_print(capsys):
+class _ListHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record):
+        self.records.append(record)
+
+
+@pytest.fixture
+def log_records():
+    """Records logged to a test-only logger, at any level."""
+    logger = logging.getLogger("hextools.test_nl_msg_hook")
+    handler = _ListHandler()
+    logger.addHandler(handler)
+    previous_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    yield logger, handler.records
+    logger.removeHandler(handler)
+    logger.setLevel(previous_level)
+
+
+def test_hook_logs_at_info_to_hextools_logger_by_default():
     hook = MsgHookNarrator(serialize=False)
+    assert hook._logger is logging.getLogger("hextools")
+    assert hook._level == logging.INFO
+
+
+@pytest.mark.parametrize("pass_name", [True, False])
+def test_hook_logs_lines_to_given_logger(log_records, pass_name):
+    logger, records = log_records
+    hook = MsgHookNarrator(logger=logger.name if pass_name else logger, serialize=False)
     hook(_msg("checkpoint"))
-    assert "Marking a checkpoint" in capsys.readouterr().out
+    assert [(r.levelno, r.getMessage()) for r in records] == [
+        (logging.INFO, "Marking a checkpoint (a safe point to pause or resume).")
+    ]
+
+
+def test_hook_log_level_is_configurable(log_records):
+    logger, records = log_records
+    hook = MsgHookNarrator(logger=logger, level=logging.DEBUG, serialize=False)
+    hook(_msg("checkpoint"))
+    assert [r.levelno for r in records] == [logging.DEBUG]
+
+
+def test_hook_emit_replaces_logging(log_records):
+    logger, records = log_records
+    emitted: list[str] = []
+    hook = MsgHookNarrator(emit=emitted.append, logger=logger, serialize=False)
+    hook(_msg("checkpoint"))
+    assert emitted == ["Marking a checkpoint (a safe point to pause or resume)."]
+    assert records == []
 
 
 def test_hook_listeners_receive_lines_and_can_be_removed():
