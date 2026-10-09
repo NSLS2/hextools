@@ -260,7 +260,7 @@ class QtTomographyView(QWidget):
         # Detector viewers take the majority of the screen.
         detectors = QtTabbedDetectorsWidget(re_client)
         for i in range(1, 5):
-            detectors.add_detector(f"kinetix{i}", "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}")
+            detectors.add_detector(f"kinetix{i}", "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}", show_profile_lines=True)
         detectors.add_combined("Dual Cam", ["kinetix1", "kinetix3"])
         top.addWidget(detectors, stretch=3)
 
@@ -304,6 +304,7 @@ class QtEDXDView(QWidget):
             auto_scale_method="minmax",
             log_scale=True,
             use_ca=True,
+            show_profile_lines=True,
         )
         top.addWidget(detectors, stretch=3)
 
