@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import html
 import importlib
 import inspect
 import json
@@ -28,8 +29,6 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QListView,
-    QListWidget,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -42,8 +41,10 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui._ipython import run_in_ipython
+from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_sources import _walk_namespace
+from hextools.gui.log_watcher import LogWatcher, level_color
+from hextools.log import LOGGER_NAME
 from hextools.utils.nl_msg_hook import MsgHookNarrator, nl_msg_hook
 
 _NO_PLAN = "\u2014"  # em dash
@@ -187,6 +188,20 @@ def _record_plan(plan: Any, namespace: Mapping[str, Any]) -> PlanRecord:
     if varkw:
         items.extend(args.get(varkw, {}).items())
 
+    func = gen.gi_frame.f_globals.get(code.co_name) if gen.gi_frame is not None else None
+    # Only re-run via a module-level function whose (unwrapped) code is this generator's.
+    if not callable(func) or getattr(inspect.unwrap(func), "__code__", None) is not code:
+        func = None
+
+    # Keyword arguments left at a ``None`` default (e.g. auto-resolved devices) add nothing.
+    if func is not None:
+        defaults = {name: p.default for name, p in inspect.signature(func).parameters.items()}
+        items = [
+            (key, value)
+            for key, value in items
+            if not (key is not None and value is None and defaults.get(key, inspect.Parameter.empty) is None)
+        ]
+
     rerunnable = True
     parts = []
     for key, value in items:
@@ -197,10 +212,6 @@ def _record_plan(plan: Any, namespace: Mapping[str, Any]) -> PlanRecord:
             text = _display(value, names)
         parts.append(text if key is None else f"{key}={text}")
 
-    func = gen.gi_frame.f_globals.get(code.co_name) if gen.gi_frame is not None else None
-    # Only re-run via a module-level function whose (unwrapped) code is this generator's.
-    if not callable(func) or getattr(inspect.unwrap(func), "__code__", None) is not code:
-        func = None
     return PlanRecord(
         name=code.co_name,
         arguments=", ".join(parts),
@@ -220,10 +231,9 @@ class PlanMonitor(QObject):
     existing ``msg_hook`` and ``state_hook`` rather than replacing them.
     """
 
-    line = Signal(float, str)
     plan_started = Signal(str, str)
     plan_finished = Signal(object)
-    run_started = Signal(object, str)
+    run_started = Signal(object, str, str)
     document = Signal(str, object)
 
     def __init__(
@@ -238,7 +248,6 @@ class PlanMonitor(QObject):
         self._narrator = narrator
         self._namespace = namespace if namespace is not None else {}
         self._current: PlanRecord | None = None
-        narrator.add_listener(self._on_line)
 
         previous_msg_hook = re.msg_hook
         if previous_msg_hook is not narrator:
@@ -270,9 +279,6 @@ class PlanMonitor(QObject):
         return self._re
 
     # These run on the RunEngine thread; Qt queues the signals onto the GUI thread.
-    def _on_line(self, text: str):
-        self.line.emit(datetime.now().timestamp(), text)
-
     def _on_state(self, new_state: str, old_state: str):
         if new_state == "running" and old_state == "idle":
             plan = getattr(self._re, "_plan", None)  # noqa: SLF001
@@ -292,31 +298,44 @@ class PlanMonitor(QObject):
         if self._current is not None:
             self._current.scan_ids.append(scan_id)
             self._current.uids.append(uid)
-        self.run_started.emit(scan_id, uid)
+        self.run_started.emit(scan_id, uid, doc.get("plan_name") or "")
 
     def _on_document(self, name, doc):
         self.document.emit(name, doc)
 
 
 class QtPlanStatus(QWidget):
-    """Compact summary: plan name, scan id, and latest narration."""
+    """Compact summary: plan name, scan ids, and the latest INFO-or-above log message.
 
-    def __init__(self, monitor: PlanMonitor, parent=None):
+    When the plan runs another plan that opens a run under a different name, that inner
+    plan and the current run's scan id are shown too, updating with each new run.
+    """
+
+    def __init__(self, monitor: PlanMonitor, logger_name: str = LOGGER_NAME, parent=None):
         super().__init__(parent)
         self._plan = QLabel(_NO_PLAN)
+        self._inner_plan = QLabel(_NO_PLAN)
         self._scan_id = QLabel(_NO_PLAN)
+        self._scan_id.setWordWrap(True)
+        self._inner_scan_id = QLabel(_NO_PLAN)
         self._last = QLabel(_NO_PLAN)
         self._last.setWordWrap(True)
         self._last.setMinimumWidth(260)
         # Wrap to the available width rather than widening the window.
         self._last.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._outer_name = ""
+        self._scan_ids: list[str] = []
 
         form = QFormLayout()
         form.setContentsMargins(8, 6, 8, 6)
         form.addRow("Plan:", self._plan)
+        form.addRow("Inner plan:", self._inner_plan)
         form.addRow("Scan ID:", self._scan_id)
+        form.addRow("Inner scan ID:", self._inner_scan_id)
         form.addRow(QLabel("Last step:"))
         form.addRow(self._last)
+        self._form = form
+        self._set_inner_visible(False)
 
         group_box = QGroupBox("Plan Status")
         group_box.setLayout(form)
@@ -326,21 +345,37 @@ class QtPlanStatus(QWidget):
 
         monitor.plan_started.connect(self._on_plan_started)
         monitor.run_started.connect(self._on_run_started)
-        monitor.line.connect(self._on_line)
+        self._watcher = LogWatcher(logger_name, level=logging.INFO, parent=self)
+        self._watcher.record.connect(self._on_record)
+
+    def _set_inner_visible(self, visible: bool):
+        self._form.setRowVisible(self._inner_plan, visible)
+        self._form.setRowVisible(self._inner_scan_id, visible)
 
     @Slot(str, str)
     def _on_plan_started(self, name: str, call: str):
+        self._outer_name = name
+        self._scan_ids = []
         self._plan.setText(name)
         self._scan_id.setText(_NO_PLAN)
+        self._inner_plan.setText(_NO_PLAN)
+        self._inner_scan_id.setText(_NO_PLAN)
+        self._set_inner_visible(False)
         self._last.setText(_NO_PLAN)
 
-    @Slot(object, str)
-    def _on_run_started(self, scan_id, uid: str):
-        self._scan_id.setText(_NO_PLAN if scan_id is None else str(scan_id))
+    @Slot(object, str, str)
+    def _on_run_started(self, scan_id, uid: str, plan_name: str):
+        current = _NO_PLAN if scan_id is None else str(scan_id)
+        self._scan_ids.append(current)
+        self._scan_id.setText(", ".join(self._scan_ids))
+        if plan_name and plan_name != self._outer_name:
+            self._inner_plan.setText(plan_name)
+            self._inner_scan_id.setText(current)
+            self._set_inner_visible(True)
 
-    @Slot(float, str)
-    def _on_line(self, timestamp: float, text: str):
-        self._last.setText(text)
+    @Slot(float, int, str, str)
+    def _on_record(self, created: float, levelno: int, levelname: str, message: str):
+        self._last.setText(message)
 
 
 class QtLiveTable(QWidget):
@@ -534,9 +569,9 @@ class QtPlanProgressView(QWidget):
 
 
 class QtPlanExecutionView(QWidget):
-    """The running plan's full call, above its narration since it started."""
+    """The running plan's full call, above the records logged to ``logger_name`` since it started."""
 
-    def __init__(self, monitor: PlanMonitor, parent=None):
+    def __init__(self, monitor: PlanMonitor, logger_name: str = LOGGER_NAME, parent=None):
         super().__init__(parent)
         self._call = QLabel("No plan has run yet.")
         self._call.setFont(_monospace_font())
@@ -547,11 +582,10 @@ class QtPlanExecutionView(QWidget):
         call_layout.addWidget(self._call)
         call_box.setLayout(call_layout)
 
-        self._messages = QListWidget()
-        self._messages.setWordWrap(True)
-        # Wrapping only happens once horizontal scrolling is ruled out.
+        self._messages = QPlainTextEdit()
+        self._messages.setReadOnly(True)
+        self._messages.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self._messages.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._messages.setResizeMode(QListView.ResizeMode.Adjust)
 
         progress_tabs = QTabWidget()
         progress_tabs.addTab(QtPlanProgressView(monitor), "Progress")
@@ -564,7 +598,8 @@ class QtPlanExecutionView(QWidget):
         self.setLayout(vbox)
 
         monitor.plan_started.connect(self._on_plan_started)
-        monitor.line.connect(self._on_line)
+        self._watcher = LogWatcher(logger_name, parent=self)
+        self._watcher.record.connect(self._on_record)
 
     def add_tab(self, widget: QWidget, label: str) -> None:
         """Add a tab beside Progress and Debug."""
@@ -575,22 +610,31 @@ class QtPlanExecutionView(QWidget):
         self._call.setText(call)
         self._messages.clear()
 
-    @Slot(float, str)
-    def _on_line(self, timestamp: float, text: str):
+    @Slot(float, int, str, str)
+    def _on_record(self, created: float, levelno: int, levelname: str, message: str):
         scrollbar = self._messages.verticalScrollBar()
         at_bottom = scrollbar.value() == scrollbar.maximum()
-        self._messages.addItem(f"[{datetime.fromtimestamp(timestamp):%H:%M:%S %H:%M:%S}] {text}")
+        self._messages.appendHtml(_record_html(created, levelno, levelname, message, "%H:%M:%S"))
         # Only follow new lines if the user hasn't scrolled up to read history.
         if at_bottom:
-            self._messages.scrollToBottom()
+            scrollbar.setValue(scrollbar.maximum())
+
+
+def _record_html(created: float, levelno: int, levelname: str, message: str, datefmt: str) -> str:
+    """One log line as HTML, with only the level name colored."""
+    color = level_color(levelno).name()
+    return (
+        f"[{datetime.fromtimestamp(created):{datefmt}}] "
+        f'<span style="color:{color}">{html.escape(levelname)}</span>: {html.escape(message)}'
+    )
 
 
 class QtPlanLogView(QWidget):
-    """Every narration line received this session."""
+    """Every record logged to ``logger_name`` this session, color-coded by level."""
 
     _MAX_LINES = 20000
 
-    def __init__(self, monitor: PlanMonitor, parent=None):
+    def __init__(self, monitor: PlanMonitor, logger_name: str = LOGGER_NAME, parent=None):
         super().__init__(parent)
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
@@ -601,19 +645,17 @@ class QtPlanLogView(QWidget):
         self.setLayout(vbox)
 
         monitor.plan_started.connect(self._on_plan_started)
-        monitor.line.connect(self._on_line)
+        self._watcher = LogWatcher(logger_name, parent=self)
+        self._watcher.record.connect(self._on_record)
 
     @Slot(str, str)
     def _on_plan_started(self, name: str, call: str):
-        self._append(datetime.now().timestamp(), f"=== {call} ===")
+        stamp = datetime.now()
+        self._log.appendHtml(html.escape(f"[{stamp:%Y-%m-%d %H:%M:%S}] === {call} ==="))
 
-    @Slot(float, str)
-    def _on_line(self, timestamp: float, text: str):
-        self._append(timestamp, text)
-
-    def _append(self, timestamp: float, text: str):
-        stamp = datetime.fromtimestamp(timestamp)
-        self._log.appendPlainText(f"[{stamp:%Y-%m-%d %H:%M:%S}] {text}")
+    @Slot(float, int, str, str)
+    def _on_record(self, created: float, levelno: int, levelname: str, message: str):
+        self._log.appendHtml(_record_html(created, levelno, levelname, message, "%Y-%m-%d %H:%M:%S"))
 
 
 class QtPlanHistory(QWidget):
@@ -776,4 +818,4 @@ class QtPlanHistory(QWidget):
     def _execute(self, code: str):
         error = run_in_ipython(code)
         if error is not None:
-            QMessageBox.critical(self, "Re-run failed", f"{type(error).__name__}: {error}")
+            show_plan_error(self, "Re-run failed", error)

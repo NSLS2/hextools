@@ -31,6 +31,7 @@ from tiled.client import from_uri, simple
 from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
 from bluesky.suspenders import SuspendFloor
 from hextools.utils import show_docs
+from hextools.log import configure_logger, log_pauses, log_plan_exceptions
 
 from hextools.detectors.phantom import PhantomDetector
 from hextools.detectors.kinetix import kinetix_factory
@@ -81,11 +82,18 @@ os.environ["OPHYD_ASYNC_PRESERVE_DETECTOR_STATE"] = "YES"
 # Print version information for bluesky, ophyd_async, tiled, and hextools.
 print_version_info()
 
+# Log hextools messages (including plan narration) to the console, color-coded by level.
+logger = configure_logger()
+
 # Setup the RunEngine and its metadata.
 RE: RunEngine = initialize_run_engine()
 RE.md["facility"] = "NSLS-II"
 RE.md["group"] = "HEX"
 RE.md["beamline_id"] = "27-ID-1"
+
+# Log any exception raised during a plan as an error, and any pause as a warning.
+log_plan_exceptions(RE, logger)
+log_pauses(RE, logger)
 
 # Setup progress bars
 RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]

@@ -1,10 +1,13 @@
 from typing import Any, Callable
 from datetime import datetime
+import logging
 import re as _re
 import uuid as _uuid
 import time as ttime
 from typing import Dict, Iterable, Optional
 from bluesky.utils import msg_to_json_safe_dict
+
+from hextools.log import LOGGER_NAME
 
 # ----------------------------------------------------------------------------------
 # Small formatting helpers
@@ -589,8 +592,8 @@ class MsgHookNarrator:
     A bluesky ``RunEngine`` ``msg_hook`` that narrates a plan's activity in plain English.
 
     Attach an instance to a RunEngine and it will, for every ``Msg`` the RunEngine
-    processes, serialize the message, feed it to a :class:`StreamNarrator`, and emit any
-    finalized narration lines (printed by default)::
+    processes, serialize the message, feed it to a :class:`StreamNarrator`, and log any
+    finalized narration lines (to the ``hextools`` logger at ``INFO`` by default)::
 
         RE.msg_hook = MsgHookNarrator()
 
@@ -601,7 +604,11 @@ class MsgHookNarrator:
     Parameters
     ----------
     emit : callable, optional
-        Called with each finalized narration line (a ``str``). Defaults to :func:`print`.
+        Called with each finalized narration line (a ``str``) instead of logging it.
+    logger : logging.Logger or str, optional
+        Logger (or its name) the lines are logged to, by default ``"hextools"``.
+    level : int, optional
+        Level the lines are logged at, by default ``logging.INFO``.
     show_timestamps : bool, optional
         Prefix each line with the message's human-readable timestamp.
     window : float, optional
@@ -617,14 +624,21 @@ class MsgHookNarrator:
         self,
         *,
         emit: Callable[[str], Any] | None = None,
+        logger: logging.Logger | str = LOGGER_NAME,
+        level: int = logging.INFO,
         show_timestamps: bool = False,
         window: float = 60.0,
         serialize: bool = True,
     ) -> None:
-        self._emit = emit if emit is not None else print
+        self._logger = logging.getLogger(logger) if isinstance(logger, str) else logger
+        self._level = level
+        self._emit = emit if emit is not None else self._log
         self._serialize = serialize
         self._narrator = StreamNarrator(show_timestamps=show_timestamps, window=window)
         self._listeners: list[Callable[[str], Any]] = []
+
+    def _log(self, line: str) -> None:
+        self._logger.log(self._level, line)
 
     def add_listener(self, callback: Callable[[str], Any]) -> None:
         """Also send each finalized line to ``callback`` (called on the RunEngine thread)."""

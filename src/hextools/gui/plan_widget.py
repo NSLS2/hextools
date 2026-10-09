@@ -41,6 +41,7 @@ except ImportError:
 import docstring_parser
 import IPython
 from bluesky import RunEngine
+from bluesky.utils import RunEngineInterrupted
 from bluesky_queueserver_api import BPlan
 from bluesky_widgets.qt.threading import FunctionWorker
 from bluesky_widgets.models.run_engine_client import RunEngineClient
@@ -62,7 +63,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui._ipython import run_in_ipython
+from hextools.gui._ipython import run_in_ipython, show_plan_error
+from hextools.log import unwrap_failed_status
 from hextools.gui.device_selector_widget import DynamicDeviceSelector
 from hextools.gui.device_sources import (
     DeviceSource,
@@ -608,13 +610,13 @@ class QtPlanWidget(QWidget):
 
     def _execute_cell(self, code: str):
         error = run_in_ipython(code)
+        if isinstance(error, RunEngineInterrupted):
+            self._set_status("Plan paused.")
+            show_plan_error(self, "Plan execution failed", error)
+            return
         if error is not None:
-            self._set_status(f"Plan failed: {error}", error=True)
-            QMessageBox.critical(
-                self,
-                "Plan execution failed",
-                f"{type(error).__name__}: {error}",
-            )
+            self._set_status(f"Plan failed: {unwrap_failed_status(error)}", error=True)
+            show_plan_error(self, "Plan execution failed", error)
             return
         self._set_status("Plan complete.")
 

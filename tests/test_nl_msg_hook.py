@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 import pytest
@@ -348,10 +349,58 @@ def test_hook_flush_and_due_emit_buffered_lines():
     assert emitted[-1] == "Reading the current value of 'det'."
 
 
-def test_hook_defaults_to_print(capsys):
+class _ListHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record):
+        self.records.append(record)
+
+
+@pytest.fixture
+def log_records():
+    """Records logged to a test-only logger, at any level."""
+    logger = logging.getLogger("hextools.test_nl_msg_hook")
+    handler = _ListHandler()
+    logger.addHandler(handler)
+    previous_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    yield logger, handler.records
+    logger.removeHandler(handler)
+    logger.setLevel(previous_level)
+
+
+def test_hook_logs_at_info_to_hextools_logger_by_default():
     hook = MsgHookNarrator(serialize=False)
+    assert hook._logger is logging.getLogger("hextools")
+    assert hook._level == logging.INFO
+
+
+@pytest.mark.parametrize("pass_name", [True, False])
+def test_hook_logs_lines_to_given_logger(log_records, pass_name):
+    logger, records = log_records
+    hook = MsgHookNarrator(logger=logger.name if pass_name else logger, serialize=False)
     hook(_msg("checkpoint"))
-    assert "Marking a checkpoint" in capsys.readouterr().out
+    assert [(r.levelno, r.getMessage()) for r in records] == [
+        (logging.INFO, "Marking a checkpoint (a safe point to pause or resume).")
+    ]
+
+
+def test_hook_log_level_is_configurable(log_records):
+    logger, records = log_records
+    hook = MsgHookNarrator(logger=logger, level=logging.DEBUG, serialize=False)
+    hook(_msg("checkpoint"))
+    assert [r.levelno for r in records] == [logging.DEBUG]
+
+
+def test_hook_emit_replaces_logging(log_records):
+    logger, records = log_records
+    emitted: list[str] = []
+    hook = MsgHookNarrator(emit=emitted.append, logger=logger, serialize=False)
+    hook(_msg("checkpoint"))
+    assert emitted == ["Marking a checkpoint (a safe point to pause or resume)."]
+    assert records == []
 
 
 def test_hook_listeners_receive_lines_and_can_be_removed():
