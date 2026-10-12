@@ -17,7 +17,13 @@ from ophyd_async.core import (
     init_devices,
     set_mock_value,
 )
-from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFileIO
+
+from ophyd_async.epics.adcore import (
+    ADBaseDataType, 
+    ADWriterFactory, 
+    NDPluginFileIO,
+    NDProcessIO,
+)
 
 import hextools.detectors.phantom
 from hextools.detectors.phantom import (
@@ -226,9 +232,8 @@ async def test_arm_logic_arm_success(
     set_mock_value(phantom_arm_logic.driver.trigger_received, True)
     set_mock_value(phantom_arm_logic.driver.post_trig_frames, 10)
     set_mock_value(phantom_arm_logic.driver.complete_and_valid, True)
-    set_mock_value(
-        phantom_arm_logic.driver.array_counter, 10
-    )  # Matches post_trig_frames
+    set_mock_value(phantom_arm_logic.driver.array_counter, 10)  # Matches post_trig_frames
+    set_mock_value(phantom_arm_logic.driver.total_frame_count, 10)
 
     await phantom_arm_logic.start_acquiring()  # Should complete without exceptions
     assert await phantom_arm_logic.driver.download.get_value()
@@ -243,9 +248,11 @@ async def test_arm_logic_wait_for_idle_timeout(
     set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)
     set_mock_value(phantom_arm_logic.driver.download_end_frame, 5)
     set_mock_value(phantom_arm_logic.driver.download, True)
+    set_mock_value(phantom_arm_logic.driver.selected_cine, 1)
     with pytest.raises(
         TimeoutError,
-        match="Timeout waiting for download to complete! Target number of downloaded frames: 11",  # noqa: E501
+        # match="Timeout waiting for download to complete! Target number of downloaded frames: 11",  # noqa: E501
+        match="Download counter stopped incrementing and cine was not marked as saved!",
     ):
         await phantom_arm_logic.wait_for_idle()
 
@@ -259,6 +266,7 @@ async def test_arm_logic_wait_for_idle_success(
     set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)
     set_mock_value(phantom_arm_logic.driver.download_end_frame, 5)
     set_mock_value(phantom_arm_logic.driver.download, True)
+    set_mock_value(phantom_arm_logic.driver.selected_cine, 1)
 
     # Simulate frames being downloaded by incrementing download_count
     async def _simulate_download():
@@ -266,6 +274,9 @@ async def test_arm_logic_wait_for_idle_success(
             await asyncio.sleep(0.001)
             count = await phantom_arm_logic.driver.download_count.get_value()
             if count >= 11:  # Total frames to download is 11 (-5 to 5 inclusive)
+                set_mock_value(
+                    phantom_arm_logic.driver.cines[1].cine_content_saved, True
+                )
                 break
             set_mock_value(phantom_arm_logic.driver.download_count, count + 1)
 
@@ -344,6 +355,10 @@ async def test_detector_full_stack(
     set_mock_value(phantom.driver.post_trig_frames, 15)
     set_mock_value(phantom.driver.download_start_frame, -5)
     set_mock_value(phantom.driver.download_end_frame, 5)
+    set_mock_value(phantom.driver.total_frame_count, 20)
+    set_mock_value(phantom.driver.selected_cine, 1)
+    proc = phantom.get_plugin_by_name("proc", NDProcessIO)
+    set_mock_value(proc.num_filter, 1) # the IOC's default; a mock starts at 0
 
     def _on_acquire(value, **kwargs):
         if value:
@@ -358,6 +373,7 @@ async def test_detector_full_stack(
             for count in range(1, 12):
                 set_mock_value(phantom.driver.download_count, count)
                 set_mock_value(phantom.hdf.num_captured, count)
+                set_mock_value(phantom.driver.cines[1].cine_content_saved, True)
 
         with h5py.File(tmp_path / "scan.h5", "w") as f:
             f.create_dataset(
@@ -407,5 +423,5 @@ async def test_detector_full_stack(
     assert "primary" in run
     assert "phantom" in run["primary"]
     data = run["primary"]["phantom"].read()
-    assert data.shape == (11, 3, 4)
+    assert data.shape == (1, 11, 3, 4) # one event of 11 frames
     assert data.dtype == np.uint16

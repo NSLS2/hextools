@@ -1,5 +1,6 @@
 """Detector utility functions for HEX beamline."""
 
+from ophyd_async.core import OnOff
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixReadoutMode, KinetixTriggerMode
 from ophyd_async.epics.advimba import VimbaDetector, VimbaTriggerSource, VimbaExposeOutMode
 from ophyd_async.epics.adcore import ADImageMode
@@ -192,8 +193,11 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
     if isinstance(cam, KinetixDetector):
         yield from bps.mv(cam.driver.trigger_mode, KinetixTriggerMode.INTERNAL)
     elif isinstance(cam, VimbaDetector):
-        yield from bps.mv(cam.driver.trigger_mode, VimbaTriggerSource.FREERUN)
-        yield from bps.mv(cam.driver.exposure_mode, VimbaExposeOutMode.TIMED)
+        yield from bps.mv(
+            cam.driver.trigger_mode, OnOff.OFF,
+            cam.driver.trigger_source, VimbaTriggerSource.FREERUN,
+            cam.driver.exposure_mode, VimbaExposeOutMode.TIMED,
+        )
     yield from bps.sleep(0.1)
 
     # Since this is a busy record, wait=True will block till

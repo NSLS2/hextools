@@ -33,7 +33,7 @@ ImageDataset = np.ndarray[
 FloatImage = np.ndarray[tuple[int, int], np.dtype[np.float64]]
 FloatImageDataset = np.ndarray[tuple[int, int, int], np.dtype[np.float64]]
 #: Sphere center coordinates, one per projection.
-Points = np.ndarray[tuple[int], np.dtype[np.float32]]
+Points = np.ndarray[tuple[int], np.dtype[np.floating]]
 
 
 def ensure_run_is_valid(

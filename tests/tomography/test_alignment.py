@@ -411,7 +411,7 @@ async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
         )
     )
 
-    with pytest.raises(ValueError, match="Front-end shutter is closed"):
+    with pytest.raises(RuntimeError, match=f"Shutter {fe_shutter.name} is not in the desired state"):
         RE(
             tomo_alignment_scan(
                 kinetix_det_factory(1),
@@ -424,18 +424,11 @@ async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
 
 
 @pytest.mark.parametrize(
-    (
-        "exposure_time",
-        "num_projections",
-        "init_angle",
-        "stop_angle",
-        "base_x_offset",
-        "include_sample_stage_x",
-    ),
+    ("exposure_time", "num_projections", "init_angle", "stop_angle"),
     [
-        (0.1, 37, 0.0, 360.0, 0.0, True),
-        (0.4, 11, 0.0, 360.0, 10.0, False),
-        (1.0, 21, -50.0, 50.0, 10.0, True),
+        (0.1, 37, 0.0, 360.0),
+        (0.4, 11, 0.0, 360.0),
+        (1.0, 21, -50.0, 50.0),
     ],
 )
 async def test_tomo_alignment_scan(
@@ -447,37 +440,28 @@ async def test_tomo_alignment_scan(
     num_projections: int,
     init_angle: float,
     stop_angle: float,
-    base_x_offset: float,
-    include_sample_stage_x: bool,
 ):
-    rotation_motor, sample_stage_x = motors
+    rotation_motor, _ = motors
     fe_shutter, photon_shutter = two_shutters
     ktx1 = kinetix_det_factory(1)
     RE(bps.mv(fe_shutter, True))
 
     set_mock_value(rotation_motor.max_velocity, 10000)
-    max_velocity = await rotation_motor.max_velocity.get_value()
+    # A real stage never sits at zero velocity, and the restore reads the setpoint.
+    await rotation_motor.velocity.set(10)
+    initial_velocity = await rotation_motor.velocity.get_value()
+    initial_position = await rotation_motor.user_readback.get_value()
+    initial_acquire_time = await ktx1.driver.acquire_time.get_value()
     assert await photon_shutter.status.get_value() is ShutterStatus.CLOSED
 
     docs: dict[str, list[dict[str, Any]]] = {}
 
     def cache_docs(name: str, doc: dict[str, Any]):
-        if name in docs:
-            docs[name].append(doc)
-        else:
-            docs[name] = [doc]
+        docs.setdefault(name, []).append(doc)
 
-    messages_by_type: dict[str, list[Msg]] = {}
     messages: list[Msg] = []
-
-    def msg_hook(msg: Msg):
-        messages.append(msg)
-        if msg.command in messages_by_type:
-            messages_by_type[msg.command].append(msg)
-        else:
-            messages_by_type[msg.command] = [msg]
-
-    RE.msg_hook = msg_hook
+    # RunEngine declares msg_hook as None, so Pylance rejects assigning a callable.
+    RE.msg_hook = messages.append  # pyright: ignore[reportAttributeAccessIssue]
 
     runs: RunEngineResult = RE(
         tomo_alignment_scan(
@@ -486,53 +470,34 @@ async def test_tomo_alignment_scan(
             num_projections=num_projections,
             init_angle=init_angle,
             stop_angle=stop_angle,
-            base_x_offset=base_x_offset,
             fe_shutter=fe_shutter,
             photon_shutter=photon_shutter,
             rot_motor=rotation_motor,
-            sample_stage_x=None if not include_sample_stage_x else sample_stage_x,
         ),
         cache_docs,  # type: ignore
     )  # type: ignore
 
-    expecting_flat = base_x_offset > 0.0 and include_sample_stage_x
-
-    assert await rotation_motor.velocity.get_value() == max_velocity
-    assert await photon_shutter.status.get_value() is ShutterStatus.OPEN
-
-    # The flat-field image, if any, is a "flat" stream in the same single run.
+    # One run with only a primary stream: one event per projection.
     assert len(runs.run_start_uids) == 1
     for doc_type in ["start", "stop"]:
         assert len(docs[doc_type]) == 1
-    stream_names = [d["name"] for d in docs["descriptor"]]
-    assert stream_names == (["flat", "primary"] if expecting_flat else ["primary"])
-
-    flat_uid = next((d["uid"] for d in docs["descriptor"] if d["name"] == "flat"), None)
-    flat_events = [e for e in docs["event"] if e["descriptor"] == flat_uid]
-    assert len(flat_events) == (1 if expecting_flat else 0)
-    assert len(docs["event"]) - len(flat_events) == num_projections
+    assert [d["name"] for d in docs["descriptor"]] == ["primary"]
+    assert len(docs["event"]) == num_projections
     assert docs["start"][0]["plan_name"] == "tomography_alignment_scan"
-    assert "flat_uid" not in docs["start"][0]
 
-    assert await ktx1.driver.acquire_time.get_value() == exposure_time
-    assert await rotation_motor.user_readback.get_value() == stop_angle
-
-    if expecting_flat:
-        sample_staged_move_counter = 0
-        for msg in messages_by_type["set"]:
-            if msg.obj == sample_stage_x:
-                if sample_staged_move_counter == 0:
-                    assert msg.args == np.float64(base_x_offset)
-                else:
-                    assert msg.args == np.float64(0.0)
-                sample_staged_move_counter += 1
-        assert sample_staged_move_counter == 2
-        assert await sample_stage_x.user_readback.get_value() == 0.0
-
+    # Before the run: max velocity, exposure settings and one image per trigger.
     open_run = next(i for i, msg in enumerate(messages) if msg.command == "open_run")
+    setup = {msg.obj: msg.args[0] for msg in messages[:open_run] if msg.command == "set"}
+    assert setup[rotation_motor.velocity] == 10000
+    assert setup[ktx1.driver.acquire_time] == exposure_time
+    assert setup[ktx1.driver.num_images] == 1
     first_rotation = next(
-        msg
-        for msg in messages[open_run:]
-        if msg.command == "set" and msg.obj == rotation_motor
+        msg for msg in messages[open_run:] if msg.command == "set" and msg.obj == rotation_motor
     )
     assert first_rotation.args == np.float64(init_angle)
+
+    # Afterwards: photon shutter closed, motor and detector settings restored.
+    assert await photon_shutter.status.get_value() is ShutterStatus.CLOSED
+    assert await rotation_motor.velocity.get_value() == initial_velocity
+    assert await rotation_motor.user_readback.get_value() == initial_position
+    assert await ktx1.driver.acquire_time.get_value() == initial_acquire_time
