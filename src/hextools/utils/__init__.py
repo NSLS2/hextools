@@ -2,6 +2,8 @@
 
 import asyncio
 import os
+import shutil
+import sys
 from collections.abc import MutableMapping
 from datetime import datetime
 from typing import Any, AsyncIterator, OrderedDict, TypeVar
@@ -17,10 +19,12 @@ from ophyd_async.core import (
     DeviceProcessor,
     DeviceVector,
     NotConnectedError,
+    Signal,
     WatchableAsyncStatus,
     Watcher,
     WatcherUpdate,
     wait_for_connection,
+    walk_devices,
 )
 from ophyd_async.sim import SimMotor
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
@@ -184,7 +188,173 @@ def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
     print_proposal_info(md)
 
 
-def auto_init_devices(timeout: float = 1.0, verbose: bool = False) -> DeviceProcessor:
+NSLS2_API_URL = "https://api.nsls2.bnl.gov"
+_MOCK_PROPOSALS = {
+    "123456": {"title": "Mock mode proposal", "type": "Mock Commissioning"},
+    "314159": {"title": "Another mock proposal", "type": "Mock General User"},
+}
+_MOCK_COMMISSIONING = ["123456"]
+
+
+def _sorted_desc(proposals: set[str]) -> list[str]:
+    return sorted(proposals, key=lambda p: int(p) if p.isdigit() else 0, reverse=True)
+
+
+def list_proposals(beamline: str = "HEX") -> dict[str, list[str]]:
+    """Proposal numbers for ``beamline``, newest first.
+
+    Returns
+    -------
+    dict[str, list[str]]
+        ``"user"``: the beamline's proposals in the current cycle, and
+        ``"commissioning"``: its commissioning proposals.
+    """
+    if is_running_in_ci():
+        return {
+            "user": [p for p in _MOCK_PROPOSALS if p not in _MOCK_COMMISSIONING],
+            "commissioning": list(_MOCK_COMMISSIONING),
+        }
+
+    import httpx
+
+    with httpx.Client(base_url=NSLS2_API_URL, timeout=10) as client:
+        cycle = client.get("/v1/facility/nsls2/cycles/current").raise_for_status().json()["cycle"]
+        in_cycle = set(
+            client.get(f"/v1/facility/nsls2/cycle/{cycle}/proposals").raise_for_status().json()["proposals"]
+        )
+        # The beamline-filtered listing needs an API key; this public one doesn't.
+        beamline_proposals = client.get(
+            "/v1/proposals/recent/1000", params={"beamline": beamline}
+        ).raise_for_status().json()["proposals"]
+        commissioning = set(
+            client.get("/v1/proposals/commissioning", params={"beamline": beamline})
+            .raise_for_status()
+            .json()
+            .get("commissioning_proposals", [])
+        )
+    user = {p["proposal_id"] for p in beamline_proposals if p["proposal_id"] in in_cycle}
+    return {"user": _sorted_desc(user - commissioning), "commissioning": _sorted_desc(commissioning)}
+
+
+def get_proposal_info(proposal_number: int | str) -> dict[str, str]:
+    """The ``title``, ``type``, and ``pi_name`` of a proposal."""
+    if is_running_in_ci():
+        info = _MOCK_PROPOSALS.get(str(proposal_number), {"title": "Mock proposal", "type": "Mock"})
+        return {**info, "pi_name": os.getenv("USER", "Unknown")}
+
+    import httpx
+
+    with httpx.Client(base_url=NSLS2_API_URL, timeout=10) as client:
+        proposal = client.get(f"/v1/proposal/{proposal_number}").raise_for_status().json()["proposal"]
+    if "error_message" in proposal:
+        raise ValueError(proposal["error_message"])
+    pi = next((u for u in proposal.get("users") or [] if u.get("is_pi")), {})
+    return {
+        "title": proposal.get("title") or "",
+        "type": proposal.get("type") or "",
+        "pi_name": f"{pi.get('first_name') or ''} {pi.get('last_name') or ''}".strip(),
+    }
+
+
+def _run_sync_experiment(
+    proposal_number: int, username: str, password: str, beamline: str, timeout: float = 60.0
+) -> str:
+    """Run ``sync-experiment``, answering its prompts; return its output or raise on failure."""
+    import pexpect
+
+    exe = shutil.which("sync-experiment", path=os.path.dirname(sys.executable)) or shutil.which(
+        "sync-experiment"
+    )
+    if exe is None:
+        raise RuntimeError("The sync-experiment command was not found.")
+
+    child = pexpect.spawn(
+        exe,
+        ["--beamline", beamline, "--proposal", str(proposal_number), "--enable-ssl"],
+        encoding="utf-8",
+        timeout=timeout,
+    )
+    output = ""
+    try:
+        for prompt, answer in (("Username : ", username), ("Password : ", password)):
+            if child.expect([prompt, pexpect.EOF]) == 1:
+                output += child.before or ""
+                break
+            output += (child.before or "") + prompt
+            child.sendline(answer)
+        else:
+            child.expect(pexpect.EOF)
+            output += child.before or ""
+    except pexpect.TIMEOUT:
+        raise RuntimeError("sync-experiment timed out.") from None
+    finally:
+        child.close(force=True)
+
+    if child.exitstatus != 0:
+        lines = [line for line in output.splitlines() if line.strip()]
+        raise RuntimeError(lines[-1] if lines else f"sync-experiment failed (exit status {child.exitstatus}).")
+    return output
+
+
+def switch_proposal(
+    proposal_number: int,
+    username: str,
+    password: str,
+    md: MutableMapping[str, Any] | None = None,
+    beamline: str = "HEX",
+) -> MutableMapping[str, Any]:
+    """Authenticate ``username`` and make ``proposal_number`` the active proposal.
+
+    Runs ``nslsii``'s ``sync-experiment`` command, answering its prompts with the
+    given credentials. In mock mode any credentials are accepted and only ``md``
+    (e.g. ``RE.md``) is updated.
+
+    Returns
+    -------
+    MutableMapping[str, Any]
+        The updated metadata: ``md`` if given (Redis-backed outside mock mode), else
+        an empty dict.
+    """
+    if is_running_in_ci():
+        if md is None:
+            raise ValueError("In mock mode, the metadata to update must be given.")
+        md["data_session"] = f"pass-{proposal_number}"
+        md["username"] = username
+        md["start_datetime"] = datetime.now().isoformat()
+        info = get_proposal_info(proposal_number)
+        md["proposal"] = {
+            "proposal_id": str(proposal_number),
+            "title": info["title"],
+            "type": info["type"],
+            "pi_name": info["pi_name"],
+        }
+        return md
+
+    _run_sync_experiment(proposal_number, username, password, beamline)
+    return md if md is not None else {}
+
+
+def _failed_paths(error: Exception, prefix: str = "") -> list[str]:
+    """Dotted paths of the leaves of a (nested) NotConnectedError."""
+    sub = error.sub_errors if isinstance(error, NotConnectedError) else {}
+    if not sub:
+        return [prefix.rstrip(".")]
+    return [p for name, err in sub.items() for p in _failed_paths(err, f"{prefix}{name}.")]
+
+
+def _count_connected_signals(device: Device, error: Exception) -> tuple[int, int]:
+    """(connected, total) signals of ``device``, given the error from connecting it."""
+    signals = [path for path, d in walk_devices(device).items() if isinstance(d, Signal)]
+    if not signals:
+        return 0, 1
+    failed = [p for p in _failed_paths(error) if p]
+    if not failed:
+        return 0, len(signals)
+    down = [s for s in signals if any(s == f or s.startswith(f + ".") for f in failed)]
+    return len(signals) - len(down), len(signals)
+
+
+def auto_init_devices(timeout: float = 1.0, ok_message = "OK", fail_message = "FAILED", verbose: bool = False) -> DeviceProcessor:
     """Create a DeviceProcessor that connects devices, printing status for each.
 
     Parameters
@@ -200,7 +370,7 @@ def auto_init_devices(timeout: float = 1.0, verbose: bool = False) -> DeviceProc
     mock = is_running_in_ci()
     # highlight=False stops rich from coloring dot-runs as ellipses.
     console = Console(highlight=False)
-    console.print("\n[bold]Initializing devices...[/bold]\n")
+    console.print("\n[bold]Connecting to beamline devices...[/bold]\n")
 
     async def _process_devices(devices: dict[str, Device]):
         for name, device in devices.items():
@@ -211,21 +381,26 @@ def auto_init_devices(timeout: float = 1.0, verbose: bool = False) -> DeviceProc
         }
         failed: set[str] = set()
         reasons: dict[str, str] = {}
+        e = NotConnectedError({})
         try:
             await wait_for_connection(**coros)
-        except NotConnectedError as e:
+        except NotConnectedError as err:
+            e = err
             failed = set(e.sub_errors.keys())
             reasons = {name: str(err) for name, err in e.sub_errors.items()}
 
-        for name in devices:
+        width = max(len(ok_message), len(fail_message)) + 2
+        for name, device in devices.items():
             dots = "." * (40 - len(name))
-            # Center both labels to the same width so the brackets line up.
             # Escaped brackets stay uncolored; only the label text is styled.
-            if name in failed:
-                status = rf"\[[bold red]{'DC'.center(6)}[/bold red]]"
-            else:
-                status = rf"\[[bold green]{'OK'.center(6)}[/bold green]]"
-            console.print(f"  {name} {dots} {status}")
+            if name not in failed:
+                console.print(f"  {name} {dots} \\[[bold green]{ok_message.center(width)}[/bold green]]")
+                continue
+            line = f"  {name} {dots} \\[[bold yellow]{fail_message.center(width)}[/bold yellow]]"
+            connected, total = _count_connected_signals(device, e.sub_errors[name])
+            if 0 < connected < total:
+                line += f" [dim]({connected}/{total} signals connected)[/dim]"
+            console.print(line)
         if verbose:
             console.print(
                 "\n".join(f"{name}: {reason}" for name, reason in reasons.items())

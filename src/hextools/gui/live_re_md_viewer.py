@@ -20,8 +20,25 @@ from typing import Any
 from bluesky import RunEngine
 from bluesky_widgets.qt.threading import FunctionWorker
 from qtpy.QtCore import Qt, QTimer, Signal, Slot
-from qtpy.QtWidgets import QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
+from qtpy.QtGui import QIntValidator
+from qtpy.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 from bluesky_widgets.models.run_engine_client import RunEngineClient
+
+from hextools.utils import get_proposal_info, is_running_in_ci, list_proposals, switch_proposal
 
 RunEngineMetadata = MutableMapping[str, Any]
 
@@ -76,7 +93,10 @@ class QtReMetadataMonitor(QWidget):
             form.addRow(f"{self._key_labels[i]}:", label)
 
         group_box = QGroupBox(title)
-        group_box.setLayout(form)
+        self._group_layout = QVBoxLayout(group_box)
+        self._group_layout.setContentsMargins(0, 0, 0, 0)
+        self._group_layout.addLayout(form)
+        self._form = form
 
         vbox = QVBoxLayout()
         vbox.addWidget(group_box)
@@ -168,3 +188,177 @@ class QtProposalInfo(QtReMetadataMonitor):
             parent=parent,
             title="Proposal Info"
         )
+        self._switch_worker = None
+        self._change_button = QPushButton("Change Proposal…")
+        self._change_button.clicked.connect(self.change_proposal)
+        self._group_layout.addStretch(1)
+        self._group_layout.addWidget(self._change_button)
+
+    def _switch(self, proposal: int, username: str, password: str):
+        if isinstance(self._re, RunEngine):
+            return switch_proposal(proposal, username, password, md=self._re.md)
+        client = self._re._client  # noqa: SLF001
+        response = client.re_metadata()
+        if not response.get("success", False):
+            raise RuntimeError(response.get("msg") or "Couldn't read the RunEngine metadata.")
+        md = dict(response.get("re_metadata") or {})
+        updated = switch_proposal(proposal, username, password, md=md)
+        if is_running_in_ci():
+            # Outside mock mode RE.md is Redis-backed, so the switch already reached the worker.
+            keys = ("data_session", "username", "start_datetime", "proposal")
+            changes = {k: updated[k] for k in keys if k in updated}
+            client.script_upload(f"RE.md.update({changes!r})")
+        return updated
+
+    def change_proposal(self):
+        """Open the dialog to pick a proposal and sign in, then switch to it."""
+        if self._switch_worker is not None:
+            return
+        dialog = QtChangeProposalDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        proposal, username, password = dialog.values()
+        self._change_button.setEnabled(False)
+        self._change_button.setText("Changing proposal…")
+        self._switch_worker = FunctionWorker(self._switch, proposal, username, password)
+        self._switch_worker.returned.connect(self._on_switch_returned)
+        self._switch_worker.errored.connect(self._on_switch_errored)
+        self._switch_worker.start()
+
+    def _reset_button(self):
+        self._switch_worker = None
+        self._change_button.setEnabled(True)
+        self._change_button.setText("Change Proposal…")
+
+    def _on_switch_returned(self, _md):
+        self._reset_button()
+        self._start_worker()
+
+    def _on_switch_errored(self, error: Exception):
+        self._reset_button()
+        QMessageBox.critical(self, "Couldn't change proposal", f"{type(error).__name__}: {error}")
+
+
+class QtChangeProposalDialog(QDialog):
+    """Pick one of the beamline's proposals, see its details, and sign in to switch to it."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("Change Proposal")
+        self.setMinimumWidth(420)
+        self._list_worker = None
+        self._info_workers: set[FunctionWorker] = set()
+        self._lists: dict[str, list[str]] = {}
+
+        # Editable, so a proposal missing from the list can still be typed in.
+        self._proposal = QComboBox()
+        self._proposal.setEditable(True)
+        self._proposal.setValidator(QIntValidator(1, 999_999_999, self))
+        self._proposal.lineEdit().setPlaceholderText("Loading proposals\u2026")
+        self._proposal.currentTextChanged.connect(self._on_proposal_changed)
+        self._commissioning = QCheckBox("Commissioning")
+        self._commissioning.setToolTip("List the beamline's commissioning proposals instead of user proposals.")
+        self._commissioning.toggled.connect(self._populate)
+
+        self._title = QLabel(_PLACEHOLDER)
+        self._title.setWordWrap(True)
+        self._type = QLabel(_PLACEHOLDER)
+        self._pi = QLabel(_PLACEHOLDER)
+        details = QFormLayout()
+        details.addRow("Title:", self._title)
+        details.addRow("Type:", self._type)
+        details.addRow("PI:", self._pi)
+        details_box = QGroupBox("Proposal")
+        details_box.setLayout(details)
+
+        self._username = QLineEdit()
+        self._password = QLineEdit()
+        self._password.setEchoMode(QLineEdit.EchoMode.Password)
+        sign_in = QFormLayout()
+        sign_in.addRow("Username:", self._username)
+        sign_in.addRow("Password:", self._password)
+        sign_in_box = QGroupBox("Sign in")
+        sign_in_box.setLayout(sign_in)
+
+        self._buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self._buttons.accepted.connect(self.accept)
+        self._buttons.rejected.connect(self.reject)
+        self._proposal.currentTextChanged.connect(self._update_ok)
+        for edit in (self._username, self._password):
+            edit.textChanged.connect(self._update_ok)
+        self._update_ok()
+
+        top = QFormLayout()
+        proposal_row = QHBoxLayout()
+        proposal_row.addWidget(self._proposal, stretch=1)
+        proposal_row.addWidget(self._commissioning)
+        top.addRow("Proposal number:", proposal_row)
+        vbox = QVBoxLayout(self)
+        vbox.addLayout(top)
+        vbox.addWidget(details_box)
+        vbox.addWidget(sign_in_box)
+        vbox.addWidget(self._buttons)
+
+        self._list_worker = FunctionWorker(list_proposals)
+        self._list_worker.returned.connect(self._on_proposals_listed)
+        self._list_worker.errored.connect(self._on_proposals_errored)
+        self._list_worker.start()
+
+    def _on_proposals_listed(self, proposals: dict[str, list[str]]):
+        self._list_worker = None
+        self._lists = proposals
+        self._populate()
+        self._proposal.lineEdit().setPlaceholderText("Select or type a proposal number")
+
+    def _populate(self):
+        """Fill the dropdown with the commissioning or the user proposals, per the toggle."""
+        kind = "commissioning" if self._commissioning.isChecked() else "user"
+        self._proposal.blockSignals(True)
+        self._proposal.clear()
+        self._proposal.addItems(self._lists.get(kind, []))
+        self._proposal.setCurrentIndex(-1)
+        self._proposal.blockSignals(False)
+        self._on_proposal_changed("")
+        self._update_ok()
+
+    def _on_proposals_errored(self, error: Exception):
+        self._list_worker = None
+        self._proposal.lineEdit().setPlaceholderText("Couldn't load proposals; type a number")
+
+    def _on_proposal_changed(self, text: str):
+        for label in (self._title, self._type, self._pi):
+            label.setText(_PLACEHOLDER)
+        if not text.isdigit():
+            return
+        self._title.setText("Loading\u2026")
+        worker = FunctionWorker(get_proposal_info, text)
+        worker.returned.connect(lambda info, number=text: self._on_info(number, info))
+        worker.errored.connect(lambda error, number=text: self._on_info_error(number, error))
+        # Keep each worker referenced until it finishes, even if the selection moves on.
+        self._info_workers.add(worker)
+        worker.finished.connect(lambda w=worker: self._info_workers.discard(w))
+        worker.start()
+
+    def _on_info(self, number: str, info: dict):
+        # Ignore answers for a proposal that is no longer selected.
+        if number != self._proposal.currentText():
+            return
+        self._title.setText(info.get("title") or _PLACEHOLDER)
+        self._type.setText(info.get("type") or _PLACEHOLDER)
+        self._pi.setText(info.get("pi_name") or _PLACEHOLDER)
+
+    def _on_info_error(self, number: str, error: Exception):
+        if number == self._proposal.currentText():
+            self._title.setText(f"Couldn't fetch proposal: {error}")
+
+    def _update_ok(self):
+        filled = self._proposal.currentText().isdigit() and all(
+            e.text() for e in (self._username, self._password)
+        )
+        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(filled)
+
+    def values(self) -> tuple[int, str, str]:
+        """The selected proposal number, username, and password."""
+        return int(self._proposal.currentText()), self._username.text().strip(), self._password.text()

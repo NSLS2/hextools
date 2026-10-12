@@ -52,6 +52,7 @@ gui = [
     "matplotlib",
     "qtpy",
     "pyside6",
+    "pexpect",
     "ntnda-qt-viewer @ git+https://github.com/jwlodek/ntnda-qt-viewer@main",
 ]
 

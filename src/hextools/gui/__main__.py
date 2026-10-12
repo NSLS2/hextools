@@ -392,7 +392,8 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             controls.addWidget(QtReRunningPlan(re_client))
         else:
             controls.addWidget(QtReExecutionControlsLocal(local=True))
-        controls.addWidget(QtProposalInfo(re_client))
+        self.proposal_info = QtProposalInfo(re_client)
+        controls.addWidget(self.proposal_info)
         controls.addWidget(QtWeatherWidget())
         ipython = IPython.get_ipython()
         user_ns = ipython.user_ns if ipython is not None else {}
@@ -530,6 +531,9 @@ class QtDataAcquisitionWindow:
         menu_bar = self._qt_window.menuBar()
 
         self.file_menu = menu_bar.addMenu("&File")
+        change_proposal = self.file_menu.addAction("Change Proposal…")
+        change_proposal.triggered.connect(self.qt_widget.proposal_info.change_proposal)
+        self.file_menu.addSeparator()
         save_history = self.file_menu.addAction("Save Plan History As…")
         save_history.triggered.connect(self._on_save_history_as)
         if self.qt_widget.plan_history is None:

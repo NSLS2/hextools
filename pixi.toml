@@ -96,7 +96,7 @@ qtpy = ">=2.4.3,<3"
 # Install the `gui` extra (bluesky-widgets, ntnda-qt-viewer, ...) in this env.
 [feature.gui.pypi-dependencies]
 hextools = { path = ".", editable = true, extras = ["gui"] }
-ntnda-qt-viewer = { git = "https://github.com/jwlodek/ntnda-qt-viewer" }
+ntnda-qt-viewer = { git = "https://github.com/jwlodek/ntnda-qt-viewer", rev = "main" }
 
 
 [feature.gui.tasks]
@@ -116,13 +116,19 @@ terminal = {features = ["profile", "terminal"], solve-group = "profile"}
 # Terminal environment plus dev packages (uvicorn, etc.) for mock runs.
 terminal-dev = { features = ["profile", "terminal", "dev"] }
 qs = { features = ["profile", "qs"], solve-group = "profile" }
-gui = { features = ["profile", "gui"], solve-group = "profile" }
 gui-dev = { features = ["profile", "gui", "dev", "gui-dev"], solve-group = "profile" }
 
 # Python version specific environments for CI
 py311 = { features = ["dev", "py311"], solve-group = "py311" }
 py312 = { features = ["dev", "py312"], solve-group = "py312" }
 py313 = { features = ["dev", "py313"], solve-group = "py313" }
+
+[environments.gui]
+features = ["profile", "gui"]
+solve-group = "profile"
+
+[environments.gui.dependencies]
+pexpect = ">=4.9.0,<5"
 
 [feature.py313.tasks]
 tests = "pytest --cov=src/hextools --cov-report=term"
