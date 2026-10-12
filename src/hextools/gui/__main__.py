@@ -543,6 +543,29 @@ class QtDataAcquisitionWindow:
         self.settings_menu = menu_bar.addMenu("&Settings")
         self.settings_menu.addAction(QtThemeAction(self._qt_window))
 
+        self.help_menu = menu_bar.addMenu("&Help")
+        self.help_menu.addAction("About", self._on_about)
+
+    def _on_about(self):
+        from importlib.metadata import PackageNotFoundError, version
+        import platform
+
+        rows = [f"<tr><td><b>python</b></td><td>&nbsp;&nbsp;{platform.python_version()}</td></tr>"]
+        for package in ("hextools", "bluesky", "ophyd-async", "tiled", "bluesky-tiled-plugins"):
+            try:
+                ver = version(package)
+            except PackageNotFoundError:
+                ver = "not installed"
+            rows.append(f"<tr><td><b>{package}</b></td><td>&nbsp;&nbsp;{ver}</td></tr>")
+        box = QMessageBox(
+            QMessageBox.Icon.Information,
+            "About HEX Data Acquisition",
+            f"<h3>HEX Data Acquisition</h3><table>{''.join(rows)}</table>",
+            QMessageBox.StandardButton.Ok,
+            self._qt_window,
+        )
+        box.exec()
+
     def _on_save_history_as(self):
         history = self.qt_widget.plan_history
         if history is None:
