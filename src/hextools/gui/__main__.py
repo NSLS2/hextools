@@ -400,7 +400,8 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             controls.addWidget(QtReRunningPlan(re_client))
         else:
             controls.addWidget(QtReExecutionControlsLocal(local=True))
-        controls.addWidget(QtProposalInfo(re_client))
+        self.proposal_info = QtProposalInfo(re_client)
+        controls.addWidget(self.proposal_info)
         controls.addWidget(QtWeatherWidget())
         ipython = IPython.get_ipython()
         user_ns = ipython.user_ns if ipython is not None else {}
@@ -538,6 +539,9 @@ class QtDataAcquisitionWindow:
         menu_bar = self._qt_window.menuBar()
 
         self.file_menu = menu_bar.addMenu("&File")
+        change_proposal = self.file_menu.addAction("Change Proposal…")
+        change_proposal.triggered.connect(self.qt_widget.proposal_info.change_proposal)
+        self.file_menu.addSeparator()
         save_history = self.file_menu.addAction("Save Plan History As…")
         save_history.triggered.connect(self._on_save_history_as)
         if self.qt_widget.plan_history is None:
@@ -546,6 +550,29 @@ class QtDataAcquisitionWindow:
 
         self.settings_menu = menu_bar.addMenu("&Settings")
         self.settings_menu.addAction(QtThemeAction(self._qt_window))
+
+        self.help_menu = menu_bar.addMenu("&Help")
+        self.help_menu.addAction("About", self._on_about)
+
+    def _on_about(self):
+        from importlib.metadata import PackageNotFoundError, version
+        import platform
+
+        rows = [f"<tr><td><b>python</b></td><td>&nbsp;&nbsp;{platform.python_version()}</td></tr>"]
+        for package in ("hextools", "bluesky", "ophyd-async", "tiled", "bluesky-tiled-plugins"):
+            try:
+                ver = version(package)
+            except PackageNotFoundError:
+                ver = "not installed"
+            rows.append(f"<tr><td><b>{package}</b></td><td>&nbsp;&nbsp;{ver}</td></tr>")
+        box = QMessageBox(
+            QMessageBox.Icon.Information,
+            "About HEX Data Acquisition",
+            f"<h3>HEX Data Acquisition</h3><table>{''.join(rows)}</table>",
+            QMessageBox.StandardButton.Ok,
+            self._qt_window,
+        )
+        box.exec()
 
     def _on_save_history_as(self):
         history = self.qt_widget.plan_history
