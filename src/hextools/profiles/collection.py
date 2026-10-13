@@ -2,6 +2,8 @@
 
 import os
 
+from ophyd_async.core import PathInfo
+
 from hextools.detectors.germ import GeRMDetector, GeRMStatsDataLogic
 
 from bluesky import preprocessors as bpp
@@ -30,7 +32,7 @@ from ophyd_async.fastcs.panda import HDFPanda
 from tiled.client import from_uri, simple
 from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
 from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
-from hextools.utils import show_docs
+from hextools.utils import show_docs, StartDocAwareFilenameProvider
 from hextools.log import configure_logger, log_pauses, log_plan_exceptions
 
 from hextools.detectors.phantom import PhantomDetector
@@ -99,8 +101,8 @@ RE.md["beamline_id"] = "27-ID-1"
 log_plan_exceptions(RE, logger)
 log_pauses(RE, logger)
 
-# Setup progress bars
-RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
+# Uncomment if running in the terminal to get progress bars.
+# RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
 
 # Display active proposal information in the console.
 print_proposal_info(RE.md)
@@ -135,6 +137,9 @@ RE.subscribe(bec)
 # Keep track of last dark-flat scan UID
 RE.subscribe(LastDarkFlatUIDTracker(RE.md))
 
+filename_provider = StartDocAwareFilenameProvider()
+RE.subscribe(filename_provider.doc_callback)
+
 # TODO: Get this upstream
 class HEXPathProvider(NSLS2PathProvider):
 
@@ -148,10 +153,16 @@ class HEXPathProvider(NSLS2PathProvider):
             base_path = base_path.parent / f"scan_{self._metadata_dict['scan_id']:0{self._scan_id_padding}d}"
         return base_path
 
-# Define our global default path provider for the beamline
-path_provider = HEXPathProvider(RE.md, include_scan_id_dir=True, granularity="year", scan_id_padding=5)
+    def __call__(self, datakey_name) -> PathInfo:
+        # NSLS2PathProvider doesn't pass the datakey to the filename provider.
+        return super().__call__(datakey_name).model_copy(
+            update={"filename": self._filename_provider(datakey_name)}
+        )
 
-with auto_init_devices(timeout=2.0, verbose=True):
+# Define our global default path provider for the beamline
+path_provider = HEXPathProvider(RE.md, filename_provider=filename_provider, include_scan_id_dir=True, granularity="year", scan_id_padding=5)
+
+with auto_init_devices(timeout=2.0):
     # Shutters (Front-end and photon)
     fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon-shutter")
@@ -246,7 +257,7 @@ with auto_init_devices(timeout=2.0, verbose=True):
     # For the Perkin-Elmer detector, we use a separate path provider
     # Since we need to specify the write directory as a windows path.
     pe_path_provider = NSLS2PathProvider(
-        RE.md, base_write_dir=PureWindowsPath("Z:\\proposals")
+        RE.md, filename_provider=filename_provider, base_write_dir=PureWindowsPath("Z:\\proposals")
     )
     perkin_elmer = ContAcqDetector(
         "XF:27ID1-ES{PE-Det:1}",

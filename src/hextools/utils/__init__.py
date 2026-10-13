@@ -30,6 +30,7 @@ from rich import print as rprint
 from rich.console import Console
 from bluesky import plan_stubs as bps
 from .nl_msg_hook import nl_msg_hook
+from .path_providers import StartDocAwareFilenameProvider
 
 Steppable = AsyncEpicsMotor | SimMotor
 

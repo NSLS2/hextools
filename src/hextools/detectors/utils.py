@@ -3,7 +3,7 @@
 from ophyd_async.core import OnOff
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixReadoutMode, KinetixTriggerMode
 from ophyd_async.epics.advimba import VimbaDetector, VimbaTriggerSource, VimbaExposeOutMode
-from ophyd_async.epics.adcore import ADImageMode
+from ophyd_async.epics.adcore import ADImageMode, NDPluginBaseIO
 import bluesky.plan_stubs as bps
 
 _KINETIX_MAX_SENSOR_SIZE = 3200
@@ -188,6 +188,11 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
     acquiring = yield from bps.rd(cam.driver.acquire)
     if acquiring:
         yield from bps.abs_set(cam.driver.acquire, False, wait=True)
+
+    if hasattr(cam, "proc"):
+        proc_plugin = getattr(cam, "proc")
+        if isinstance(proc_plugin, NDPluginBaseIO):
+            yield from bps.mv(proc_plugin.enable_callbacks, False)
 
     yield from bps.mv(cam.driver.image_mode, ADImageMode.CONTINUOUS)
     if isinstance(cam, KinetixDetector):

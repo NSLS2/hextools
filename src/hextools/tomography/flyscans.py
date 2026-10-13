@@ -1,6 +1,7 @@
 """Tomography plans for HEX beamline."""
 
 from collections import defaultdict
+import logging
 from hextools.motors import SampleTower
 from collections.abc import Mapping, Sequence
 from tracemalloc import start
@@ -8,7 +9,13 @@ from tracemalloc import start
 from bluesky import plan_patterns
 from bluesky import plan_stubs as bps
 from bluesky.protocols import Collectable, Flyable, HasName, Movable, Readable
-from bluesky.utils import CustomPlanMetadata, MsgGenerator, plan
+from bluesky.utils import (
+    CustomPlanMetadata,
+    FailedStatus,
+    MsgGenerator,
+    RunEngineControlException,
+    plan,
+)
 from nslsii import detectors
 import numpy as np
 from ophyd_async.core import StandardMovable, DetectorTrigger, StandardFlyable, TriggerInfo
@@ -33,9 +40,14 @@ from bluesky import preprocessors as bpp, plans as bp
 
 from hextools.detectors import FRAME_PERIOD_MARGIN
 
+logger = logging.getLogger("hextools")
+
+#: Most frames any detector may drop before a flyscan is treated as failed.
+MAX_MISSING_FRAMES = 10
 
 
-# TODO: Remove this unnecessary vendor from bluesky
+
+# TODO: Remove once bluesky has a fly stub builtin
 def _fly_stub(
     flyers: list[Flyable],
     *,
@@ -157,7 +169,8 @@ def tomo_dark_flat(
 
         yield from bps.mvr(sample_tower.x1, x_offset)
 
-        yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+        if use_shutter:
+            yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
         for det in detectors:
             yield from bps.prepare(det, TriggerInfo(livetime=exposure_time, collections_per_event=num_flat_images), group="prepare-flat")
         yield from bps.wait(group="prepare-flat")
@@ -316,11 +329,40 @@ def tomo_flyscan(
         yield from bps.prepare(panda, panda_trigger_info, group="arm")
         yield from bps.wait(group="arm")
 
-        yield from _fly_stub(
-            all_devices,
-            collect_flush_period=max(1, exposure_time + overhead),
-            stream_name="primary",
-        )
+        try:
+            yield from _fly_stub(
+                all_devices,
+                collect_flush_period=max(1, exposure_time + overhead),
+                stream_name="primary",
+            )
+        except FailedStatus as err:
+            indices = yield from bps.wait_for([det.get_index for det in detectors])
+            missing = {
+                det.name: num_projections - index.result()
+                for det, index in zip(detectors, indices, strict=True)
+            }
+            most_missing = max(missing.values(), default=0)
+            if most_missing == 0:
+                # The detectors got every frame, so something else failed.
+                raise
+            if most_missing > MAX_MISSING_FRAMES:
+                # Losing half or more points to a failure other than dropped frames.
+                # Re-raise the raw exception for more helpful debugging.
+                if most_missing >= num_projections / 2:
+                    raise
+                raise RuntimeError(
+                    f"Scan failed! Detector(s) missed up to {most_missing} frame(s). Failure threshold: {MAX_MISSING_FRAMES}"
+                ) from err
+            for det, missing in missing.items():
+                logger.warning(
+                    f"Detector {det} missed {missing} frame(s)"
+                )
+            logger.warning(f"Max missed frames {most_missing} is below failure threshold {MAX_MISSING_FRAMES}")
+            # Record the frames that every device did manage to write.
+            yield from bps.collect(
+                *[dev for dev in all_devices if isinstance(dev, Collectable)],
+                name="primary",
+            )
 
     def _cleanup():
         yield from ensure_shutter_closed(photon_shutter)
@@ -478,9 +520,11 @@ def tomo_nd_step_scan(
     dark_flat_exposure_time : float | None = None,
     num_dark_images : int = 20,
     num_flat_images : int = 50,
+    dark_flat_frequency: int = 0,
     sample_name: str | None = None,
     time_based: bool = True,
     snake_axes: bool | Sequence[Steppable] = False,
+    num_retries: int = 0,
     sample_tower: SampleTower | None = None,
     panda: HDFPanda | None = None,
     rot_motor: RotationMotor | None = None,
@@ -518,12 +562,26 @@ def tomo_nd_step_scan(
         Whether to reverse the flyscan direction at every other grid point.
     sample_name : str | None, optional
         The name of the sample being scanned.
-    take_dark_flat : bool, optional
-        Whether to take dark and flat images before the scan.
+    dark_flat_offset : float, optional
+        Sample x offset for flats. If non-zero, a dark/flat is taken before and
+        after the scan; if 0, no darks/flats are taken.
+    dark_flat_exposure_time : float | None, optional
+        Exposure time for darks/flats. If None, ``exposure_time`` is used.
+    num_dark_images : int, optional
+        Number of dark images per dark/flat.
+    num_flat_images : int, optional
+        Number of flat images per dark/flat.
+    dark_flat_frequency : int, optional
+        If greater than 0, also take a dark/flat after every this many grid points.
     time_based : bool, optional
         Whether the scan is time-based.
     snake_axes : bool | Sequence[Steppable], optional
         If True, snake every axis but the outermost; otherwise, the motors to snake.
+    retry : bool, optional
+        Whether to retry a grid point's flyscan if it fails.
+    num_retries : int, optional
+        Maximum retries per grid point when ``retry`` is True; 0 retries until
+        the flyscan succeeds.
     panda : HDFPanda | None, optional
         The HDFPanda instance for data storage.
     rot_motor : RotationMotor | None, optional
@@ -554,8 +612,10 @@ def tomo_nd_step_scan(
 
     @bpp.reset_positions_decorator(motors)
     def _body():
+        # Flats need the sample moved out of the beam, so a zero offset means no darks/flats.
+        take_dark_flats = dark_flat_offset != 0
 
-        if dark_flat_offset != 0:
+        def _dark_flat():
             yield from tomo_dark_flat(
                 detectors=detectors,
                 exposure_time=dark_flat_exposure_time or exposure_time,
@@ -568,28 +628,60 @@ def tomo_nd_step_scan(
                 photon_shutter=photon_shutter,
             )
 
+        if take_dark_flats:
+            yield from _dark_flat()
+
+        num_points = len(trajectory)
         pos_cache: defaultdict[Any, Any] = defaultdict(lambda: None)
         for i, point in enumerate(trajectory):
             # Only moves the axes whose position changed since the last point.
             yield from bps.move_per_step(point, pos_cache)
 
             reverse = alternate_flyscan_dir and i % 2 == 1
-            yield from tomo_flyscan(
-                detectors=detectors,
-                num_projections=num_projections,
-                exposure_time=exposure_time,
-                acquire_period=acquire_period,
-                images_to_average=images_to_average,
-                start=stop if reverse else start,
-                stop=start if reverse else stop,
-                use_shutter=use_shutter,
-                sample_name=sample_name,
-                time_based=time_based,
-                panda=panda,
-                rot_motor=rot_motor,
-                fe_shutter=fe_shutter,
-                photon_shutter=photon_shutter,
-            )
+            attempt = 0
+            while True:
+                try:
+                    yield from tomo_flyscan(
+                        detectors=detectors,
+                        num_projections=num_projections,
+                        exposure_time=exposure_time,
+                        acquire_period=acquire_period,
+                        images_to_average=images_to_average,
+                        start=stop if reverse else start,
+                        stop=start if reverse else stop,
+                        use_shutter=use_shutter,
+                        sample_name=sample_name,
+                        time_based=time_based,
+                        panda=panda,
+                        rot_motor=rot_motor,
+                        fe_shutter=fe_shutter,
+                        photon_shutter=photon_shutter,
+                    )
+                    break
+                except RunEngineControlException:
+                    # Never retry a user's abort or stop request.
+                    raise
+                except Exception as err:
+                    attempt += 1
+                    if num_retries > 0 and attempt <= num_retries:
+                        logger.error(
+                            f"Flyscan at grid point {i} failed ({err}), retrying (attempt {attempt}/{num_retries})."
+                        )
+                    else:
+                        raise RuntimeError(f"Flyscan at grid point {i} failed after {attempt} attempts.") from err
+
+            # The final dark/flat below covers the last grid point.
+            is_last = i == num_points - 1
+            if (
+                take_dark_flats
+                and dark_flat_frequency > 0
+                and not is_last
+                and (i + 1) % dark_flat_frequency == 0
+            ):
+                yield from _dark_flat()
+
+        if take_dark_flats:
+            yield from _dark_flat()
 
     return (yield from _body())
 
@@ -609,6 +701,11 @@ def tomo_1d_step_scan(
     use_shutter: bool = True,
     sample_name: str | None = None,
     alternate_flyscan_dir: bool = False,
+    num_retries: int = 3,
+    dark_flat_offset: float = 0.0,
+    num_dark_images: int = 20,
+    num_flat_images: int = 50,
+    dark_flat_frequency: int = 0,
     time_based: bool = True,
     panda: HDFPanda | None = None,
     rot_motor: RotationMotor | None = None,
@@ -648,8 +745,18 @@ def tomo_1d_step_scan(
         The name of the sample being scanned.
     alternate_flyscan_dir : bool, optional
         Whether to alternate the flyscan direction between steps.
+    num_retries : int, optional
+        The number of times to retry the scan if it fails.
     time_based : bool, optional
         Whether the scan is time-based.
+    dark_flat_offset : float, optional
+        The offset for dark and flat images.
+    num_dark_images : int, optional
+        The number of dark images to acquire.
+    num_flat_images : int, optional
+        The number of flat images to acquire.
+    dark_flat_frequency : int, optional
+        The frequency at which to acquire dark and flat images.
     stream_name : str, optional
         The name of the data stream.
     panda : HDFPanda | None, optional
@@ -674,9 +781,14 @@ def tomo_1d_step_scan(
             start=start,
             stop=stop,
             use_shutter=use_shutter,
+            num_retries=num_retries,
             alternate_flyscan_dir=alternate_flyscan_dir,
             sample_name=sample_name,
             time_based=time_based,
+            dark_flat_offset=dark_flat_offset,
+            num_dark_images=num_dark_images,
+            num_flat_images=num_flat_images,
+            dark_flat_frequency=dark_flat_frequency,
             panda=panda,
             rot_motor=rot_motor,
             fe_shutter=fe_shutter,
@@ -704,6 +816,7 @@ def tomo_2d_step_scan(
     stop: float = 180,
     use_shutter: bool = True,
     alternate_flyscan_dir: bool = False,
+    num_retries: int = 0,
     sample_name: str | None = None,
     time_based: bool = True,
     snake_axes: bool | None = False,
@@ -760,6 +873,8 @@ def tomo_2d_step_scan(
         If True, the scan is time-based rather than angle-based.
     sample_tower : SampleTower | None, default None
         The SampleTower instance to use for positioning the sample. Default is None.
+    num_retries : int, default 3
+        The number of times to retry the scan if it fails.
     stream_name : str, default "primary"
         The name of the data stream.
     snake_axes : bool | None, default False
@@ -794,6 +909,7 @@ def tomo_2d_step_scan(
             sample_name=sample_name,
             time_based=time_based,
             snake_axes=bool(snake_axes),
+            num_retries=num_retries,
             panda=panda,
             rot_motor=rot_motor,
             sample_tower=sample_tower,
