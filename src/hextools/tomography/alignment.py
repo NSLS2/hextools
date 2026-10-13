@@ -16,7 +16,8 @@ from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from skimage import measure, segmentation
 from skimage.measure._regionprops import RegionProperties
 
-from hextools.detectors.phantom import PhantomDetector
+from hextools.detectors import PhantomDetector, enable_preview_mode
+
 from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
 from hextools.photon_delivery_system.shutter import ShutterStatus, ensure_shutter_closed, ensure_shutter_open
@@ -27,12 +28,12 @@ from hextools.specs import TOMO_ALIGNMENT_SCAN_V1
 Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
 BinaryImage = np.ndarray[tuple[int, int], np.dtype[np.bool_]]
 ImageDataset = np.ndarray[
-    tuple[int, int, int], np.dtype[np.uint16] | np.dtype[np.uint8]
+    tuple[int, int, int, int], np.dtype[np.uint16] | np.dtype[np.uint8]
 ]
 FloatImage = np.ndarray[tuple[int, int], np.dtype[np.float64]]
 FloatImageDataset = np.ndarray[tuple[int, int, int], np.dtype[np.float64]]
 #: Sphere center coordinates, one per projection.
-Points = np.ndarray[tuple[int], np.dtype[np.float32]]
+Points = np.ndarray[tuple[int], np.dtype[np.floating]]
 
 
 def ensure_run_is_valid(
@@ -177,9 +178,9 @@ def crop_and_flatfield_correction(
     x_centers: list[float] = []
     y_centers: list[float] = []
     for i, proj_img in enumerate(projection_data):
-        bottom = proj_img.shape[0] - bottom_crop
-        right = proj_img.shape[1] - right_crop
-        cropped = np.asarray(proj_img[top_crop:bottom, left_crop:right], dtype=np.float64)
+        bottom = proj_img.shape[2] - bottom_crop
+        right = proj_img.shape[3] - right_crop
+        cropped = np.asarray(proj_img[0, 0, top_crop:bottom, left_crop:right], dtype=np.float64)
         if flatfield is not None:
             cropped = cropped / flatfield[top_crop:bottom, left_crop:right]
         # Denoise
@@ -455,10 +456,9 @@ def plot_alignment(result: AlignmentResult, figsize: tuple[int, int] = (14, 7)) 
 
 def fetch_alignment_data(
     alignment_scan: BlueskyRunV3 | str | int,
-    motor: RotationMotor,
     flat_scan: BlueskyRunV3 | None = None,
     tiled_client: CatalogOfBlueskyRuns | None = None,
-) -> tuple[str, ImageDataset, FloatImage]:
+) -> tuple[str, ImageDataset, FloatImage | None]:
     """Load the projections and flat field from a sphere alignment scan.
 
     Parameters
@@ -497,10 +497,20 @@ def fetch_alignment_data(
         )
     det_name = det_names[0]
 
-    ensure_run_is_valid(run, [det_name], motor.name)
+    motor_names = run.start.get("motors")
+    if not isinstance(motor_names, list) or len(motor_names) != 1 or not isinstance(motor_names[0], str):
+        raise ValueError(
+            f"Expected exactly one motor in the run's 'motors' metadata, got {motor_names}."
+        )
+    motor_name = motor_names[0]
+
+    ensure_run_is_valid(run, [det_name], motor_name)
 
     projections: ImageDataset = np.asarray(run["primary"].read()[det_name])
-    flatfield = _load_flatfield(run, det_name, flat_scan, tiled_client)
+    try:
+        flatfield = _load_flatfield(run, det_name, flat_scan, tiled_client)
+    except Exception as e:
+        flatfield = None
     return det_name, projections, flatfield
 
 
@@ -545,12 +555,18 @@ def check_alignment(
     AlignmentResult
         The fitted roll and tilt, with the data used to compute them.
     """
-    depth, height, width = projections.shape
+    depth, n_images_per_angle, height, width = projections.shape
     if depth < 36:
         raise ValueError(
             f"There are {depth} projections from '{detector}'; "
             "at least 36 are needed for a reliable fit."
         )
+    if n_images_per_angle != 1:
+        raise ValueError(
+            f"There are {n_images_per_angle} images per angle from '{detector}'; "
+            "expected 1."
+        )
+    
     check_crop_values_valid(width, height, left_crop, right_crop, top_crop, bottom_crop)
 
     images, x, y = crop_and_flatfield_correction(
@@ -593,6 +609,31 @@ def check_alignment(
 
     return result
 
+def check_alignment_from_run(
+    run: BlueskyRunV3 | str | int, 
+    tiled_client: CatalogOfBlueskyRuns | None = None,
+    left_crop: int = 0,
+    right_crop: int = 0,
+    top_crop: int = 500,
+    bottom_crop: int = 500,
+    method: TomoAlignMethod = TomoAlignMethod.ELLIPSE,
+    ratio: float = 1.0,
+    show_plots: bool = True,
+) -> AlignmentResult:
+    det_name, projections, flatfield = fetch_alignment_data(run, tiled_client=tiled_client)
+    return check_alignment(
+        projections=projections,
+        detector=det_name,
+        flatfield=flatfield,
+        left_crop=left_crop,
+        right_crop=right_crop,
+        top_crop=top_crop,
+        bottom_crop=bottom_crop,
+        method=method,
+        ratio=ratio,
+        show_plots=show_plots,
+    )
+
 
 def tomo_alignment_scan(
     det: KinetixDetector | PhantomDetector,
@@ -600,11 +641,9 @@ def tomo_alignment_scan(
     num_projections: int = 37,
     init_angle: float = 0.0,
     stop_angle: float = 360.0,
-    base_x_offset: float = 0.0,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
     rot_motor: RotationMotor | None = None,
-    sample_stage_x: AsyncEpicsMotor | None = None,
 ):
     """Tomography alignment scan.
 
@@ -612,12 +651,12 @@ def tomo_alignment_scan(
     ----------
     det : KinetixDetector | PhantomDetector
         The detector to use for the scan.
-    rotation_stage : RotationMotor
-        The rotation stage motor.
-    front_end_shutter : Shutter
-        The front-end shutter.
-    photon_shutter : Shutter
-        The photon shutter.
+    rot_motor : RotationMotor | None
+        The rotation stage motor. If None, it will be pulled from the namespace.
+    fe_shutter : Shutter | None
+        The front-end shutter. If None, it will be pulled from the namespace.
+    photon_shutter : Shutter | None
+        The photon shutter. If None, it will be pulled from the namespace.
     exposure_time : float
         Exposure time for each projection in seconds.
     num_projections : int, optional
@@ -626,18 +665,13 @@ def tomo_alignment_scan(
         Initial angle for the rotation stage, by default 0.0.
     stop_angle : float, optional
         Final angle for the rotation stage, by default 360.0.
-    base_x_offset : float, optional
-        Base X offset for the sample stage, by default 0.0.
-    sample_stage_x : AsyncEpicsMotor | None, optional
-        The sample stage X motor, by default None.
     """
 
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
-    take_flat = abs(base_x_offset) > 0.0 and sample_stage_x is not None
 
-    @bpp.reset_positions_decorator([rot_motor.velocity] + ([sample_stage_x] if take_flat else []))
+    @bpp.reset_positions_decorator([det.driver.num_images, det.driver.acquire_period, det.driver.acquire_time, rot_motor, rot_motor.velocity])
     def _body():
 
         yield from ensure_shutter_open(fe_shutter)
@@ -645,13 +679,13 @@ def tomo_alignment_scan(
 
         # Set the rotation stage to the maximum velocity before starting the scan
         max_velocity = yield from bps.rd(rot_motor.max_velocity)
-        yield from bps.mv(rot_motor.velocity, max_velocity)
-        yield from bps.mv(rot_motor, init_angle)
-
-        yield from bps.mv(det.driver.acquire_time, exposure_time)
         yield from bps.mv(
-            det.driver.acquire_period, exposure_time + 0.002
-        )  # TODO: Don't hard code this
+            rot_motor.velocity, max_velocity,
+            rot_motor, init_angle,
+            det.driver.acquire_time, exposure_time,
+            det.driver.acquire_period, exposure_time + 0.002,
+            det.driver.num_images, 1
+        )
 
         _md = {
             "description": "Tomography alignment scan",
@@ -659,23 +693,11 @@ def tomo_alignment_scan(
             "tiled_specs": [TOMO_ALIGNMENT_SCAN_V1],
         }
 
-        def _take_flat():
-            yield from bps.mvr(sample_stage_x, base_x_offset)
-            yield from bps.trigger_and_read([det], name="flat")
-            yield from bps.mvr(sample_stage_x, -base_x_offset)
-
-        def _insert_flat_after_open_run(msg):
-            # bp.scan opens the run itself; splice the flat into it right after.
-            if take_flat and msg.command == "open_run":
-                return None, _take_flat()
-            return None, None
-
-        yield from bpp.plan_mutator(
-            bp.scan([det], rot_motor, init_angle, stop_angle, num_projections, md=_md),
-            _insert_flat_after_open_run,
-        )
+        yield from bp.scan([det], rot_motor, init_angle, stop_angle, num_projections, md=_md)
 
     def _cleanup():
         yield from ensure_shutter_closed(photon_shutter)
+        if isinstance(det, KinetixDetector):
+            yield from enable_preview_mode(det)
 
     return (bpp.finalize_wrapper(_body(), _cleanup()))

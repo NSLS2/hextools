@@ -77,7 +77,7 @@ from hextools.gui._theme import apply_bnl_theme, saved_theme
 from hextools.gui.theme_switch import QtThemeAction
 from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.tomography.alignment import tomo_alignment_scan
-from hextools.tomography.flyscans import tomo_1d_step_scan, tomo_2d_step_scan, tomo_flyscan
+from hextools.tomography.flyscans import tomo_1d_step_scan, tomo_2d_step_scan, tomo_dark_flat, tomo_flyscan, tomo_flyscan_loop
 from hextools.tomography.radiography import take_radiograph
 from hextools.edxd import configure_test_pulses, edxd_2theta_tilt, edxd_calib_scan, edxd_count, edxd_custom_pos_list_grid, edxd_grid_scan, edxd_scan
 from hextools.photon_delivery_system import change_energy
@@ -95,6 +95,7 @@ from hextools.motors import (
     move_motor,
 )
 from hextools.photon_delivery_system import DCLM, Shutter, Slits
+from hextools.utils import reset_scan_id
 
 from ._event_loop import gui_qt, get_our_app_name
 from ._threading import wait_for_workers_to_quit
@@ -259,7 +260,7 @@ class QtTomographyView(QWidget):
         # Detector viewers take the majority of the screen.
         detectors = QtTabbedDetectorsWidget(re_client)
         for i in range(1, 5):
-            detectors.add_detector(f"kinetix{i}", "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}")
+            detectors.add_detector(f"kinetix{i}", "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}", show_profile_lines=True)
         detectors.add_combined("Dual Cam", ["kinetix1", "kinetix3"])
         top.addWidget(detectors, stretch=3)
 
@@ -267,7 +268,9 @@ class QtTomographyView(QWidget):
         # validates and runs its plan per the active execution mode (in-process
         # IPython vs. Queue Server).
         plan_tabs = QTabWidget()
+        plan_tabs.addTab(QtPlanWidget(re_client, tomo_dark_flat), "Dark/Flat")
         plan_tabs.addTab(QtPlanWidget(re_client, tomo_flyscan), "Flyscan")
+        plan_tabs.addTab(QtPlanWidget(re_client, tomo_flyscan_loop), "Flyscan Loop")
         plan_tabs.addTab(QtPlanWidget(re_client, tomo_1d_step_scan), "1D Step")
         plan_tabs.addTab(QtPlanWidget(re_client, tomo_2d_step_scan), "2D Step")
         plan_tabs.addTab(QtPlanWidget(re_client, take_radiograph), "Radiography")
@@ -295,9 +298,13 @@ class QtEDXDView(QWidget):
             "germ",
             "XF:27ID1-ES{GeRM-Det:1}MCA",
             raw_waveform=True,
-            image_shape=(4096, 192),
+            image_shape=(192, 4096),
             colormap="JET",
             roi_suffix_pattern="1:ROI{}:",
+            auto_scale_method="minmax",
+            log_scale=True,
+            use_ca=True,
+            show_profile_lines=True,
         )
         top.addWidget(detectors, stretch=3)
 
@@ -350,10 +357,10 @@ class QtBeamlineView(QWidget):
         top = QHBoxLayout()
         # Visible-light camera viewers take the majority of the screen.
         cameras = QtTabbedDetectorsWidget(re_client)
+        cameras.add_detector("fs_window_cam", "XF:27IDA-BI{FS:1-Cam:1}")
+        cameras.add_detector("diamond_window_cam", "XF:27IDA-BI{FAM:1-Cam:1}")
         cameras.add_detector("sample_cam", "XF:27ID1-ES{Sample-Cam:1}")
         cameras.add_detector("f_hutch_cam", "XF:27IDA-BI{GigE-Cam:5}")
-        cameras.add_detector("diamond_window_cam", "XF:27IDA-BI{FAM:1-Cam:1}")
-        cameras.add_detector("fs_window_cam", "XF:27IDA-BI{FS:1-Cam:1}")
         top.addWidget(cameras, stretch=3)
 
         # Side column: a tabbed selector offering the beamline plans. Each tab
@@ -363,6 +370,7 @@ class QtBeamlineView(QWidget):
         plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
+        plan_tabs.addTab(QtPlanWidget(re_client, reset_scan_id), "Reset Scan ID")
 
         side = QVBoxLayout()
         side.addWidget(plan_tabs, stretch=1)

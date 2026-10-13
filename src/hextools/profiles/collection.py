@@ -2,6 +2,8 @@
 
 import os
 
+from ophyd_async.core import PathInfo
+
 from hextools.detectors.germ import GeRMDetector, GeRMStatsDataLogic
 
 from bluesky import preprocessors as bpp
@@ -15,7 +17,7 @@ from bluesky.utils import ProgressBarManager
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
-from pathlib import PureWindowsPath
+from pathlib import PurePath, PureWindowsPath
 from nslsii.ophyd_async.providers import NSLS2PathProvider
 from pathlib import Path
 from ophyd_async.epics.adcore import (
@@ -29,13 +31,14 @@ from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from tiled.client import from_uri, simple
 from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
-from bluesky.suspenders import SuspendFloor
-from hextools.utils import show_docs
+from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
+from hextools.utils import show_docs, StartDocAwareFilenameProvider
 from hextools.log import configure_logger, log_pauses, log_plan_exceptions
 
 from hextools.detectors.phantom import PhantomDetector
 from hextools.detectors.kinetix import kinetix_factory
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
+from hextools.suspenders import SuspendFloorUnlessOpsMode
 from hextools.motors import (
     CollimatorTable,
     FOV_2_4_mm_Camera,
@@ -62,9 +65,12 @@ from hextools.utils import (
     is_running_in_ci,
     print_proposal_info,
     print_version_info,
+    reset_scan_id,
 )
 
-from hextools.tomography import tomo_flyscan, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_nd_step_scan
+from hextools.tomography import (
+    tomo_flyscan,tomo_flyscan_loop, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_dark_flat, LastDarkFlatUIDTracker
+)
 from hextools.edxd import configure_test_pulses, edxd_scan, edxd_count, edxd_grid_scan, edxd_2theta_tilt, edxd_calib_scan, edxd_custom_pos_list_grid
 
 
@@ -95,8 +101,8 @@ RE.md["beamline_id"] = "27-ID-1"
 log_plan_exceptions(RE, logger)
 log_pauses(RE, logger)
 
-# Setup progress bars
-RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
+# Uncomment if running in the terminal to get progress bars.
+# RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
 
 # Display active proposal information in the console.
 print_proposal_info(RE.md)
@@ -128,10 +134,35 @@ RE.subscribe(TiledWriter(tiled_writing_client))
 bec = BestEffortCallback()
 RE.subscribe(bec)
 
-# Define our global default path provider for the beamline
-path_provider = NSLS2PathProvider(RE.md)
+# Keep track of last dark-flat scan UID
+RE.subscribe(LastDarkFlatUIDTracker(RE.md))
 
-with auto_init_devices(timeout=2.0, verbose=True):
+filename_provider = StartDocAwareFilenameProvider()
+RE.subscribe(filename_provider.doc_callback)
+
+# TODO: Get this upstream
+class HEXPathProvider(NSLS2PathProvider):
+
+    def __init__(self, *args, scan_id_padding: int = 6, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._scan_id_padding = scan_id_padding
+
+    def _generate_directory_path(self, base_path: PurePath, datakey_name: str) -> PurePath:
+        base_path = super()._generate_directory_path(base_path, datakey_name)
+        if self._include_scan_id_dir:
+            base_path = base_path.parent / f"scan_{self._metadata_dict['scan_id']:0{self._scan_id_padding}d}"
+        return base_path
+
+    def __call__(self, datakey_name) -> PathInfo:
+        # NSLS2PathProvider doesn't pass the datakey to the filename provider.
+        return super().__call__(datakey_name).model_copy(
+            update={"filename": self._filename_provider(datakey_name)}
+        )
+
+# Define our global default path provider for the beamline
+path_provider = HEXPathProvider(RE.md, filename_provider=filename_provider, include_scan_id_dir=True, granularity="year", scan_id_padding=5)
+
+with auto_init_devices(timeout=2.0):
     # Shutters (Front-end and photon)
     fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon-shutter")
@@ -139,6 +170,7 @@ with auto_init_devices(timeout=2.0, verbose=True):
     # Slits
     a_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="a-slits")
     f_slits = Slits("XF:27IDF-OP:1{Slt:2-Ax:", name="f-slits")
+    edxd_slits = Slits("XF:27ID1F-OP:1{Slt:CMT-Ax:", name="edxd-slits")
 
     # Storage ring information
     storage_ring = NSLS2StorageRing()
@@ -225,7 +257,7 @@ with auto_init_devices(timeout=2.0, verbose=True):
     # For the Perkin-Elmer detector, we use a separate path provider
     # Since we need to specify the write directory as a windows path.
     pe_path_provider = NSLS2PathProvider(
-        RE.md, base_write_dir=PureWindowsPath("Z:\\proposals")
+        RE.md, filename_provider=filename_provider, base_write_dir=PureWindowsPath("Z:\\proposals")
     )
     perkin_elmer = ContAcqDetector(
         "XF:27ID1-ES{PE-Det:1}",
@@ -246,7 +278,18 @@ with auto_init_devices(timeout=2.0, verbose=True):
     sim_z = SimMotor(name="sim_z", instant=False)
 
 
-RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
+# Pause the RunEngine if the beam current drops below 100 mA and resume above
+# 390 mA. Always installed; it ignores low beam while the ring is in maintenance
+# or shutdown, checking the mode each time rather than once at startup.
+RE.install_suspender(
+    SuspendFloorUnlessOpsMode(
+        storage_ring.beam_current,
+        100,
+        resume_thresh=390,
+        ops_mode=storage_ring.operating_mode,
+        skip_modes=(NSLS2OpsMode.MAINTENANCE, NSLS2OpsMode.SHUTDOWN),
+    )
+)
 
 # Configure baseline supplemental data to include in the metadata of every run.
 sd = bpp.SupplementalData(

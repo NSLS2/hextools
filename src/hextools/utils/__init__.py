@@ -6,7 +6,7 @@ import shutil
 import sys
 from collections.abc import MutableMapping
 from datetime import datetime
-from typing import Any, AsyncIterator, OrderedDict, TypeVar
+from typing import Any, AsyncIterable, AsyncIterator, OrderedDict, TypeVar
 
 from bluesky.run_engine import RunEngine
 from IPython.core.getipython import get_ipython
@@ -32,14 +32,27 @@ from pygments.token import Token
 from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
 from rich.console import Console
+from bluesky import plan_stubs as bps
 from .nl_msg_hook import nl_msg_hook
+from .path_providers import StartDocAwareFilenameProvider
 
 Steppable = AsyncEpicsMotor | SimMotor
 
 NSVarT = TypeVar("NSVarT")
 
 def get_obj_from_ipython_ns(var_name: str, var_type: type[NSVarT]) -> NSVarT | None:
-    """Get an obj from the IPython ns if it exists and is of the correct type."""
+    """Get an obj from the IPython ns if it exists and is of the correct type.
+    
+    var_name : str
+        The name of the variable to retrieve from the IPython namespace.
+    var_type : type[NSVarT]
+        The expected type of the variable.
+
+    Returns
+    -------
+    NSVarT | None
+        The object from the IPython namespace if it exists and is of the correct type, otherwise None.
+    """
     ipython = get_ipython()
     if ipython is not None:
         obj = ipython.user_ns.get(var_name)
@@ -49,7 +62,29 @@ def get_obj_from_ipython_ns(var_name: str, var_type: type[NSVarT]) -> NSVarT | N
 
 
 def ensure_available(var_type: type[NSVarT], **kwargs: NSVarT | None) -> NSVarT:
-    """Ensure that an object with a given name is available in the current scope, or it can be retrieved from the IPython namespace."""
+    """Ensure that an object with a given name is available in the current scope.
+    
+    If the object is not available locally, attempt to retrieve it from the IPython namespace.
+    
+    Parameters
+    ----------
+    var_type : type[NSVarT]
+        The expected type of the object.
+    **kwargs : NSVarT | None
+        A single keyword argument where the key is the name of the variable and the value is the object or None.
+
+    Returns
+    -------
+    NSVarT
+        The object if it is available locally or in the IPython namespace.
+
+    Raises
+    ------
+    ValueError
+        If the object is not available locally or in the IPython namespace.
+    TypeError
+        If the provided value is not of the expected type or None.
+    """
 
     if len(kwargs) != 1:
         raise ValueError("Can only check availability of a single object at a time.")
@@ -70,8 +105,20 @@ def ensure_available(var_type: type[NSVarT], **kwargs: NSVarT | None) -> NSVarT:
             f"Object {name} of type {var_type} is not available locally, or in the IPython namespace!"
         )
 
-async def merge_async_iterables(*aiterables):
-    """Merge multiple async iterables into a single async iterable."""
+async def merge_async_iterables(*aiterables: AsyncIterable):
+
+    """Merge multiple async iterables into a single async iterable.
+    
+    Parameters
+    ----------
+    *aiterables : AsyncIterable
+        The async iterables to merge.
+
+    Returns
+    -------
+    AsyncIterable
+        An async iterable that yields items from all input async iterables as they become available.
+    """
     queue: asyncio.Queue = asyncio.Queue()
     sentinel = object()
 
@@ -90,7 +137,14 @@ async def merge_async_iterables(*aiterables):
 
 
 def is_running_in_ci() -> bool:
-    """Check if the code is running in a continuous integration environment."""
+    """Check if the code is running in a continuous integration environment.
+    
+    Returns
+    -------
+    bool
+        True if running in a continuous integration environment, False otherwise.
+    """
+
     return os.environ.get("HEXTOOLS_RUNNING_IN_CI", "false").lower() in [
         "true",
         "1",
@@ -100,6 +154,7 @@ def is_running_in_ci() -> bool:
 
 def print_version_info():
     """Print version information for bluesky, ophyd_async, tiled, and hextools."""
+
     from bluesky import __version__ as bluesky_version
     from ophyd_async import __version__ as ophyd_async_version
     from tiled import __version__ as tiled_version
@@ -114,7 +169,16 @@ def print_version_info():
 
 
 def show_docs(name: str, doc: dict[str, Any]):
-    """Print out the bluesky documents in a readable format."""
+    """Print out the bluesky documents in a readable format.
+    
+    Parameters
+    ----------
+    name : str
+        The name of the document.
+    doc : dict[str, Any]
+        The document to print.
+    """
+
     rprint(f"------- {name} ---------")
     rprint(doc)
 
@@ -138,7 +202,14 @@ class ProposalIDPrompt(Prompts):
 
 
 def initialize_run_engine() -> RunEngine:
-    """Initialize the bluesky RunEngine with appropriate metadata."""
+    """Initialize the bluesky RunEngine with appropriate metadata.
+
+    Returns
+    -------
+    RunEngine
+        An initialized bluesky RunEngine with appropriate metadata.
+    """
+
     if is_running_in_ci():
         return RunEngine(
             {
@@ -154,7 +225,7 @@ def initialize_run_engine() -> RunEngine:
             }
         )
     return RunEngine(
-        RedisJSONDict(open_redis_client(redis_ssl=True), "")  # type: ignore (TODO: Loosen type of RE.md to Mapping from dict)
+        RedisJSONDict(open_redis_client(redis_ssl=True), "")
     )
 
 
@@ -164,6 +235,7 @@ def print_proposal_info(md: MutableMapping[str, Any]):
     md : MutableMapping[str, Any]
         The metadata dictionary from the RunEngine.
     """
+
     proposal_md = md.get("proposal", {})
     if proposal_md:
         rprint(
@@ -175,7 +247,16 @@ def print_proposal_info(md: MutableMapping[str, Any]):
 
 
 def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
-    """Start a beamtime for the given proposal ID."""
+    """Start a beamtime for the given proposal ID.
+
+    Parameters
+    ----------
+    proposal_id : int
+        The ID of the proposal to start the beamtime for.
+    verbose : bool, optional
+        Whether to print detailed information, by default True.
+    """
+
     md = sync_experiment(proposal_id, "HEX", redis_ssl=True)
 
     rprint(
@@ -361,12 +442,15 @@ def auto_init_devices(timeout: float = 1.0, ok_message = "OK", fail_message = "F
     ----------
     timeout : float
         The timeout in seconds for each device connection attempt.
+    verbose : bool, optional
+        Whether to print detailed information, by default False.
 
     Returns
     -------
     DeviceProcessor
         A DeviceProcessor that connects devices and prints their connection status.
     """
+
     mock = is_running_in_ci()
     # highlight=False stops rich from coloring dot-runs as ellipses.
     console = Console(highlight=False)
@@ -461,3 +545,12 @@ def print_device_tree(device: Device, indent: int = 0) -> None:
     x = []
     _make_tree_body(x, device)
     print("\n".join(x))
+
+
+def reset_scan_id(
+    new_scan_id: int = 0,
+    RE: RunEngine | None = None
+):
+    RE = ensure_available(RunEngine, RE=RE)
+    RE.md["scan_id"] = new_scan_id
+    yield from bps.null()

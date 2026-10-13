@@ -140,11 +140,13 @@ async def test_take_radiograph_single_row(
 
     start = docs["start"][0]
     assert start["plan_name"] == "take_radiograph"
+    assert start["plan_args"]["delay"] == wait
 
-    sleeps = messages_by_type.get("sleep", [])
-    assert len(sleeps) == num_acquisitions - 1
-    # bp.count subtracts elapsed time from the delay, so each sleep is <= wait
-    assert all(0 < m.args[0] <= wait for m in sleeps)
+    # bp.count sleeps only for what is left of the delay after each acquisition,
+    # so how many delay sleeps happen depends on timing; longer ones are shutter settling
+    delay_sleeps = [m for m in messages_by_type.get("sleep", []) if m.args[0] <= wait]
+    assert len(delay_sleeps) <= num_acquisitions - 1
+    assert all(m.args[0] > 0 for m in delay_sleeps)
 
     assert await ktx.driver.acquire_time.get_value() == exposure_time
     assert await ktx.driver.num_images.get_value() == num_images

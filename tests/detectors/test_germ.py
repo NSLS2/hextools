@@ -54,16 +54,22 @@ async def test_germ_trigger_logic_prepare_internal(
 async def test_germ_acquire_logic(germ_io: GeRMDetectorIO):
     acquire_logic = GeRMAcquireLogic(germ_io)
 
-    async def _mock_wait_for_idle(value: bool):
-        if value:
-            await asyncio.sleep(0.1)
-            set_mock_value(germ_io.acquire, False)
+    async def _finish_acquiring():
+        await asyncio.sleep(0.1)
+        set_mock_value(germ_io.acquire, False)
 
-    callback_on_mock_put(germ_io.acquire, _mock_wait_for_idle)
+    # The put writes its value after the callback returns, so finish in a separate task
+    finishing: list[asyncio.Task] = []
+
+    def _on_acquire(value: bool):
+        if value:
+            finishing.append(asyncio.create_task(_finish_acquiring()))
+
+    callback_on_mock_put(germ_io.acquire, _on_acquire)
     assert await germ_io.acquire.get_value() is False
     await acquire_logic.start_acquiring()
     assert await germ_io.acquire.get_value() is True
-    await asyncio.sleep(0.2)
+    await acquire_logic.wait_for_idle()
     assert await germ_io.acquire.get_value() is False
     await acquire_logic.ensure_stopped()
     assert await germ_io.acquire.get_value() is False

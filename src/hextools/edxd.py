@@ -1,5 +1,8 @@
 
 
+import itertools
+from typing import Any
+
 from bluesky.preprocessors import finalize_wrapper
 import numpy as np
 
@@ -172,16 +175,78 @@ def edxd_scan(
     )
 
 
+def edxd_custom_pos_list_grid(
+    outer_motor: Steppable,
+    outer_positions_list: list[float],
+    inner_motor: Steppable,
+    inner_start: list[float],
+    inner_stop: list[float],
+    inner_num_points: list[int],
+    count_time: float,
+    save_as_tiff: bool = False,
+    use_shutter: bool = True,
+    reset_positions: bool = True,
+    description: str | None = None,
+    germ: GeRMDetector | None = None,
+    fe_shutter: Shutter | None = None,
+    photon_shutter: Shutter | None = None,
+):
+    """Plan stub for a custom position list grid scan for the EDXD detector."""
+
+    germ = ensure_available(GeRMDetector, germ=germ)
+    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
+    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
+
+    inner_starts = inner_start * len(outer_positions_list) if len(inner_start) == 1 else inner_start
+    inner_stops = inner_stop * len(outer_positions_list) if len(inner_stop) == 1 else inner_stop
+    inner_num_points = inner_num_points * len(outer_positions_list) if len(inner_num_points) == 1 else inner_num_points
+    if not all([len(v) == len(outer_positions_list) for v in [inner_starts, inner_stops, inner_num_points]]):
+        raise ValueError("Inner start, stop, and num_points must all be a float, or a list of the same length as the number of outer positions")
+
+    if save_as_tiff:
+        germ.save_as_tiff()
+    else:
+        germ.save_as_hdf()
+
+    @bpp.reset_positions_decorator([outer_motor, inner_motor] if reset_positions else [])
+    def _body():
+        if use_shutter:
+            yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
+            yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+
+        yield from bps.mv(germ.driver.acquire_time, count_time)
+
+        _md: dict[str, Any] = {"plan_name": "edxd_custom_pos_list_grid"}
+        if description is not None:
+            _md["description"] = description
+        for i, outer_pos in enumerate(outer_positions_list):
+            yield from bps.mv(outer_motor, outer_pos)
+            _md["outer_position"] = outer_pos
+            uid = yield from bp.list_scan(
+                [germ],
+                inner_motor, list(np.linspace(inner_starts[i], inner_stops[i], inner_num_points[i])),
+                md=_md,
+            )
+            if "initial_scan_uid" not in _md:
+                _md["initial_scan_uid"] = uid
+
+    def _cleanup():
+        if use_shutter:
+            yield from ensure_shutter_closed(fe_shutter)
+            yield from ensure_shutter_closed(photon_shutter)
+
+    return (yield from finalize_wrapper(_body(), _cleanup()))
+
 
 def edxd_grid_scan(
     outer_motor: Steppable,
     outer_start: float,
     outer_stop: float,
-    outer_num_steps: int,
+    outer_num_points: int,
     inner_motor: Steppable,
     inner_start: float,
     inner_stop: float,
-    inner_num_steps: int,
+    inner_num_points: int,
     count_time: float,
     snake: bool = False,
     use_shutter: bool = True,
@@ -201,16 +266,16 @@ def edxd_grid_scan(
         The starting position for the outer motor.
     outer_stop : float
         The stopping position for the outer motor.
-    outer_num_steps : int
-        The number of steps for the outer motor.
+    outer_num_points : int
+        The number of points for the outer motor.
     inner_motor : Steppable
         The inner (faster) motor for the grid scan.
     inner_start : float
         The starting position for the inner motor.
     inner_stop : float
         The stopping position for the inner motor.
-    inner_num_steps : int
-        The number of steps for the inner motor.
+    inner_num_points : int
+        The number of points for the inner motor.
     count_time : float
         The acquisition time at each grid point.
     snake : bool, default False
@@ -246,8 +311,8 @@ def edxd_grid_scan(
             _md["description"] = description
         yield from bp.grid_scan(
             [germ],
-            outer_motor, outer_start, outer_stop, outer_num_steps,
-            inner_motor, inner_start, inner_stop, inner_num_steps,
+            outer_motor, outer_start, outer_stop, outer_num_points,
+            inner_motor, inner_start, inner_stop, inner_num_points,
             md=_md,
             snake_axes=snake
         )
@@ -259,56 +324,6 @@ def edxd_grid_scan(
         if reset_position:
             yield from bps.mv(outer_motor, outer_start)
             yield from bps.mv(inner_motor, inner_start)
-
-    return (yield from finalize_wrapper(_body(), _cleanup()))
-
-
-def edxd_custom_pos_list_grid(
-    outer_motor: Steppable,
-    outer_positions_list: list[float],
-    inner_motor: Steppable,
-    inner_start: float,
-    inner_stop: float,
-    inner_num_steps: int,
-    count_time: float,
-    snake: bool = False,
-    use_shutter: bool = True,
-    reset_positions: bool = True,
-    description: str | None = None,
-    germ: GeRMDetector | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
-):
-    """Plan stub for a custom position list grid scan for the EDXD detector."""
-
-    germ = ensure_available(GeRMDetector, germ=germ)
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
-    germ.save_as_hdf()
-
-    @bpp.reset_positions_decorator([outer_motor, inner_motor] if reset_positions else [])
-    def _body():
-        if use_shutter:
-            yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
-            yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
-
-        yield from bps.mv(germ.driver.acquire_time, count_time)
-
-        _md = {"plan_name": "edxd_custom_pos_list_grid"}
-        if description is not None:
-            _md["description"] = description
-        yield from bp.list_grid_scan(
-            [germ],
-            outer_motor, outer_positions_list,
-            inner_motor, np.linspace(inner_start, inner_stop, inner_num_steps),
-            md=_md,
-            snake_axes=snake
-        )
-
-    def _cleanup():
-        if use_shutter:
-            yield from ensure_shutter_closed(fe_shutter)
-            yield from ensure_shutter_closed(photon_shutter)
 
     return (yield from finalize_wrapper(_body(), _cleanup()))
 
@@ -411,8 +426,17 @@ def edxd_calib_scan(
         _md["description"] = description
 
     z1_max_velocity = yield from bps.rd(sample_tower.z1.max_velocity)
+    z1_curr_position = yield from bps.rd(sample_tower.z1.user_readback)
 
-    required_velo = (abs(start - stop) * iterations) / count_time
+    low, high = sorted((start, stop))
+    in_range = low <= z1_curr_position <= high
+    if in_range:
+        scan_origin = z1_curr_position
+    else:
+        scan_origin = start if abs(z1_curr_position - start) <= abs(z1_curr_position - stop) else stop
+
+    # One iteration is origin -> stop -> start -> origin, i.e. two full spans.
+    required_velo = (2 * abs(start - stop) * iterations) / count_time
     if required_velo > z1_max_velocity:
         raise ValueError(f"Velocity {required_velo} exceeds max velocity {z1_max_velocity}")
 
@@ -422,22 +446,24 @@ def edxd_calib_scan(
     def _body():
         yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
         yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+        if not in_range:
+            yield from bps.mv(sample_tower.z1.velocity, z1_max_velocity)
+            yield from bps.mv(sample_tower.z1, scan_origin)
+
         yield from bps.mv(
-            sample_tower.z1, start,
             germ.driver.acquire_time, count_time,
             sample_tower.z1.velocity, required_velo
         )
 
         count_status = yield from bps.trigger(germ, wait=False, group="germ")
 
-        sweep_to_stop = True
+        waypoints = itertools.cycle((stop, start, scan_origin))
         while not count_status.done:
-            move_sts = yield from bps.abs_set(sample_tower.z1, stop if sweep_to_stop else start, wait=False)
+            move_sts = yield from bps.abs_set(sample_tower.z1, next(waypoints), wait=False)
             while move_sts.done is False:
                 yield from bps.sleep(0.1)
                 if count_status.done:
                     break
-            sweep_to_stop = False
 
         yield from bps.mv(sample_tower.z1.motor_stop, 1)
 

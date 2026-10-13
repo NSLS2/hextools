@@ -4,7 +4,8 @@ import asyncio
 
 from ophyd_async.core import DeviceMock, callback_on_mock_put, default_mock_class, set_mock_put_proceeds, set_mock_value
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
-from ophyd_async.epics.adcore import ADWriterFactory, NDFileHDF5IO, ADBaseDataType
+from ophyd_async.epics.adcore import ADImageMode, ADWriterFactory, NDFileHDF5IO, ADBaseDataType
+import bluesky.plan_stubs as bps
 
 class KinetixDetectorMock(DeviceMock[KinetixDetector]):
     """Mock behaviour that simulates Kinetix internal series acquisition."""
@@ -94,3 +95,4 @@ def kinetix_factory(num: int, path_provider, name: str):
         proc_suffix="Proc1:",
         name=name,
     )
+
