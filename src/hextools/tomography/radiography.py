@@ -18,14 +18,14 @@ def take_radiograph(
     detectors: list[KinetixDetector | PhantomDetector | ContAcqDetector],
     exposure_time: float,
     num_images: int,
-    num_acquisitions: int = 1,
+    num_iterations: int = 1,
     acquire_period: float = 0.0,
-    external_trigger: bool = False,
+    external_trigger: bool = True,
     time_gap: float = 0.0,
-    num_exposures: int = 1,
+    images_to_average: int = 1,
     sample_name: str | None = None,
     description: str | None = None,
-    use_shutter: bool = False,
+    use_shutter: bool = True,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
 ):
@@ -43,13 +43,13 @@ def take_radiograph(
         from ``exposure_time`` plus a readout margin
     num_images : int
         number of images to acquire in each acquisition
-    num_exposures : int
-        number of exposures to average for each acquired image
+    images_to_average : int
+        The number of images to average for each saved image.
     external_trigger : bool
         whether to pace frames from an external edge instead of the camera's
         internal trigger
-    num_acquisitions : int
-        number of acquisitions to perform
+    num_iterations : int
+        number of iterations to perform
     time_gap : float
         idle time between acquisitions, in seconds
     sample_name : str, optional
@@ -76,7 +76,7 @@ def take_radiograph(
         else DetectorTrigger.INTERNAL,
         livetime=exposure_time,
         deadtime=acquire_period - exposure_time,
-        exposures_per_collection=num_exposures,
+        exposures_per_collection=images_to_average,
         collections_per_event=num_images,
         number_of_events=1,
     )
@@ -103,7 +103,7 @@ def take_radiograph(
             _md["description"] = description
 
         yield from bp.count(
-            detectors, num_acquisitions, delay=time_gap, md=_md
+            detectors, num_iterations, delay=time_gap, md=_md
         )
 
     def _cleanup():
