@@ -20,7 +20,8 @@ nexpy = ">=2.1.0,<3"
 hextools = { path = ".", editable = true }
 nslsii = { git = "https://github.com/NSLS2/nslsii", rev = "main" }
 bluesky = { git = "https://github.com/bluesky/bluesky", rev = "main" }
-ophyd-async = { git = "https://github.com/jwlodek/ophyd-async", rev = "add-codec-and-process-plugin-allow-for-filtering" }
+# Pinned: newer commits on add-codec-and-process-plugin-allow-for-filtering break hextools.detectors.phantom imports.
+ophyd-async = { git = "https://github.com/jwlodek/ophyd-async", rev = "c831a174ae48b85cc400b48949d53e57aff93e6b" }
 # From main for bluesky/tiled#1569 (retried creates no longer fail with 409).
 tiled = { git = "https://github.com/bluesky/tiled", rev = "main", extras = ["client"] }
 bluesky-tiled-plugins = ">=2.0.9,<3"

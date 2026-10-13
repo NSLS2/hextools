@@ -236,7 +236,7 @@ environments:
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b69592a3e31804bb1f940d5ab2a2ecdf6631af48
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#3fb85489e287c8ae6b99d432ebb5a5413b7b429a
       - pypi: git+https://github.com/bluesky/tiled?rev=main#19cebf480c520a8d381329a69dd6c52161f796d8
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/09/4e/23e0009b6d5d415c223ea38fcf1e38dc9b0fc6d3ff15b5c5090dcc1f6d88/sparse-0.19.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1a/90/0cb43fdafa5454dd64f715f09722b7e0720ae3b9bfc8887cbebd357b35d2/awkward_cpp-57-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -647,7 +647,7 @@ environments:
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b69592a3e31804bb1f940d5ab2a2ecdf6631af48
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#3fb85489e287c8ae6b99d432ebb5a5413b7b429a
       - pypi: git+https://github.com/bluesky/tiled?rev=main#19cebf480c520a8d381329a69dd6c52161f796d8
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/bb/ee19e7d56824c05892f82a3a2abca94fd2345b7de3dc22baac9e65a46acc/adbc_driver_postgresql-1.12.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/00/c6/a35e38ef5e0db391be79e0e14c019ce378b87d9d7e31d1dfcd451e9d291f/adbc_driver_manager-1.12.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -1052,7 +1052,7 @@ environments:
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#3fb85489e287c8ae6b99d432ebb5a5413b7b429a
       - pypi: git+https://github.com/bluesky/tiled?rev=main#19cebf480c520a8d381329a69dd6c52161f796d8
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#6763cde3c4bb3b2baa47c5ab5208af6d3c148a21
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/09/4e/23e0009b6d5d415c223ea38fcf1e38dc9b0fc6d3ff15b5c5090dcc1f6d88/sparse-0.19.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1a/90/0cb43fdafa5454dd64f715f09722b7e0720ae3b9bfc8887cbebd357b35d2/awkward_cpp-57-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
@@ -1485,7 +1485,7 @@ environments:
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#3fb85489e287c8ae6b99d432ebb5a5413b7b429a
       - pypi: git+https://github.com/bluesky/tiled?rev=main#19cebf480c520a8d381329a69dd6c52161f796d8
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#6763cde3c4bb3b2baa47c5ab5208af6d3c148a21
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/bb/ee19e7d56824c05892f82a3a2abca94fd2345b7de3dc22baac9e65a46acc/adbc_driver_postgresql-1.12.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/00/c6/a35e38ef5e0db391be79e0e14c019ce378b87d9d7e31d1dfcd451e9d291f/adbc_driver_manager-1.12.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -1966,7 +1966,7 @@ environments:
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b69592a3e31804bb1f940d5ab2a2ecdf6631af48
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#3fb85489e287c8ae6b99d432ebb5a5413b7b429a
       - pypi: git+https://github.com/bluesky/tiled?rev=main#19cebf480c520a8d381329a69dd6c52161f796d8
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/bb/ee19e7d56824c05892f82a3a2abca94fd2345b7de3dc22baac9e65a46acc/adbc_driver_postgresql-1.12.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/08/1e/ab9148b15dcefd3d02852a65e4ac3a1df86248c227dd532dc53b41f33697/pymongo-4.18.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -2411,7 +2411,7 @@ environments:
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b69592a3e31804bb1f940d5ab2a2ecdf6631af48
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#3fb85489e287c8ae6b99d432ebb5a5413b7b429a
       - pypi: git+https://github.com/bluesky/tiled?rev=main#19cebf480c520a8d381329a69dd6c52161f796d8
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/bb/ee19e7d56824c05892f82a3a2abca94fd2345b7de3dc22baac9e65a46acc/adbc_driver_postgresql-1.12.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/09/4e/23e0009b6d5d415c223ea38fcf1e38dc9b0fc6d3ff15b5c5090dcc1f6d88/sparse-0.19.2-py2.py3-none-any.whl
@@ -2855,7 +2855,7 @@ environments:
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b69592a3e31804bb1f940d5ab2a2ecdf6631af48
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#3fb85489e287c8ae6b99d432ebb5a5413b7b429a
       - pypi: git+https://github.com/bluesky/tiled?rev=main#19cebf480c520a8d381329a69dd6c52161f796d8
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/bb/ee19e7d56824c05892f82a3a2abca94fd2345b7de3dc22baac9e65a46acc/adbc_driver_postgresql-1.12.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/00/c6/a35e38ef5e0db391be79e0e14c019ce378b87d9d7e31d1dfcd451e9d291f/adbc_driver_manager-1.12.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -3216,7 +3216,7 @@ environments:
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b69592a3e31804bb1f940d5ab2a2ecdf6631af48
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#3fb85489e287c8ae6b99d432ebb5a5413b7b429a
       - pypi: git+https://github.com/bluesky/tiled?rev=main#19cebf480c520a8d381329a69dd6c52161f796d8
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/09/4e/23e0009b6d5d415c223ea38fcf1e38dc9b0fc6d3ff15b5c5090dcc1f6d88/sparse-0.19.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1a/90/0cb43fdafa5454dd64f715f09722b7e0720ae3b9bfc8887cbebd357b35d2/awkward_cpp-57-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
@@ -3581,7 +3581,7 @@ environments:
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b69592a3e31804bb1f940d5ab2a2ecdf6631af48
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#3fb85489e287c8ae6b99d432ebb5a5413b7b429a
       - pypi: git+https://github.com/bluesky/tiled?rev=main#19cebf480c520a8d381329a69dd6c52161f796d8
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/09/4e/23e0009b6d5d415c223ea38fcf1e38dc9b0fc6d3ff15b5c5090dcc1f6d88/sparse-0.19.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1a/90/0cb43fdafa5454dd64f715f09722b7e0720ae3b9bfc8887cbebd357b35d2/awkward_cpp-57-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
@@ -3994,7 +3994,7 @@ environments:
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b69592a3e31804bb1f940d5ab2a2ecdf6631af48
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#3fb85489e287c8ae6b99d432ebb5a5413b7b429a
       - pypi: git+https://github.com/bluesky/tiled?rev=main#19cebf480c520a8d381329a69dd6c52161f796d8
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
       - pypi: https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/bb/ee19e7d56824c05892f82a3a2abca94fd2345b7de3dc22baac9e65a46acc/adbc_driver_postgresql-1.12.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/00/c6/a35e38ef5e0db391be79e0e14c019ce378b87d9d7e31d1dfcd451e9d291f/adbc_driver_manager-1.12.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -7571,7 +7571,8 @@ packages:
   license: LGPL-3.0-only
   license_family: LGPL
   purls:
-  - pkg:pypi/pyside6?source=compressed-mapping
+  - pkg:pypi/pyside6?source=hash-mapping
+  - pkg:pypi/shiboken6?source=hash-mapping
   run_exports: {}
   size: 13947145
   timestamp: 1788745031498
@@ -9732,7 +9733,7 @@ packages:
   license: BSD-2-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/imageio?source=compressed-mapping
+  - pkg:pypi/imageio?source=hash-mapping
   run_exports: {}
   size: 321602
   timestamp: 1791477236274
@@ -9744,7 +9745,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/imagesize?source=compressed-mapping
+  - pkg:pypi/imagesize?source=hash-mapping
   run_exports: {}
   size: 21467
   timestamp: 1787649248672
@@ -10172,7 +10173,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/nexusformat?source=compressed-mapping
+  - pkg:pypi/nexusformat?source=hash-mapping
   run_exports: {}
   size: 1021789
   timestamp: 1791251134726
@@ -11737,9 +11738,9 @@ packages:
   - pillow ; extra == 'codecs'
   - imagecodecs ; extra == 'codecs'
   requires_python: '>=3.11'
-- pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#b9190a93ae0596b70f531f5c01713593a91bb739
+- pypi: git+https://github.com/jwlodek/ophyd-async?rev=c831a174ae48b85cc400b48949d53e57aff93e6b#c831a174ae48b85cc400b48949d53e57aff93e6b
   name: ophyd-async
-  version: 0.21.3.dev55+gb9190a93a
+  version: 0.1.dev1064+gc831a174a
   requires_dist:
   - numpy
   - bluesky>=1.13.1rc2
