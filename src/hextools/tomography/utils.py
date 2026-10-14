@@ -16,15 +16,3 @@ class LastDarkFlatUIDTracker:
             self._metadata_dict["last_dark_flat_scan_id"] = last_scan_id
 
 
-def set_plugin_queue_size(dets: Sequence[AreaDetector], queue_size: int):
-
-    sigs = []
-    for det in dets:
-        for child in det.children():
-            if isinstance(child, NDPluginBaseIO):
-                sigs.append((child.queue_size, queue_size))
-
-
-    yield from bps.mv(
-        *[item for sig in sigs for item in sig]
-    )
