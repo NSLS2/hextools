@@ -32,8 +32,8 @@ from ophyd_async.epics.adcore import (
     NDFileHDF5IO,
     NDPluginBaseIO,
     NDProcessIO,
-    prepare_exposures_per_collection,
-    default_trigger_info_from_detector_settings,
+    prepare_filter,
+    trigger_info_from_driver,
 )
 from ophyd_async.epics.core import EpicsDevice, PvSuffix, epics_signal_rw_rbv
 
@@ -381,10 +381,9 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         exposures_per_collection : int
             The number of exposures to take per collection.
         """
-        if self.process_plugin is not None:
-            await prepare_exposures_per_collection(
-                self.process_plugin, exposures_per_collection=exposures_per_collection
-            )
+        await prepare_filter(
+            self.process_plugin, num_filter=exposures_per_collection
+        )
 
     async def default_trigger_info(self) -> TriggerInfo:
         """Fallback for the default TriggerInfo in plans without prepare.
@@ -397,7 +396,7 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         trigger_mode = DetectorTrigger.INTERNAL
         if await self.driver.ext_sync_type.get_value() == PhantomExtSyncType.FSYNC:
             trigger_mode = DetectorTrigger.EXTERNAL_EDGE
-        default_trig_info = await default_trigger_info_from_detector_settings(
+        default_trig_info = await trigger_info_from_driver(
             self.driver.total_download_frames,
             self.process_plugin,
             detector_trigger=trigger_mode,

@@ -1,10 +1,15 @@
 """Detector utility functions for HEX beamline."""
 
+from typing import Sequence
+
 from ophyd_async.core import OnOff
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixReadoutMode, KinetixTriggerMode
 from ophyd_async.epics.advimba import VimbaDetector, VimbaTriggerSource, VimbaExposeOutMode
-from ophyd_async.epics.adcore import ADImageMode, NDPluginBaseIO
+from ophyd_async.epics.adcore import ADImageMode, AreaDetector, NDPluginBaseIO
 import bluesky.plan_stubs as bps
+import logging
+
+logger = logging.getLogger("hextools")
 
 _KINETIX_MAX_SENSOR_SIZE = 3200
 _KINETIX_VALID_BINNING = {1, 2, 4}
@@ -208,3 +213,14 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
     # Since this is a busy record, wait=True will block till
     # the acquisition completes
     yield from bps.abs_set(cam.driver.acquire, True, wait=False)
+
+
+def set_plugin_queue_sizes(dets: Sequence[AreaDetector], queue_size: int, wait=False, group=None):
+
+    sigs = []
+    for det in dets:
+        for child_name, child in det.children():
+            if isinstance(child, NDPluginBaseIO):
+                sigs.extend([child.queue_size, queue_size])
+
+    yield from bps.mv(*sigs)

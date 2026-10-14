@@ -15,16 +15,13 @@ scikit-image = ">=0.26.0,<0.27"
 h5netcdf = ">=1.8.1,<2"
 nexpy = ">=2.1.0,<3"
 # nslsii = ">=0.11.9,<0.12"
+bluesky-tiled-plugins = ">=2.0.9,<3"
 
 [pypi-dependencies]
 hextools = { path = ".", editable = true }
 nslsii = { git = "https://github.com/NSLS2/nslsii", rev = "main" }
 bluesky = { git = "https://github.com/bluesky/bluesky", rev = "main" }
-# Pinned: newer commits on add-codec-and-process-plugin-allow-for-filtering break hextools.detectors.phantom imports.
-ophyd-async = { git = "https://github.com/jwlodek/ophyd-async", rev = "c831a174ae48b85cc400b48949d53e57aff93e6b" }
-# From main for bluesky/tiled#1569 (retried creates no longer fail with 409).
-tiled = { git = "https://github.com/bluesky/tiled", rev = "main", extras = ["client"] }
-bluesky-tiled-plugins = ">=2.0.9,<3"
+ophyd-async = { git = "https://github.com/jwlodek/ophyd-async", rev = "add-codec-and-process-plugin-allow-for-filtering" }
 
 [feature.profile.dependencies]
 redis-json-dict = ">=0.2.2,<0.3"
@@ -83,9 +80,6 @@ pyside6 = ">=6.11.1,<7"
 yamale = ">=6.1.0,<7"
 hdf5plugin = ">=6.0.0,<8"
 h5py = ">=3.16.0,<4"
-
-[feature.dev.pypi-dependencies]
-tiled = { git = "https://github.com/bluesky/tiled", rev = "main", extras = ["client", "server"] }
 
 # Runs the profile in mock mode; lives here because mock mode needs dev-only
 # packages (uvicorn via tiled-server). Sets its own env because task env does not

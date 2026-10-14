@@ -34,8 +34,11 @@ class QtTabbedDetectorsWidget(QTabWidget):
         self._combined: dict[str, list[str]] = {}
         self._viewers: dict[str, NTNDAViewerWidget] = {}
         self._combined_tabs: dict[str, QWidget] = {}
+        self._tab_viewers: dict[QWidget, list[NTNDAViewerWidget]] = {}
+        self._running: set[NTNDAViewerWidget] = set()
         self._source = self._make_source(re_client)
 
+        self.currentChanged.connect(self._sync_running)
         self._signal_devices_changed.connect(self._refresh)
         self._source.subscribe(self._on_devices_changed)
 
@@ -105,6 +108,7 @@ class QtTabbedDetectorsWidget(QTabWidget):
                 # Created lazily so unavailable detectors open no PV connections.
                 viewer = self._make_viewer(name)
                 self._viewers[name] = viewer
+                self._tab_viewers[viewer] = [viewer]
                 self.insertTab(self._tab_position(name), viewer, name)
             self.setTabVisible(self.indexOf(viewer), available[name])
 
@@ -118,11 +122,39 @@ class QtTabbedDetectorsWidget(QTabWidget):
                 tab = QWidget()
                 row = QHBoxLayout(tab)
                 row.setContentsMargins(0, 0, 0, 0)
-                for name in names:
-                    row.addWidget(self._make_viewer(name), stretch=1)
+                viewers = [self._make_viewer(name) for name in names]
+                for viewer in viewers:
+                    row.addWidget(viewer, stretch=1)
                 self._combined_tabs[label] = tab
+                self._tab_viewers[tab] = viewers
                 self.addTab(tab, label)
             self.setTabVisible(self.indexOf(tab), all_available)
+
+        self._sync_running()
+
+    @Slot()
+    def _sync_running(self, *_):
+        """Run only the viewers in the current tab, and only while shown."""
+        current = self.currentWidget() if self.isVisible() else None
+        wanted = set(self._tab_viewers.get(current, []))
+        # Stop before starting so the same PV is never subscribed twice at once.
+        for viewer in self._running - wanted:
+            try:
+                viewer.stop()
+            except RuntimeError:
+                # Hidden during teardown, after the viewer's Qt children were deleted.
+                pass
+        for viewer in wanted - self._running:
+            viewer.start()
+        self._running = wanted
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._sync_running()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._sync_running()
 
     def _make_viewer(self, name: str) -> NTNDAViewerWidget:
         return NTNDAViewerWidget(**self._detectors[name])
@@ -134,4 +166,7 @@ class QtTabbedDetectorsWidget(QTabWidget):
 
     def closeEvent(self, event):
         self._source.unsubscribe(self._on_devices_changed)
+        for viewer in self._running:
+            viewer.stop()
+        self._running.clear()
         super().closeEvent(event)

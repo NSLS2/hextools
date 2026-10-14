@@ -72,6 +72,7 @@ from hextools.tomography import (
     tomo_flyscan,tomo_flyscan_loop, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_dark_flat, take_radiograph, LastDarkFlatUIDTracker
 )
 from hextools.edxd import configure_test_pulses, edxd_scan, edxd_count, edxd_grid_scan, edxd_2theta_tilt, edxd_calib_scan, edxd_custom_pos_list_grid
+from hextools.settings import apply_device_settings, store_device_settings, store_device_settings_snapshot
 
 
 from ophyd_async.sim import SimMotor

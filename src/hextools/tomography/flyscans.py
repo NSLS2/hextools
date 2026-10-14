@@ -23,7 +23,7 @@ from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from typing import Any, MutableMapping
-from hextools.detectors import enable_preview_mode
+from hextools.detectors import enable_preview_mode, set_plugin_queue_sizes
 from hextools.utils import Steppable
 
 from hextools.photon_delivery_system.shutter import (
@@ -326,6 +326,10 @@ def tomo_flyscan(
         yield from bps.prepare(single_axis_panda_flyer, flyer_info, group="arm")
         for det in detectors:
             yield from bps.prepare(det, det_trigger_info, group="arm")
+
+        # Set plugin queues to fit the entire run in memory
+        yield from set_plugin_queue_sizes(detectors, queue_size=det_trigger_info.number_of_exposures)
+        
         yield from bps.prepare(panda, panda_trigger_info, group="arm")
         yield from bps.wait(group="arm")
 
@@ -668,7 +672,7 @@ def tomo_nd_step_scan(
                             f"Flyscan at grid point {i} failed ({err}), retrying (attempt {attempt}/{num_retries})."
                         )
                     else:
-                        raise RuntimeError(f"Flyscan at grid point {i} failed after {attempt} attempts.") from err
+                        raise RuntimeError(f"Flyscan at grid point {i} failed after {attempt} attempts: {err}") from err
 
             # The final dark/flat below covers the last grid point.
             is_last = i == num_points - 1

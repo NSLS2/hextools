@@ -32,7 +32,8 @@ from .kinetix import (
     kinetix_factory
 )
 from .utils import (
-    enable_preview_mode
+    enable_preview_mode,
+    set_plugin_queue_sizes,
 )
 
 __all__ = [

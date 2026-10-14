@@ -1,0 +1,10 @@
+filter_motor.acceleration_time: 0.1
+filter_motor.dial_high_limit_travel: 0.0
+filter_motor.dial_low_limit_travel: 0.0
+filter_motor.high_limit_travel: 0.0
+filter_motor.low_limit_travel: 0.0
+filter_motor.offset: 0.0
+filter_motor.offset_freeze_switch: Variable
+filter_motor.set_use_switch: Use
+filter_motor.user_setpoint: 66.0
+filter_motor.velocity: 1.0

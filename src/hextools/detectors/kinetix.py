@@ -19,7 +19,7 @@ class KinetixDetectorMock(DeviceMock[KinetixDetector]):
 
         # Set default array sizes on HDF plugin if present
         try:
-            hdf = device.get_plugin_by_name("hdf", NDFileHDF5IO)
+            hdf = device.get_plugin("hdf", NDFileHDF5IO)
             set_mock_value(hdf.array_size0, 3200)
             set_mock_value(hdf.array_size1, 3200)
             set_mock_value(hdf.file_path_exists, True)
@@ -69,6 +69,9 @@ class KinetixDetectorMock(DeviceMock[KinetixDetector]):
                 asyncio.ensure_future(_do_acquisition())
 
         callback_on_mock_put(device.driver.acquire, _on_acquire_write)
+
+
+
 
 
 def kinetix_factory(num: int, path_provider, name: str):

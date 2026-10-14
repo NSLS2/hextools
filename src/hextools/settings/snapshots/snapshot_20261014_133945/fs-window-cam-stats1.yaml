@@ -1,0 +1,17 @@
+array_counter: 6881691
+bgd_width: 1
+centroid_threshold: 1.0
+compute_centroid: false
+compute_histogram: false
+compute_profiles: false
+compute_statistics: true
+cursor_x: 256
+cursor_y: 256
+enable_callbacks: Enable
+hist_max: 255.0
+hist_min: 0.0
+hist_size: 256
+nd_array_address: 0
+nd_array_port: VMB1
+nd_attributes_file: ''
+queue_size: 200
