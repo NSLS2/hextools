@@ -9,14 +9,21 @@ from collections.abc import Generator
 from typing import Any, TextIO
 
 from bluesky import RunEngine
-from bluesky.utils import FailedPause, FailedStatus, Msg, PlanHalt, RequestAbort, RequestStop
+from bluesky.utils import (
+    FailedPause,
+    FailedStatus,
+    Msg,
+    PlanHalt,
+    RequestAbort,
+    RequestStop,
+)
 
 # Name of the logger hextools logs to; child loggers (``hextools.*``) propagate to it.
-LOGGER_NAME = "hextools"
+_LOGGER_NAME = "hextools"
 
 _RESET = "\033[0m"
 # ANSI color for each log level.
-LEVEL_COLORS: dict[int, str] = {
+_LEVEL_COLORS: dict[int, str] = {
     logging.DEBUG: "\033[36m",  # cyan
     logging.INFO: "\033[32m",  # green
     logging.WARNING: "\033[33m",  # yellow
@@ -24,20 +31,23 @@ LEVEL_COLORS: dict[int, str] = {
     logging.CRITICAL: "\033[1;31m",  # bold red
 }
 
-DEFAULT_FORMAT = "[%(asctime)s] %(levelname)s %(name)s: %(message)s"
+_DEFAULT_FORMAT = "[%(asctime)s] %(levelname)s %(name)s: %(message)s"
 
 
-class ColorFormatter(logging.Formatter):
+class _ColorFormatter(logging.Formatter):
     """Formatter that colors each record's level name by its severity."""
 
     def __init__(
-        self, fmt: str = DEFAULT_FORMAT, datefmt: str | None = "%H:%M:%S", color: bool = True
+        self,
+        fmt: str = _DEFAULT_FORMAT,
+        datefmt: str | None = "%H:%M:%S",
+        color: bool = True,
     ) -> None:
         super().__init__(fmt, datefmt)
         self.color = color
 
     def format(self, record: logging.LogRecord) -> str:
-        color = LEVEL_COLORS.get(record.levelno) if self.color else None
+        color = _LEVEL_COLORS.get(record.levelno) if self.color else None
         if color is None:
             return super().format(record)
         # Color a copy, so other handlers of the same record see the plain level name.
@@ -47,11 +57,11 @@ class ColorFormatter(logging.Formatter):
 
 
 class _HextoolsHandler(logging.StreamHandler):
-    """Marks the handler :func:`configure_logger` installed, so reconfiguring replaces it."""
+    """Marks the handler `configure_logger` installed, so reconfiguring replaces it."""
 
 
 def configure_logger(
-    name: str = LOGGER_NAME,
+    name: str = _LOGGER_NAME,
     level: int | str = logging.INFO,
     stream: TextIO | None = None,
     color: bool | None = None,
@@ -86,24 +96,26 @@ def configure_logger(
     for handler in [h for h in logger.handlers if isinstance(h, _HextoolsHandler)]:
         logger.removeHandler(handler)
     handler = _HextoolsHandler(stream)
-    handler.setFormatter(ColorFormatter(color=color))
+    handler.setFormatter(_ColorFormatter(color=color))
     logger.addHandler(handler)
     # Our handler prints the records; don't print them again through the root logger.
     logger.propagate = False
     return logger
 
 
-def unwrap_failed_status(error: BaseException) -> BaseException:
+def _unwrap_failed_status(error: BaseException) -> BaseException:
     """Return the error behind a ``FailedStatus``, or ``error`` itself otherwise.
 
-    The RunEngine raises ``FailedStatus(status) from <original error>`` when a status fails.
+    The RE raises ``FailedStatus(status) from <original error>`` when a status fails.
     """
     while isinstance(error, FailedStatus) and error.__cause__ is not None:
         error = error.__cause__
     return error
 
 
-def log_plan_exceptions(re: RunEngine, logger: logging.Logger | str = LOGGER_NAME) -> None:
+def log_plan_exceptions(
+    re: RunEngine, logger: logging.Logger | str = _LOGGER_NAME
+) -> None:
     """Log exceptions raised during plans run by ``re`` as errors on ``logger``.
 
     Installs a RunEngine preprocessor; the exception is still raised to the caller.
@@ -122,22 +134,44 @@ def log_plan_exceptions(re: RunEngine, logger: logging.Logger | str = LOGGER_NAM
             log.warning("Plan aborted (%s).", type(ex).__name__)
             raise
         except Exception as ex:
-            cause = unwrap_failed_status(ex)
+            cause = _unwrap_failed_status(ex)
             log.error("Plan failed with %s: %s", type(cause).__name__, cause)
             raise
 
     re.preprocessors.append(preprocessor)
 
 
-def log_pauses(re: RunEngine, logger: logging.Logger | str = LOGGER_NAME) -> None:
-    """Log a warning on ``logger`` whenever ``re`` pauses, chaining onto any existing ``state_hook``."""
+def log_pauses(re: RunEngine, logger: logging.Logger | str = _LOGGER_NAME) -> None:
+    """Log a warning on ``logger`` whenever ``re`` pauses.
+
+    Configured as an RE state hook that will be called whenever the RE changes state.
+    If an exisiting state hook is present, it will be called after logging the pause.
+
+    Parameters
+    ----------
+    re : RunEngine
+        The RunEngine instance to monitor for pauses.
+    logger : logging.Logger | str, default _LOGGER_NAME
+        The logger to use for warning messages.
+        Can be a logger instance or the name of a logger.
+
+    """
     log = logging.getLogger(logger) if isinstance(logger, str) else logger
     previous_hook = re.state_hook
 
     def state_hook(new_state, old_state):
         if str(new_state) == "paused":
-            log.warning("Plan paused. Resume, stop, abort, or halt the RunEngine to continue.")
+            log.warning(
+                "Plan paused. Resume, stop, abort, or halt the RunEngine to continue."
+            )
         if previous_hook is not None:
             previous_hook(new_state, old_state)
 
     re.state_hook = state_hook  # type: ignore (TODO: type hint upstream)
+
+
+__all__ = [
+    "configure_logger",
+    "log_pauses",
+    "log_plan_exceptions",
+]
