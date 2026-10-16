@@ -209,6 +209,14 @@ def auto_levels(
     return (lo, hi) if hi > lo else (lo, lo + 1.0)
 
 
+def _numeric(values: np.ndarray) -> np.ndarray | None:
+    """``values`` as floats, or ``None`` if they are not numbers (e.g. "Open")."""
+    try:
+        return np.asarray(values, dtype=float)
+    except (TypeError, ValueError):
+        return None
+
+
 # Worker functions return what they were asked for alongside the result, so a
 # result that arrives after the user moved on can be recognised and dropped.
 
@@ -217,8 +225,10 @@ def _fetch_array(stream: Any, info: DatasetInfo) -> tuple[DatasetInfo, Any]:
     return info, stream[info.key]
 
 
-def _read_frame(array: Any, key: tuple[int | slice, ...]) -> tuple[Any, np.ndarray]:
-    return array, np.asarray(array[key])
+def _read_frame(
+    array: Any, key: tuple[int | slice, ...]
+) -> tuple[Any, tuple[int | slice, ...], np.ndarray]:
+    return array, key, np.asarray(array[key])
 
 
 def _read_columns(
@@ -479,16 +489,21 @@ class QtRunViewer(QWidget):
             widget.setEnabled(length > 1)
         self._request_frame()
 
+    def _current_frame_key(self) -> tuple[int | slice, ...] | None:
+        if self._array is None or self._dataset is None or self._dataset.shape is None:
+            return None
+        return frame_key(
+            self._dataset.shape, self._slice_axis.currentData(), self._index.value()
+        )
+
     def _request_frame(self, _value: int = 0) -> None:
         """Read the selected image; while a read runs, only the latest request waits."""
-        if self._array is None or self._dataset is None or self._dataset.shape is None:
+        key = self._current_frame_key()
+        if key is None:
             return
         if self._frame_worker is not None:
             self._frame_pending = True
             return
-        key = frame_key(
-            self._dataset.shape, self._slice_axis.currentData(), self._index.value()
-        )
         self._frame_worker = self._start(
             _read_frame,
             self._array,
@@ -503,10 +518,13 @@ class QtRunViewer(QWidget):
             self._frame_pending = False
             self._request_frame()
 
-    def _show_image(self, result: tuple[Any, np.ndarray]) -> None:
-        array, image = result
+    def _show_image(
+        self, result: tuple[Any, tuple[int | slice, ...], np.ndarray]
+    ) -> None:
+        array, key, image = result
         info = self._dataset
-        if array is not self._array or info is None:
+        # Matching the array alone let a frame the slider had moved past through.
+        if array is not self._array or key != self._current_frame_key() or info is None:
             return
         first = self._image is None
         self._image = image
@@ -564,6 +582,11 @@ class QtRunViewer(QWidget):
             self._stats_table.setItem(row, 0, QTableWidgetItem(name))
             self._stats_table.setItem(row, 1, QTableWidgetItem(value))
 
+    def _clear_analysis(self) -> None:
+        self._histogram_curve.setData([], [])
+        self._density_curve.setData([], [])
+        self._stats_table.setRowCount(0)
+
     # 1D data
 
     def _show_plot_page(self, info: DatasetInfo) -> None:
@@ -601,25 +624,38 @@ class QtRunViewer(QWidget):
                 returned=self._on_columns_read,
             )
             return
-        y = self._columns[(info.stream, info.key)]
-        x = self._columns.get((info.stream, x_key)) if x_key != _INDEX else None
-        if x is not None and x.shape != y.shape:
+        y = _numeric(self._columns[(info.stream, info.key)])
+        if y is None:
+            self._line_curve.clear()
+            self._clear_analysis()
             self._status.setText(
-                f"{x_key} has {x.size} values and {info.key} has {y.size}; "
-                "plotting against index."
+                f"{info.stream}/{info.key} holds values that are not numbers; "
+                "nothing to plot."
             )
-            x = None
+            return
+        x = None
+        if x_key != _INDEX:
+            x = _numeric(self._columns[(info.stream, x_key)])
+            problem = None
+            if x is None:
+                problem = "holds values that are not numbers"
+            elif x.shape != y.shape:
+                problem = f"has {x.size} values and {info.key} has {y.size}"
+                x = None
+            if problem:
+                self._status.setText(f"{x_key} {problem}; plotting against index.")
         self._line_plot.setLabel("bottom", _INDEX if x is None else x_key)
         if x is not None and x_key == "time" and x.size:
             x = x - x[0]
             self._line_plot.setLabel("bottom", "Time since first event", units="s")
         if x is None:
-            self._line_curve.setData(y.astype(float))
+            self._line_curve.setData(y)
         else:
-            self._line_curve.setData(x.astype(float), y.astype(float))
+            self._line_curve.setData(x, y)
         self._line_plot.autoRange()
         self._update_analysis(y)
-        self._status.setText(f"{info.stream}/{info.key}: {y.size} value(s)")
+        if x is not None or x_key == _INDEX:
+            self._status.setText(f"{info.stream}/{info.key}: {y.size} value(s)")
 
     def _on_columns_read(self, columns: dict[tuple[str, str], np.ndarray]) -> None:
         self._columns.update(columns)

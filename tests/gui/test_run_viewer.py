@@ -1,4 +1,5 @@
 import os
+import threading
 
 import numpy as np
 import pytest
@@ -274,4 +275,97 @@ def test_scan_browser_opens_a_run_in_the_viewer():
     assert viewer.parent() is browser
     assert viewer.isWindow()
     _wait_for(lambda: viewer._datasets)
+    viewer.close()
+
+
+class GatedArray(FakeArray):
+    """An array whose reads wait while the gate is closed, as a slow Tiled would."""
+
+    def __init__(self, data):
+        super().__init__(data)
+        self.gate = threading.Event()
+        self.gate.set()
+
+    def __getitem__(self, key):
+        self.gate.wait(5)
+        return super().__getitem__(key)
+
+
+def _open_gated_image(monkeypatch):
+    QApplication.instance() or QApplication([])
+    run = _tomo_run()
+    array = GatedArray(PROJECTIONS)
+    run["primary"].arrays["kinetix-det1_image"] = array
+    viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
+    _wait_for(lambda: viewer._datasets)
+    _select(viewer, "kinetix-det1_image")
+    _wait_for(lambda: viewer._image is not None and viewer._frame_worker is None)
+    shown = []
+    set_image = viewer._image_item.setImage
+
+    def spy(image, **kwargs):
+        shown.append(np.array(image))
+        set_image(image, **kwargs)
+
+    monkeypatch.setattr(viewer._image_item, "setImage", spy)
+    return viewer, array, shown
+
+
+# PR 96 review: a frame read finishing after the controls moved on was shown,
+# so the image and statistics disagreed with the slider.
+def test_viewer_drops_a_frame_the_controls_moved_past(monkeypatch):
+    viewer, array, shown = _open_gated_image(monkeypatch)
+    array.gate.clear()
+    viewer._index.setValue(1)
+    _wait_for(lambda: viewer._frame_worker is not None)
+    viewer._index.setValue(2)
+    array.gate.set()
+    _wait_for(lambda: viewer._frame_worker is None and not viewer._frame_pending)
+    _wait_for(lambda: len(shown) >= 1)
+    assert [frame[0, 0] for frame in shown] == [PROJECTIONS[2, 0, 0, 0]]
+    np.testing.assert_array_equal(viewer._image, PROJECTIONS[2, 0])
+    viewer.close()
+
+
+# PR 96 review: after a slice-axis change, a stale projection used up the
+# first-frame reset, leaving the sinogram with the projection's contrast.
+def test_viewer_resets_contrast_for_the_new_axis_not_a_stale_frame(monkeypatch):
+    viewer, array, _shown = _open_gated_image(monkeypatch)
+    array.gate.clear()
+    viewer._index.setValue(1)
+    _wait_for(lambda: viewer._frame_worker is not None)
+    viewer._slice_axis.setCurrentIndex(1)  # slice along rows: a sinogram
+    array.gate.set()
+    _wait_for(lambda: viewer._frame_worker is None and not viewer._frame_pending)
+    sinogram = PROJECTIONS[:, 0, 0, :]
+    np.testing.assert_array_equal(viewer._image, sinogram)
+    assert tuple(viewer._image_item.getLevels()) == pytest.approx(auto_levels(sinogram))
+    viewer.close()
+
+
+# PR 96 review: a text column (e.g. a shutter's "Open"/"Closed") raised in the
+# plotting callback and left the previous plot under the new label.
+@pytest.mark.parametrize("axis", ["y", "x"])
+def test_viewer_refuses_to_plot_text_values(axis):
+    QApplication.instance() or QApplication([])
+    run = _tomo_run()
+    stream = run["primary"]
+    stream._columns["shutter"] = np.array(["Open", "Closed", "Open"])
+    stream.metadata["data_keys"]["shutter"] = {"dtype": "string"}
+    viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
+    _wait_for(lambda: viewer._datasets)
+    _select(viewer, "angle")
+    _wait_for(lambda: viewer._line_curve.getData()[1] is not None)
+
+    if axis == "y":
+        _select(viewer, "shutter")
+    else:
+        viewer._x_key.setCurrentText("shutter")
+    _wait_for(lambda: "not numbers" in viewer._status.text())
+    if axis == "y":
+        assert viewer._line_curve.getData()[1] is None
+    else:
+        # Plotted against the index instead.
+        np.testing.assert_array_equal(viewer._line_curve.getData()[0], [0, 1, 2])
+        np.testing.assert_array_equal(viewer._line_curve.getData()[1], ANGLES)
     viewer.close()
