@@ -64,6 +64,7 @@ from hextools.edxd import (
     edxd_scan,
 )
 from hextools.gui._theme import apply_bnl_theme, saved_theme
+from hextools.gui.auto_exporter_view import QtAutoExporterView
 from hextools.gui.available_devices import QtAvailableDevices
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor
 from hextools.gui.live_re_md_viewer import QtProposalInfo
@@ -107,7 +108,7 @@ from hextools.tomography.flyscans import (
     tomo_flyscan_loop,
 )
 from hextools.tomography.radiography import take_radiograph
-from hextools.utils import reset_scan_id
+from hextools.utils import is_running_in_ci, reset_scan_id
 
 from ._event_loop import get_our_app_name, gui_qt
 from ._threading import wait_for_workers_to_quit
@@ -471,15 +472,17 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             else:
                 self.scan_browser = None
             tabs.addTab(execution_view, "Plan Execution")
-            tabs.addTab(QtPlanLogView(self._plan_monitor, "hextools"), "Log")
             self.plan_history = QtPlanHistory(
                 self._plan_monitor,
                 history_file=os.environ.get(PLAN_HISTORY_FILE_ENV) or None,
             )
             tabs.addTab(self.plan_history, "History")
+            tabs.addTab(QtPlanLogView(self._plan_monitor, "hextools"), "Log")
         else:
             self.plan_history = None
             self.scan_browser = None
+        self.auto_exporter = QtAutoExporterView(autostart=not is_running_in_ci())
+        tabs.addTab(self.auto_exporter, "NXS Export")
         vbox.addWidget(tabs, stretch=1)
 
         # Shared live per-device progress bars pinned to the bottom.

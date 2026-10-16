@@ -147,6 +147,7 @@ def ensure_shutter_state(
     allow_actuation: bool = False,
     group: Hashable | None = None,
     wait: bool = True,
+    sleep_time: float = 4.0,
 ):
     """Plan stub to guarantees that the shutter(s) is/are in the desired state.
 
@@ -183,8 +184,8 @@ def ensure_shutter_state(
         yield from bps.wait(group=group, timeout=DEFAULT_SHUTTER_TIMEOUT)
 
         # It seems that the shutter status in EPICS is not reliable enough to
-        # consider the shutter fully opened/closed.
-        # yield from bps.sleep(4)
+        # consider the shutter fully opened/closed, so wait some extra time.
+        yield from bps.sleep(sleep_time)
 
 
 def ensure_shutter_open(

@@ -39,7 +39,7 @@ def export_tomo_flyscan_to_h5(
     run_start = run.start
     proposal, cycle, scan_id = confirm_required_start_fields(run_start)
     logger.info(
-        f"Exporting tomography scan {scan_id} (uid {run_start.get('uid')})",
+        f"Exporting tomography scan {scan_id} (uid {run_start.get('uid')})" \
         " for proposal {proposal}, cycle {cycle}"
     )
 

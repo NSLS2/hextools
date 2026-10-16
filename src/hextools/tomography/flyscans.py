@@ -149,6 +149,7 @@ def tomo_dark_flat(
 
     _md = {
         "plan_name": "tomo_dark_flat",
+        "detectors": [det.name for det in detectors],
         "exposure_time": exposure_time,
         "num_dark_images": num_dark_images,
         "num_flat_images": num_flat_images,
