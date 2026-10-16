@@ -44,7 +44,7 @@ def run_metadata_to_json(run: BlueskyRunV3, scan_id: int, metadata_dir: Path):
 def confirm_required_start_fields(run_start: dict[str, Any]) -> tuple[str, str, int]:
     required_fields = ["data_session", "cycle", "scan_id"]
     field_values = [run_start.get(field) for field in required_fields]
-    for n, v in zip(required_fields, field_values):
+    for n, v in zip(required_fields, field_values, strict=True):
         if v is None:
             raise ValueError(f"Missing required start field: {n}!")
 
@@ -70,7 +70,8 @@ def find_hdf_datasets(
         raise ValueError(
             f"Run {bs_run.start['uid']} has no '{stream_name}' event stream"
         )
-    # One request for the whole stream; CompositeClient[key] re-lists the stream on every lookup
+    # One request for the whole stream; CompositeClient[key]
+    # re-lists the stream on every lookup
     contents = stream.include_data_sources().get_contents()
     logger.debug(f"Fetched {len(contents)} entries from stream {stream.item['id']}")
     found = {}

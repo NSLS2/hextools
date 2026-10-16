@@ -97,7 +97,7 @@ TOMO_DARK_FLAT_V1 = Spec("TomoDarkFlat", version="1")
 
 
 def validate_tomo_dark_flat(run: BlueskyRunV3, version: str | None = "1") -> None:
-    """Raise :class:`SpecValidationError` if ``run`` does not match :data:`TOMO_DARK_FLAT_V1`."""
+    """Check that the run matches the TOMO_DARK_FLAT_V1 specification."""
     _require_plan_name(run, "tomo_dark_flat")
     _require_start_keys(
         run, "exposure_time", "num_dark_images", "num_flat_images", "x_offset"
@@ -222,7 +222,8 @@ def validate_radiograph(run: BlueskyRunV3, version: str | None = "1") -> None:
 #   description: str                 optional
 #   standard count/scan/grid_scan/list_scan metadata (0, 1 or 2 motors)
 #   outer_position: float            edxd_custom_pos_list_grid only
-#   initial_scan_uid: str            edxd_custom_pos_list_grid only, from its second run on
+#   initial_scan_uid: str            edxd_custom_pos_list_grid only,
+#                                    from its second run on
 # Streams:
 #   primary: one event per point
 #     <det>                     (num_elements, num_energy_bins) GeRM spectra,

@@ -185,7 +185,7 @@ convention = "numpy"
 # By default, private member access is allowed in tests
 # See https://github.com/DiamondLightSource/python-copier-template/issues/154
 # Remove this line to forbid private member access in tests
-"tests/**/*" = ["SLF001", "S101", "D"]
+"tests/**/*" = ["SLF001", "S101", "D", "PLC2701"]
 # Qt requires camelCase names for overridden methods (closeEvent, sizeHint, ...).
 "src/hextools/gui/**/*" = ["N802"]
 # Vendored from bluesky_widgets; kept close to upstream.

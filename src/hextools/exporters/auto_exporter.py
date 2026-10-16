@@ -1,7 +1,7 @@
 """Run metadata exporters when a Bluesky run in Tiled closes.
 
 Subscribes to the run catalog over Tiled's websocket API, so the Tiled server must
-have its streaming cache enabled. Run with ``python -m hextools.exporters.auto_exporter``.
+have its streaming cache enabled.
 """
 
 import argparse
@@ -90,7 +90,7 @@ def auto_export_run(
 
 
 class RunEndSubscription:
-    """Websocket subscription that calls ``callback`` with each run in ``catalog`` when it closes.
+    """Ctx manager that creates an end-of-run ws subscription to tiled.
 
     Use as a context manager; the websocket is closed on exit.
     """
@@ -106,25 +106,27 @@ class RunEndSubscription:
         )
         self._handled: set[str] = set()
         self._subscription = catalog.subscribe()
-        # Tiled holds callbacks weakly; bound methods stay registered while this object lives.
-        # The default executor has one worker, so callbacks run one at a time in the order runs closed
         self._subscription.child_metadata_updated.add_callback(
             self._on_metadata_updated
         )
         self._subscription.stream_closed.add_callback(self._on_stream_closed)
         logger.debug(
-            f"Created run-end subscription on {catalog.uri} calling {self._callback_name}"
+            f"Created run-end subscription on {catalog.uri} "
+            f"calling {self._callback_name}"
         )
 
     def __enter__(self) -> "RunEndSubscription":
+        """Enter the run-end subscription context."""
         logger.info(
             f"Entering run-end subscription context for catalog {self._catalog.uri}"
         )
         return self
 
     def __exit__(self, *exc_info) -> None:
+        """Close the subscription and wait for any in-progress callback to finish."""
         logger.info(
-            "Closing the Tiled subscription; waiting for any in-progress callback to finish"
+            "Closing the Tiled subscription."
+            "Waiting for any in-progress callback to finish"
         )
         self._subscription.disconnect()
         logger.info(
@@ -132,9 +134,10 @@ class RunEndSubscription:
         )
 
     def run(self) -> None:
-        """Block, handling runs as they close, until the stream ends or is interrupted."""
+        """Block and handle run close events until stopped."""
         logger.info(f"Listening for closed runs on {self._catalog.uri}")
-        # Only new updates; the subscription reconnects on its own after dropped connections
+        # Only new updates; the subscription reconnects on its own
+        # after dropped connections
         self._subscription.start(start=None, max_size=MAX_MESSAGE_BYTES)
         logger.info("Tiled subscription stopped")
 
@@ -171,7 +174,8 @@ class RunEndSubscription:
             logger.exception(f"{self._callback_name} failed for run {uid}")
         else:
             logger.info(
-                f"{self._callback_name} finished for run {uid} in {time.monotonic() - t0:.1f} s"
+                f"{self._callback_name} finished for run {uid} in "
+                f"{time.monotonic() - t0:.1f} s"
             )
 
     def _on_stream_closed(self, sub) -> None:
@@ -179,6 +183,7 @@ class RunEndSubscription:
 
 
 def main() -> None:
+    """Entry point for the auto exporter script."""
     parser = argparse.ArgumentParser(
         description="Run metadata exporters when Bluesky runs close in Tiled."
     )

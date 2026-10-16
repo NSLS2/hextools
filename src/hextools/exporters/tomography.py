@@ -23,7 +23,7 @@ def export_tomo_flyscan_to_h5(
     tiled_client: CatalogOfBlueskyRuns | None = None,
     dark_flat_id: str | int | None = None,
 ):
-
+    """Export a tomography flyscan to an HDF5 file."""
     tiled_client = ensure_available(CatalogOfBlueskyRuns, c=tiled_client)
 
     if isinstance(tomo_flyscan, (str, int)):
@@ -39,14 +39,16 @@ def export_tomo_flyscan_to_h5(
     run_start = run.start
     proposal, cycle, scan_id = confirm_required_start_fields(run_start)
     logger.info(
-        f"Exporting tomography scan {scan_id} (uid {run_start.get('uid')}) for proposal {proposal}, cycle {cycle}"
+        f"Exporting tomography scan {scan_id} (uid {run_start.get('uid')})",
+        " for proposal {proposal}, cycle {cycle}"
     )
 
     dark_flat_uid = dark_flat_id or run_start.get("last_dark_flat_uid")
 
     if dark_flat_uid is None:
         logger.warning(
-            "No last_dark_flat_uid found in the run start document. Omitting dark/flat entries"
+            "No last_dark_flat_uid found in the run start document.",
+            "Omitting dark/flat entries"
         )
         dark_flat_run = None
     else:
@@ -54,7 +56,7 @@ def export_tomo_flyscan_to_h5(
         dark_flat_run = tiled_client[dark_flat_uid]
         if not isinstance(dark_flat_run, BlueskyRunV3):
             raise ValueError(
-                f"Failed to resolve dark/flat run {dark_flat_uid} to a BlueskyRunV3 instance"
+                f"Failed to resolve dark/flat run {dark_flat_uid} to a BlueskyRunV3"
             )
 
     scan_id_dir_path = Path(
@@ -64,7 +66,8 @@ def export_tomo_flyscan_to_h5(
     logger.debug(f"Export directory: {scan_id_dir_path}")
 
     primary = find_hdf_datasets(run, "primary", scan_id_dir_path)
-    # Image stacks are (frame, y, x); 1D datasets are PandA captures like the rotation angle
+    # Image stacks are (frame, y, x); 1D datasets are PandA
+    # captures like the rotation angle
     det_names = [name for name, (_, _, ndim) in primary.items() if ndim >= 3]
     single_det = len(det_names) == 1
     logger.info(f"Detector datasets: {det_names}")
@@ -78,8 +81,9 @@ def export_tomo_flyscan_to_h5(
             found = find_hdf_datasets(dark_flat_run, stream_name, scan_id_dir_path)
             missing = set(det_names) - found.keys()
             if missing:
-                logging.warning(
-                    f"Dark/flat run {dark_flat_uid} has no {stream_name} data for {sorted(missing)}"
+                logger.warning(
+                    f"Dark/flat run {dark_flat_uid} has no {stream_name} data for",
+                    sorted(missing)
                 )
             for name in set(det_names) & found.keys():
                 relpath, dataset, _ = found[name]
@@ -108,7 +112,7 @@ def export_tomo_dark_flat_to_h5(
     tomo_dark_flat_scan: BlueskyRunV3 | str | int,
     tiled_client: CatalogOfBlueskyRuns | None,
 ):
-
+    """Export a tomography dark/flat scan to an HDF5 file."""
     if isinstance(tomo_dark_flat_scan, (str, int)):
         tiled_client = ensure_available(CatalogOfBlueskyRuns, c=tiled_client)
         run = tiled_client[tomo_dark_flat_scan]
