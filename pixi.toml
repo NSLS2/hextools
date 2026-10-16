@@ -85,10 +85,10 @@ yamale = ">=6.1.0,<7"
 hdf5plugin = ">=6.0.0,<8"
 h5py = ">=3.16.0,<4"
 
-# Runs the profile in mock mode; lives here because mock mode needs dev-only
-# packages (uvicorn via tiled-server). Sets its own env because task env does not
-# propagate through `depends-on`. Run with `pixi run -e terminal-dev start-mock`.
-[feature.dev.tasks.start-mock]
+# Runs the profile in mock mode; mock mode needs dev-only packages (uvicorn via
+# tiled-server). Sets its own env because task env does not propagate through
+# `depends-on`.
+[feature.mock.tasks.start-mock]
 cmd = "unset SESSION_MANAGER PYTHONPATH PYTHONUSERBASE && MPLBACKEND=qtagg ipython -i src/hextools/profiles/{{ profile }}.py"
 args = [{ arg = "profile", default = "collection" }]
 env = { HEXTOOLS_RUNNING_IN_CI = "YES", BEAMLINE_ACRONYM = "HEX" }
@@ -96,6 +96,7 @@ env = { HEXTOOLS_RUNNING_IN_CI = "YES", BEAMLINE_ACRONYM = "HEX" }
 [feature.gui.dependencies]
 pyside6 = ">=6.9.0,<7"
 qtpy = ">=2.4.3,<3"
+pexpect = ">=4.9.0,<5"
 
 # Install the `gui` extra (bluesky-widgets, ntnda-qt-viewer, ...) in this env.
 [feature.gui.pypi-dependencies]
@@ -107,7 +108,7 @@ ntnda-qt-viewer = { git = "https://github.com/jwlodek/ntnda-qt-viewer", rev = "m
 qserver-gui = "queue-monitor --http-server-uri https://xf27id1-hex-qs1.nsls2.bnl.gov:443"
 hex-gui = "python -m hextools.gui"
 
-[feature.gui-dev.tasks]
+[feature.mock.tasks]
 hex-gui-mock = "python -m hextools.gui --mock"
 
 [feature.docs.dependencies]
@@ -129,15 +130,13 @@ args = [
 [environments]
 # Base environments
 default = { solve-group = "default" }
-dev = { features = ["dev"], solve-group = "default" }
+# Everything needed to develop, test, and run the terminal and GUI in mock mode.
+dev = { features = ["profile", "terminal", "gui", "dev", "mock"], solve-group = "profile" }
 docs = { features = ["docs"], solve-group = "default" }
 
 # Profile environments
 terminal = {features = ["profile", "terminal"], solve-group = "profile"}
-# Terminal environment plus dev packages (uvicorn, etc.) for mock runs.
-terminal-dev = { features = ["profile", "terminal", "dev"] }
 qs = { features = ["profile", "qs"], solve-group = "profile" }
-gui-dev = { features = ["profile", "gui", "dev", "gui-dev"], solve-group = "profile" }
 
 # Python version specific environments for CI
 py311 = { features = ["dev", "py311"], solve-group = "py311" }
@@ -147,9 +146,6 @@ py313 = { features = ["dev", "py313"], solve-group = "py313" }
 [environments.gui]
 features = ["profile", "gui"]
 solve-group = "profile"
-
-[environments.gui.dependencies]
-pexpect = ">=4.9.0,<5"
 
 [feature.py313.tasks]
 tests = "pytest --cov=src/hextools --cov-report=term"

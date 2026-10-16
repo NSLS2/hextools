@@ -97,14 +97,14 @@ jobs:
         uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
         with:
           pixi-version: v0.79.0
-          environments: gui-dev
+          environments: dev
           cache: false
           frozen: true
 
       - name: Run GUI tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pixi run --as-is -e gui-dev pytest tests/gui
+        run: pixi run --as-is -e dev pytest tests/gui
 
       # Uncomment once codecov is enabled.
       # - name: Upload coverage to Codecov
