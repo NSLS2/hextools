@@ -1,25 +1,31 @@
 
 from collections.abc import Mapping
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
 
 from bluesky_tiled_plugins import CatalogOfBlueskyRuns
-from tiled.client.array import ArrayClient
+from tiled.structures.data_source import DataSource
+from tiled.utils import path_from_uri
 import h5py
 import xarray as xr
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
+from bluesky_tiled_plugins.clients.bluesky_event_stream import BlueskyEventStreamV3
 import json
 
+from hextools.exporters.utils import confirm_required_start_fields, create_baseline_dataset, run_metadata_to_json, find_hdf_datasets
 from hextools.utils import ensure_available
 
-logger = logging.getLogger("hextools")
+logger = logging.getLogger("hextools.exporters.tomography")
+
 
 
 def export_tomo_flyscan_to_h5(
     tomo_flyscan: BlueskyRunV3 | str | int,
-    tiled_client: CatalogOfBlueskyRuns | None = None
+    tiled_client: CatalogOfBlueskyRuns | None = None,
+    dark_flat_id: str | int | None = None,
 ):
 
     tiled_client = ensure_available(CatalogOfBlueskyRuns, c=tiled_client)
@@ -33,20 +39,102 @@ def export_tomo_flyscan_to_h5(
         raise ValueError("Failed to resolve tomography flyscan to a BlueskyRunV3 instance")
 
     run_start = run.start
-    dark_flat_uid = run_start.get("last_dark_flat_uid")
-    proposal = run_start.get('data_session')
-    cycle = run_start.get('cycle')
-    scan_id = run_start.get('scan_id')
+    proposal, cycle, scan_id = confirm_required_start_fields(run_start)
+    logger.info(f"Exporting tomography scan {scan_id} (uid {run_start.get('uid')}) for proposal {proposal}, cycle {cycle}")
+
+    dark_flat_uid = dark_flat_id or run_start.get("last_dark_flat_uid") 
 
     if dark_flat_uid is None:
         logger.warning("No last_dark_flat_uid found in the run start document. Omitting dark/flat entries")
+        dark_flat_run = None
+    else:
+        logger.info(f"Using dark/flat run {dark_flat_uid}")
+        dark_flat_run = tiled_client[dark_flat_uid]
+        if not isinstance(dark_flat_run, BlueskyRunV3):
+            raise ValueError(f"Failed to resolve dark/flat run {dark_flat_uid} to a BlueskyRunV3 instance")
 
-    baseline_data = run["baseline"].read()
     scan_id_dir_path = Path(f"/nsls2/data/hex/proposals/{cycle}/{proposal}/tomography/metadata/scan_{scan_id:05}")
+    scan_id_dir_path.mkdir(parents=True, exist_ok=True)
+    logger.debug(f"Export directory: {scan_id_dir_path}")
 
-    def link_hdf_dataset(det: ArrayClient, h5file: h5py.File):
+    primary = find_hdf_datasets(run, "primary", scan_id_dir_path)
+    # Image stacks are (frame, y, x); 1D datasets are PandA captures like the rotation angle
+    det_names = [name for name, (_, _, ndim) in primary.items() if ndim >= 3]
+    single_det = len(det_names) == 1
+    logger.info(f"Detector datasets: {det_names}")
 
-    for det in run["primary"]:
-        if not isinstance(det, ArrayClient):
-            continue
-        det.data_sources()
+    links = {}
+    for name, (relpath, dataset, _) in primary.items():
+        links["data" if single_det and name in det_names else name] = (relpath, dataset)
+
+    if dark_flat_run is not None:
+        for stream_name in ("dark", "flat"):
+            found = find_hdf_datasets(dark_flat_run, stream_name, scan_id_dir_path)
+            missing = set(det_names) - found.keys()
+            if missing:
+                logging.warning(
+                    f"Dark/flat run {dark_flat_uid} has no {stream_name} data for {sorted(missing)}"
+                )
+            for name in set(det_names) & found.keys():
+                relpath, dataset, _ = found[name]
+                links[stream_name if single_det else f"{stream_name}-{name}"] = (relpath, dataset)
+
+    nxs_path = scan_id_dir_path / f"scan_{scan_id:05}.nxs"
+    logger.info(f"Writing {nxs_path}")
+    with h5py.File(nxs_path, "w") as h5file:
+        data_grp = h5file.require_group("/entry/data")
+        for link_name, (relpath, dataset) in links.items():
+            data_grp[link_name] = h5py.ExternalLink(relpath, dataset)
+            logger.info(f"Linked /entry/data/{link_name} -> {relpath}:{dataset}")
+
+        logger.info("Writing baseline data")
+        create_baseline_dataset(run, h5file)
+
+    logger.info(f"Writing run metadata to {scan_id_dir_path}")
+    run_metadata_to_json(run, scan_id, scan_id_dir_path)
+    logger.info(f"Finished exporting tomography scan {scan_id} to {nxs_path}")
+
+
+def export_tomo_dark_flat_to_h5(tomo_dark_flat_scan: BlueskyRunV3 | str | int, tiled_client: CatalogOfBlueskyRuns | None):
+
+    if isinstance(tomo_dark_flat_scan, (str, int)):
+        tiled_client = ensure_available(CatalogOfBlueskyRuns, c=tiled_client)
+        run = tiled_client[tomo_dark_flat_scan]
+    else:
+        run = tomo_dark_flat_scan
+
+    if not isinstance(run, BlueskyRunV3):
+        raise ValueError(f"Failed to resolve run {run} to a BlueskyRunV3 instance")
+
+    run_start = run.start
+    det_names = run_start.get("detectors", [])
+    if not isinstance(det_names, list):
+        raise ValueError(f"Run {run} has an invalid 'detectors' field: {det_names}")
+
+    data_session, cycle, scan_id = confirm_required_start_fields(run_start)
+
+    scan_id_dir_path = Path(f"/nsls2/data/hex/proposals/{cycle}/{data_session}/tomography/metadata/scan_{scan_id:05}")
+    scan_id_dir_path.mkdir(parents=True, exist_ok=True)
+
+    links = {}
+    for stream_name in ("dark", "flat"):
+        found = find_hdf_datasets(run, stream_name, scan_id_dir_path)
+        for name in det_names:
+            relpath, dataset, _ = found[name]
+            single_det = len(det_names) == 1
+            links[stream_name if single_det else f"{stream_name}-{name}"] = (relpath, dataset)
+
+    nxs_path = scan_id_dir_path / f"scan_{scan_id:05}.nxs"
+    logger.info(f"Writing {nxs_path}")
+    with h5py.File(nxs_path, "w") as h5file:
+        data_grp = h5file.require_group("/entry/data")
+        for link_name, (relpath, dataset) in links.items():
+            data_grp[link_name] = h5py.ExternalLink(relpath, dataset)
+            logger.info(f"Linked /entry/data/{link_name} -> {relpath}:{dataset}")
+
+        logger.info("Writing baseline data")
+        create_baseline_dataset(run, h5file)
+
+    logger.info(f"Writing run metadata to {scan_id_dir_path}")
+    run_metadata_to_json(run, scan_id, scan_id_dir_path)
+    logger.info(f"Finished exporting tomography dark/flat run {scan_id} to {scan_id_dir_path}")

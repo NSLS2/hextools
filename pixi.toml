@@ -109,6 +109,12 @@ hex-gui = "python -m hextools.gui"
 [feature.gui-dev.tasks]
 hex-gui-mock = "python -m hextools.gui --mock"
 
+[feature.exporter.tasks]
+auto-exporter = "python -m hextools.exporters.auto_exporter"
+
+[feature.exporter.dependencies]
+h5py = ">=3.16.0,<4"
+
 [environments]
 # Base environments
 default = { solve-group = "default" }
@@ -121,6 +127,9 @@ terminal-dev = { features = ["profile", "terminal", "dev"] }
 qs = { features = ["profile", "qs"], solve-group = "profile" }
 gui = { features = ["profile", "gui"], solve-group = "profile" }
 gui-dev = { features = ["profile", "gui", "dev", "gui-dev"], solve-group = "profile" }
+
+# Tiled webhook server that runs metadata exporters
+exporter = { features = ["exporter"], solve-group = "default" }
 
 # Python version specific environments for CI
 py311 = { features = ["dev", "py311"], solve-group = "py311" }

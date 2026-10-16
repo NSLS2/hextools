@@ -38,6 +38,8 @@ from ..flyers import SingleAxisFlyableLogic, construct_fly_info_models
 from ..motors import RotationMotor
 from bluesky import preprocessors as bpp, plans as bp
 
+from hextools.specs import TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
+
 from hextools.detectors import FRAME_PERIOD_MARGIN
 
 logger = logging.getLogger("hextools")
@@ -153,6 +155,7 @@ def tomo_dark_flat(
         "num_dark_images": num_dark_images,
         "num_flat_images": num_flat_images,
         "x_offset": x_offset,
+        "tiled_specs": [{"name": TOMO_DARK_FLAT_V1.name, "version": TOMO_DARK_FLAT_V1.version}],
     }
 
     @bpp.reset_positions_decorator([sample_tower.x1, *[det.driver.acquire_time for det in detectors]])
@@ -253,6 +256,8 @@ def tomo_flyscan(
         "stop_position": stop,
         "images_to_average": images_to_average,
         "plan_name": "tomo_flyscan",
+        # TODO: Allow Spec objects directly in tiled_specs
+        "tiled_specs": [{"name": TOMO_FLYSCAN_V1.name, "version": TOMO_FLYSCAN_V1.version}]
     }
     if sample_name is not None:
         _md["sample_name"] = sample_name

@@ -12,8 +12,8 @@ from hextools.specs import (
     ENERGY_AUTO_TUNE_V1,
     RADIOGRAPH_V1,
     TOMO_ALIGNMENT_SCAN_V1,
+    TOMO_DARK_FLAT_V1,
     TOMO_FLYSCAN_V1,
-    TOMO_STEP_SCAN_V1,
     XRD_CALIBRATION_V1,
     SpecValidationError,
     validate_edxd_calibration,
@@ -22,8 +22,8 @@ from hextools.specs import (
     validate_radiograph,
     validate_run,
     validate_tomo_alignment_scan,
+    validate_tomo_dark_flat,
     validate_tomo_flyscan,
-    validate_tomo_step_scan,
     validate_xrd_calibration,
 )
 
@@ -45,6 +45,19 @@ class FakeRun:
         return iter(self.streams)
 
 
+def _tomo_dark_flat() -> FakeRun:
+    return FakeRun(
+        {
+            "plan_name": "tomo_dark_flat",
+            "exposure_time": 0.1,
+            "num_dark_images": 20,
+            "num_flat_images": 50,
+            "x_offset": 5.0,
+        },
+        {"dark": ["kinetix1", "ts_kinetix1"], "flat": ["kinetix1", "ts_kinetix1"]},
+    )
+
+
 def _tomo_flyscan() -> FakeRun:
     return FakeRun(
         {
@@ -57,32 +70,10 @@ def _tomo_flyscan() -> FakeRun:
             "start_position": 0.0,
             "stop_position": 180.0,
             "images_to_average": 1,
+            "last_dark_flat_uid": "dark-flat-uid",
+            "last_dark_flat_scan_id": 1,
         },
-        {
-            "dark": ["kinetix1"],
-            "flat": ["kinetix1"],
-            "primary": ["kinetix1", "angle"],
-        },
-    )
-
-
-def _tomo_step_scan() -> FakeRun:
-    return FakeRun(
-        {
-            "plan_name": "tomo_2d_step_scan",
-            "detectors": ["kinetix1"],
-            "motors": ["x", "y"],
-            "shape": [2, 1],
-            "extents": [[0, 1], [0, 0]],
-            "snaking": [False, False],
-            "dark_scan_uid": "dark-uid",
-            "flat_scan_uid": "flat-uid",
-        },
-        {
-            "positions": ["x", "y"],
-            "primary_0_0": ["kinetix1", "angle"],
-            "primary_1_0": ["kinetix1", "angle"],
-        },
+        {"primary": ["kinetix1", "rotation_angle"]},
     )
 
 
@@ -134,13 +125,13 @@ def _xrd_calibration() -> FakeRun:
 def _energy_auto_tune() -> FakeRun:
     return FakeRun(
         {"plan_name": "energy_auto_tune", "detectors": ["screen"], "motors": ["pitch2"]},
-        {"primary": ["screen", "screen-stats1-total", "pitch2"]},
+        {"primary": ["screen", "screen-stats1-mean_value", "pitch2"]},
     )
 
 
 CASES: list[tuple[Spec, Callable[..., None], Callable[[], FakeRun]]] = [
+    (TOMO_DARK_FLAT_V1, validate_tomo_dark_flat, _tomo_dark_flat),
     (TOMO_FLYSCAN_V1, validate_tomo_flyscan, _tomo_flyscan),
-    (TOMO_STEP_SCAN_V1, validate_tomo_step_scan, _tomo_step_scan),
     (TOMO_ALIGNMENT_SCAN_V1, validate_tomo_alignment_scan, _tomo_alignment_scan),
     (RADIOGRAPH_V1, validate_radiograph, _radiograph),
     (EDXD_SCAN_V1, validate_edxd_scan, _edxd_scan),
@@ -210,19 +201,11 @@ def test_require_stream():
         specs._require_stream(run, "primary", "a", "c")
 
 
-def test_require_dark_flat_with_streams():
-    specs._require_dark_flat(FakeRun({}, {"dark": ["det"], "flat": ["det"]}), ["det"])
-    with pytest.raises(SpecValidationError, match=r"'flat' is missing \['det'\]"):
-        specs._require_dark_flat(FakeRun({}, {"dark": ["det"], "flat": []}), ["det"])
-
-
-def test_require_dark_flat_with_uids():
-    specs._require_dark_flat(FakeRun({"dark_scan_uid": "d", "flat_scan_uid": "f"}, {}), ["det"])
-    specs._require_dark_flat(FakeRun({"flat_scan_uid": "f"}, {"dark": ["det"]}), ["det"])
-    with pytest.raises(SpecValidationError, match=r"missing \['dark_scan_uid'\]"):
-        specs._require_dark_flat(FakeRun({"flat_scan_uid": "f"}, {}), ["det"])
-    with pytest.raises(SpecValidationError, match=r"missing \['flat_scan_uid'\]"):
-        specs._require_dark_flat(FakeRun({}, {"dark": ["det"]}), ["det"])
+def test_require_optional_str():
+    specs._require_optional_str(FakeRun({}, {}), "key")
+    specs._require_optional_str(FakeRun({"key": "uid"}, {}), "key")
+    with pytest.raises(SpecValidationError, match="'key' must be a string"):
+        specs._require_optional_str(FakeRun({"key": 1}, {}), "key")
 
 
 # --- Every validator ------------------------------------------------------------------
@@ -242,7 +225,11 @@ def test_wrong_plan_name_fails(spec: Spec, validator: Callable[..., None], make:
         validator(run)
 
 
-@pytest.mark.parametrize(("spec", "validator", "make"), CASES, ids=CASE_IDS)
+@pytest.mark.parametrize(
+    ("spec", "validator", "make"),
+    [case for case in CASES if case[0] is not TOMO_DARK_FLAT_V1],
+    ids=[i for i in CASE_IDS if i != TOMO_DARK_FLAT_V1.name],
+)
 def test_missing_primary_stream_fails(
     spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]
 ):
@@ -256,8 +243,8 @@ def test_missing_primary_stream_fails(
 
 @pytest.mark.parametrize(
     ("spec", "validator", "make"),
-    [case for case in CASES if case[0] is not EDXD_CALIBRATION_V1],
-    ids=[i for i in CASE_IDS if i != EDXD_CALIBRATION_V1.name],
+    [case for case in CASES if case[0] not in (EDXD_CALIBRATION_V1, TOMO_DARK_FLAT_V1)],
+    ids=[i for i in CASE_IDS if i not in (EDXD_CALIBRATION_V1.name, TOMO_DARK_FLAT_V1.name)],
 )
 def test_missing_detectors_key_fails(
     spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]
@@ -267,7 +254,11 @@ def test_missing_detectors_key_fails(
         validator(run)
 
 
-@pytest.mark.parametrize(("spec", "validator", "make"), CASES, ids=CASE_IDS)
+@pytest.mark.parametrize(
+    ("spec", "validator", "make"),
+    [case for case in CASES if case[0] is not TOMO_DARK_FLAT_V1],
+    ids=[i for i in CASE_IDS if i != TOMO_DARK_FLAT_V1.name],
+)
 def test_missing_detector_field_fails(
     spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]
 ):
@@ -284,6 +275,32 @@ def test_missing_detector_field_fails(
 
 
 # --- Spec-specific rules --------------------------------------------------------------
+
+
+@pytest.mark.parametrize("key", ["exposure_time", "num_dark_images", "num_flat_images", "x_offset"])
+def test_tomo_dark_flat_missing_start_key(key: str):
+    run = _mutated(_tomo_dark_flat, lambda r: r.start.pop(key))
+    with pytest.raises(SpecValidationError, match=rf"missing \['{key}'\]"):
+        validate_tomo_dark_flat(run)
+
+
+@pytest.mark.parametrize("stream", ["dark", "flat"])
+def test_tomo_dark_flat_requires_both_streams(stream: str):
+    run = _mutated(_tomo_dark_flat, lambda r: r.streams.pop(stream))
+    with pytest.raises(SpecValidationError, match=f"no '{stream}' stream"):
+        validate_tomo_dark_flat(run)
+
+
+def test_tomo_dark_flat_flat_must_cover_dark_detectors():
+    run = _mutated(_tomo_dark_flat, lambda r: r.streams["flat"].remove("kinetix1"))
+    with pytest.raises(SpecValidationError, match=r"'flat' is missing \['kinetix1'\]"):
+        validate_tomo_dark_flat(run)
+
+
+def test_tomo_dark_flat_needs_a_detector():
+    run = _mutated(_tomo_dark_flat, lambda r: r.streams.update(dark=["ts_kinetix1", "seq_num"]))
+    with pytest.raises(SpecValidationError, match="no detector fields"):
+        validate_tomo_dark_flat(run)
 
 
 @pytest.mark.parametrize(
@@ -304,60 +321,21 @@ def test_tomo_flyscan_missing_start_key(key: str):
         validate_tomo_flyscan(run)
 
 
-def test_tomo_flyscan_missing_angle():
-    run = _mutated(_tomo_flyscan, lambda r: r.streams["primary"].remove("angle"))
-    with pytest.raises(SpecValidationError, match=r"missing \['angle'\]"):
+def test_tomo_flyscan_missing_rotation_angle():
+    run = _mutated(_tomo_flyscan, lambda r: r.streams["primary"].remove("rotation_angle"))
+    with pytest.raises(SpecValidationError, match=r"missing \['rotation_angle'\]"):
         validate_tomo_flyscan(run)
 
 
-@pytest.mark.parametrize("stream", ["dark", "flat"])
-def test_tomo_flyscan_dark_flat_uid_fallback(stream: str):
-    run = _mutated(_tomo_flyscan, lambda r: r.streams.pop(stream))
-    with pytest.raises(SpecValidationError, match=rf"missing \['{stream}_scan_uid'\]"):
+def test_tomo_flyscan_dark_flat_link_is_optional():
+    def drop_link(r: FakeRun):
+        r.start.pop("last_dark_flat_uid")
+        r.start.pop("last_dark_flat_scan_id")
+
+    validate_tomo_flyscan(_mutated(_tomo_flyscan, drop_link))
+    run = _mutated(_tomo_flyscan, lambda r: r.start.update(last_dark_flat_uid=3))
+    with pytest.raises(SpecValidationError, match="'last_dark_flat_uid' must be a string"):
         validate_tomo_flyscan(run)
-    run.start[f"{stream}_scan_uid"] = "uid"
-    validate_tomo_flyscan(run)
-
-
-@pytest.mark.parametrize("plan_name", ["tomo_1d_step_scan", "tomo_2d_step_scan", "tomo_nd_step_scan"])
-def test_tomo_step_scan_plan_names(plan_name: str):
-    validate_tomo_step_scan(_mutated(_tomo_step_scan, lambda r: r.start.update(plan_name=plan_name)))
-
-
-@pytest.mark.parametrize("key", ["shape", "extents", "snaking"])
-def test_tomo_step_scan_missing_grid_metadata(key: str):
-    run = _mutated(_tomo_step_scan, lambda r: r.start.pop(key))
-    with pytest.raises(SpecValidationError, match=rf"missing \['{key}'\]"):
-        validate_tomo_step_scan(run)
-
-
-def test_tomo_step_scan_missing_motors():
-    run = _mutated(_tomo_step_scan, lambda r: r.start.pop("motors"))
-    with pytest.raises(SpecValidationError, match="'motors' must be a list"):
-        validate_tomo_step_scan(run)
-
-
-def test_tomo_step_scan_positions_stream():
-    run = _mutated(_tomo_step_scan, lambda r: r.streams.pop("positions"))
-    with pytest.raises(SpecValidationError, match="no 'positions' stream"):
-        validate_tomo_step_scan(run)
-    run = _mutated(_tomo_step_scan, lambda r: r.streams["positions"].remove("y"))
-    with pytest.raises(SpecValidationError, match=r"'positions' is missing \['y'\]"):
-        validate_tomo_step_scan(run)
-
-
-def test_tomo_step_scan_checks_every_point_stream():
-    run = _mutated(_tomo_step_scan, lambda r: r.streams["primary_1_0"].remove("angle"))
-    with pytest.raises(SpecValidationError, match=r"'primary_1_0' is missing \['angle'\]"):
-        validate_tomo_step_scan(run)
-
-
-def test_tomo_step_scan_plain_primary_is_not_a_point_stream():
-    def to_plain_primary(r: FakeRun):
-        r.streams = {"positions": ["x", "y"], "primary": ["kinetix1", "angle"]}
-
-    with pytest.raises(SpecValidationError, match="no 'primary_<i>' streams"):
-        validate_tomo_step_scan(_mutated(_tomo_step_scan, to_plain_primary))
 
 
 def test_tomo_alignment_scan_flat_is_optional():
@@ -445,7 +423,7 @@ def test_xrd_calibration_rules():
         validate_xrd_calibration(run)
 
 
-@pytest.mark.parametrize("field", ["screen-stats1-total", "pitch2"])
+@pytest.mark.parametrize("field", ["screen-stats1-mean_value", "pitch2"])
 def test_energy_auto_tune_missing_field(field: str):
     run = _mutated(_energy_auto_tune, lambda r: r.streams["primary"].remove(field))
     with pytest.raises(SpecValidationError, match=rf"missing \['{field}'\]"):

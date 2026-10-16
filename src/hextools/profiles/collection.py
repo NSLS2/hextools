@@ -129,7 +129,7 @@ else:
 
 
 # Subscribe the tiled writer to the RunEngine
-RE.subscribe(TiledWriter(tiled_writing_client))
+RE.subscribe(TiledWriter(tiled_writing_client, backup_directory="/tmp/bluesky-docs"))
 
 # Subscribe the best effort callback
 bec = BestEffortCallback()

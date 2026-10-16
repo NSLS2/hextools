@@ -45,53 +45,80 @@ def _require_stream(run: BlueskyRunV3, stream: str, *fields: str) -> None:
         raise SpecValidationError(f"Stream '{stream}' is missing {missing}.")
 
 
-def _require_dark_flat(run: BlueskyRunV3, dets: list[str]) -> None:
-    """Check the tomography dark/flat convention below."""
-    for stream in ["dark", "flat"]:
-        if stream in run:
-            _require_stream(run, stream, *dets)
-        else:
-            _require_start_keys(run, f"{stream}_scan_uid")
+def _require_optional_str(run: BlueskyRunV3, key: str) -> None:
+    value = run.start.get(key)
+    if value is not None and not isinstance(value, str):
+        raise SpecValidationError(f"Start document '{key}' must be a string, got {value!r}.")
 
 
-# Only detector datasets and step-scan motor readbacks are named dynamically:
-# ``<det>`` is a detector's ``name`` (e.g. ``kinetix1``) and ``<motor>`` a
-# stepped motor's readback field. Every stream name and every other dataset
-# name is fixed.
+# Only detector datasets and motor readbacks are named dynamically: ``<det>`` is a
+# detector's ``name`` (e.g. ``kinetix1``) and ``<motor>`` a scanned motor's readback
+# field. Every stream name and every other dataset name is fixed.
 #
 # "Standard scan metadata" means the start document keys bluesky's built-in
 # plans add: ``detectors``, ``motors``, ``num_points``, ``num_intervals``,
 # ``plan_args``, ``plan_pattern*`` and ``hints.dimensions``.
 #
-# Tomography dark/flat convention: the ``dark`` and ``flat`` streams are optional.
-# When a run has no ``dark`` stream, its start document must include
-# ``dark_scan_uid``: the uid of the most recent run that did take darks. Likewise
-# ``flat_scan_uid`` when it has no ``flat`` stream.
-#   dark: dark-field images, beam off
-#     <det>                     (num_images, height, width) image stack, external
-#   flat: flat-field images, sample out of the beam
-#     <det>                     (num_images, height, width) image stack, external
+# Every run also has a ``baseline`` stream from the profile's SupplementalData;
+# it is not part of any spec below.
+#
+# Tomography dark/flat convention: darks and flats are never part of a tomography
+# run. They are taken by a separate ``tomo_dark_flat`` run (TOMO_DARK_FLAT_V1).
+# The profile's LastDarkFlatUIDTracker copies that run's uid and scan_id into
+# ``RE.md``, so every later run's start document carries ``last_dark_flat_uid``
+# and ``last_dark_flat_scan_id`` until the next dark/flat replaces them. Both keys
+# are absent if no dark/flat has been taken in the session.
 
 
-# tomo_flyscan
+# tomo_dark_flat
+#
+# Start document:
+#   plan_name: "tomo_dark_flat"
+#   exposure_time: float             seconds
+#   num_dark_images: int
+#   num_flat_images: int
+#   x_offset: float                  sample tower x1 offset for the flats
+#   no standard scan metadata: the run is opened directly, not by a built-in plan
+# Streams:
+#   dark: a single event, beam off
+#     <det>                     (num_dark_images, height, width) image stack, external
+#   flat: a single event, sample moved out of the beam by x_offset
+#     <det>                     (num_flat_images, height, width) image stack, external
+TOMO_DARK_FLAT_V1 = Spec("TomoDarkFlat", version="1")
+
+
+def validate_tomo_dark_flat(run: BlueskyRunV3, version: str | None = "1") -> None:
+    """Raise :class:`SpecValidationError` if ``run`` does not match :data:`TOMO_DARK_FLAT_V1`."""
+    _require_plan_name(run, "tomo_dark_flat")
+    _require_start_keys(run, "exposure_time", "num_dark_images", "num_flat_images", "x_offset")
+    _require_stream(run, "dark")
+    # No ``detectors`` key here, so the dark stream defines the detectors.
+    dets = [field for field in run["dark"] if not field.startswith("ts_") and field != "seq_num"]
+    if not dets:
+        raise SpecValidationError("Stream 'dark' has no detector fields.")
+    _require_stream(run, "flat", *dets)
+
+
+# tomo_flyscan (also the per-tomogram run of tomo_flyscan_loop and the
+# tomo_1d/2d/nd_step_scan plans, which open one run per tomogram)
 #
 # Start document:
 #   plan_name: "tomo_flyscan"
 #   detectors: list[str]
-#   num_points: int                  images per detector
+#   num_points: int                  projections per detector
 #   exposure_time: float             seconds
 #   acquire_period: float | None     seconds
 #   time_based: bool
 #   start_position, stop_position: float   rotation range, degrees
 #   images_to_average: int
 #   sample_name: str                 optional
-#   dark_scan_uid: str               required if there is no dark stream
-#   flat_scan_uid: str               required if there is no flat stream
+#   last_dark_flat_uid: str          optional, see the tomography dark/flat convention
+#   last_dark_flat_scan_id: int      optional, see the tomography dark/flat convention
 # Streams:
-#   dark, flat: optional, see the tomography dark/flat convention above
-#   primary: one event per image, collected while flying
+#   primary: collected while flying
 #     <det>                     (num_points, height, width) image stack, external
-#     angle                     (num_points,) rotation angle from the PandA, degrees, external
+#     rotation_angle            rotation angle from the PandA, degrees, external. Other
+#                               PandA captures enabled in its settings also appear here.
 TOMO_FLYSCAN_V1 = Spec("TomoFlyscan", version="1")
 
 
@@ -108,44 +135,8 @@ def validate_tomo_flyscan(run: BlueskyRunV3, version: str | None = "1") -> None:
         "stop_position",
         "images_to_average",
     )
-    dets = _names(run, "detectors")
-    _require_dark_flat(run, dets)
-    _require_stream(run, "primary", *dets, "angle")
-
-
-# tomo_1d_step_scan, tomo_2d_step_scan, tomo_nd_step_scan
-#
-# Start document:
-#   plan_name: "tomo_1d_step_scan" | "tomo_2d_step_scan" | "tomo_nd_step_scan"
-#   standard grid_scan metadata, incl. shape, extents, snaking
-#   sample_name: str                 optional
-#   dark_scan_uid: str               required if there is no dark stream
-#   flat_scan_uid: str               required if there is no flat stream
-# Streams:
-#   dark, flat: optional, see the tomography dark/flat convention above
-#   positions: one event per grid point
-#     <motor>                   step axis readbacks, one field per axis
-#   primary_<i>[_<j>...]: one stream per grid point, each a full flyscan as in
-#     TOMO_FLYSCAN_V1. Indices are each axis's position index, in first-visited
-#     order (snaked axes reuse indices).
-#     <det>                     (num_images, height, width) image stack, external
-#     angle                     (num_images,) rotation angle from the PandA, degrees, external
-TOMO_STEP_SCAN_V1 = Spec("TomoStepScan", version="1")
-
-
-def validate_tomo_step_scan(run: BlueskyRunV3, version: str | None = "1") -> None:
-    """Raise :class:`SpecValidationError` if ``run`` does not match :data:`TOMO_STEP_SCAN_V1`."""
-    _require_plan_name(run, "tomo_1d_step_scan", "tomo_2d_step_scan", "tomo_nd_step_scan")
-    _require_start_keys(run, "shape", "extents", "snaking")
-    dets = _names(run, "detectors")
-    motors = _names(run, "motors")
-    _require_dark_flat(run, dets)
-    _require_stream(run, "positions", *motors)
-    point_streams = [name for name in run if name.startswith("primary_")]
-    if not point_streams:
-        raise SpecValidationError("Run has no 'primary_<i>' streams.")
-    for stream in point_streams:
-        _require_stream(run, stream, *dets, "angle")
+    _require_optional_str(run, "last_dark_flat_uid")
+    _require_stream(run, "primary", *_names(run, "detectors"), "rotation_angle")
 
 
 # tomo_alignment_scan
@@ -154,9 +145,11 @@ def validate_tomo_step_scan(run: BlueskyRunV3, version: str | None = "1") -> Non
 #   plan_name: "tomography_alignment_scan"
 #   description: "Tomography alignment scan"
 #   standard scan metadata (motors: [<motor>], detectors: [<det>])
-#   flat_scan_uid: str               optional. If set, use flat stream from different run.
+#   flat_scan_uid: str               optional, user supplied. The alignment analysis
+#                                    uses this run's flat stream if the scan has none.
 # Streams:
-#   flat: optional, see the tomography dark/flat convention above
+#   flat: optional; the plan never writes it, but the analysis reads it if present
+#     <det>                     (num_images, height, width) image stack, external
 #   primary: one event per projection angle
 #     <det>                     (height, width) projection image, external
 #     <motor>                   rotation angle readback, degrees
@@ -167,6 +160,7 @@ def validate_tomo_alignment_scan(run: BlueskyRunV3, version: str | None = "1") -
     """Raise :class:`SpecValidationError` if ``run`` does not match :data:`TOMO_ALIGNMENT_SCAN_V1`."""
     _require_plan_name(run, "tomography_alignment_scan")
     _require_start_keys(run, "description")
+    _require_optional_str(run, "flat_scan_uid")
     dets = _names(run, "detectors", count=1)
     motors = _names(run, "motors", count=1)
     if "flat" in run:
@@ -174,7 +168,7 @@ def validate_tomo_alignment_scan(run: BlueskyRunV3, version: str | None = "1") -
     _require_stream(run, "primary", *dets, *motors)
 
 
-# take_radiograph
+# take_radiograph (one run per iteration, each a bluesky count with num=1)
 #
 # Start document:
 #   plan_name: "take_radiograph"
@@ -182,9 +176,9 @@ def validate_tomo_alignment_scan(run: BlueskyRunV3, version: str | None = "1") -
 #   description: str                 optional
 #   standard count metadata (no motors)
 # Streams:
-#   primary: one event per acquisition
-#     <det>                     (num_images, height, width) images, each the sum of
-#                               num_exposures exposures, external
+#   primary: a single event
+#     <det>                     (num_images, height, width) images, each combining
+#                               images_to_average exposures, external
 RADIOGRAPH_V1 = Spec("Radiograph", version="1")
 
 
@@ -195,11 +189,15 @@ def validate_radiograph(run: BlueskyRunV3, version: str | None = "1") -> None:
 
 
 # edxd_count, edxd_scan, edxd_grid_scan, edxd_custom_pos_list_grid
+# (edxd_scan opens one run per iteration; edxd_custom_pos_list_grid one run per
+# outer position)
 #
 # Start document:
 #   plan_name: "edxd_count" | "edxd_scan" | "edxd_grid_scan" | "edxd_custom_pos_list_grid"
 #   description: str                 optional
-#   standard count/scan/grid_scan metadata (0, 1 or 2 motors)
+#   standard count/scan/grid_scan/list_scan metadata (0, 1 or 2 motors)
+#   outer_position: float            edxd_custom_pos_list_grid only
+#   initial_scan_uid: str            edxd_custom_pos_list_grid only, from its second run on
 # Streams:
 #   primary: one event per point
 #     <det>                     (num_elements, num_energy_bins) GeRM spectra,
@@ -274,7 +272,7 @@ def validate_xrd_calibration(run: BlueskyRunV3, version: str | None = "1") -> No
 # Streams:
 #   primary: one event per pitch step
 #     <det>                     (height, width) fluorescence screen image, external
-#     <det>-stats1-total        float, total screen intensity used to find the peak
+#     <det>-stats1-mean_value   float, mean screen intensity used to find the peak
 #     <motor>                   crystal 2 pitch readback, degrees
 ENERGY_AUTO_TUNE_V1 = Spec("EnergyAutoTune", version="1")
 
@@ -284,14 +282,14 @@ def validate_energy_auto_tune(run: BlueskyRunV3, version: str | None = "1") -> N
     _require_plan_name(run, "energy_auto_tune")
     dets = _names(run, "detectors")
     motors = _names(run, "motors", count=1)
-    _require_stream(run, "primary", *dets, *(f"{det}-stats1-total" for det in dets), *motors)
+    _require_stream(run, "primary", *dets, *(f"{det}-stats1-mean_value" for det in dets), *motors)
 
 
 _VALIDATORS: dict[str, Callable[[BlueskyRunV3, str | None], None]] = {
     spec.name: validator
     for spec, validator in [
+        (TOMO_DARK_FLAT_V1, validate_tomo_dark_flat),
         (TOMO_FLYSCAN_V1, validate_tomo_flyscan),
-        (TOMO_STEP_SCAN_V1, validate_tomo_step_scan),
         (TOMO_ALIGNMENT_SCAN_V1, validate_tomo_alignment_scan),
         (RADIOGRAPH_V1, validate_radiograph),
         (EDXD_SCAN_V1, validate_edxd_scan),
@@ -303,8 +301,8 @@ _VALIDATORS: dict[str, Callable[[BlueskyRunV3, str | None], None]] = {
 
 #: Every spec defined here.
 ALL_SPECS: list[Spec] = [
+    TOMO_DARK_FLAT_V1,
     TOMO_FLYSCAN_V1,
-    TOMO_STEP_SCAN_V1,
     TOMO_ALIGNMENT_SCAN_V1,
     RADIOGRAPH_V1,
     EDXD_SCAN_V1,

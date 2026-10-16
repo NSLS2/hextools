@@ -11,8 +11,9 @@ from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 import json
 
 from hextools.utils import ensure_available
+from hextools.exporters.utils import confirm_required_start_fields
 
-from .utils import _json_default
+from .utils import _json_default, run_metadata_to_json
 
 def export_edxd_run_to_h5(
     edxd_scan: BlueskyRunV3 | str | int,
@@ -32,11 +33,8 @@ def export_edxd_run_to_h5(
 
     primary_data = run["primary"].read()
     baseline_data = run["baseline"].read()
-    proposal = run.start.get('data_session')
-    cycle = run.start.get('cycle')
-    scan_id = run.start.get('scan_id')
-    if any(v is None for v in (proposal, cycle, scan_id)):
-        raise ValueError("Missing required run metadata: proposal, cycle, or scan_id")
+    proposal, cycle, scan_id = confirm_required_start_fields(run.start)
+
     scan_id_dir_path = Path(f"/nsls2/data/hex/proposals/{cycle}/{proposal}/edxd/metadata/scan_{scan_id:05}")
     if not scan_id_dir_path.exists():
         scan_id_dir_path.mkdir(parents=True, exist_ok=True)
@@ -52,12 +50,4 @@ def export_edxd_run_to_h5(
         for key, value in baseline_data.items():
             baseline_group.create_dataset(key, data=value)
 
-    all_metadata = {
-        "run": run.metadata,
-        "primary": run["primary"].metadata,
-        "baseline": run["baseline"].metadata,
-    }
-
-    json_file_path = scan_id_dir_path / f"scan_{scan_id:05}.json"
-    with open(json_file_path, "w") as fp:
-        json.dump(all_metadata, fp, indent=4, default=_json_default)
+    run_metadata_to_json(run, scan_id, scan_id_dir_path)

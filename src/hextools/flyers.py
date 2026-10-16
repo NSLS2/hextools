@@ -153,7 +153,7 @@ def construct_fly_info_models(
     current_enc_position: int,
     acq_time_overhead: float = 0.001,
     time_based: bool = False,
-    position_dataset_name: str = "Angle",
+    position_dataset_name: str = "rotation_angle",
     position_dataset_units: str = "deg",
 ) -> tuple[SingleAxisFlyscanInfo, FlyMotorInfo]:
     """Construct the fly info models for a single axis flyscan.
