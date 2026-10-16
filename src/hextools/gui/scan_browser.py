@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
@@ -17,6 +16,7 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -24,7 +24,6 @@ from qtpy.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTreeWidget,
-    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -32,6 +31,7 @@ from tiled.queries import Key, SpecQuery
 from tiled.structures.core import Spec
 
 from hextools.gui._threading import create_worker
+from hextools.gui.run_viewer import QtRunViewer, fill_metadata_tree
 
 #: Called with the uid of the run it was invoked on.
 ScanCallback = Callable[[str], Any]
@@ -49,19 +49,33 @@ class RunSummary:
 
 
 def search_runs(
-    client: Any, spec: Spec, since: float, until: float, data_session: str | None
+    client: Any,
+    spec: Spec,
+    since: float,
+    until: float,
+    data_session: str | None,
+    detector: str | None = None,
 ) -> list[RunSummary]:
-    """Find runs with ``spec`` started in ``[since, until)``, newest first."""
+    """Find runs with ``spec`` started in ``[since, until)``, newest first.
+
+    ``detector`` keeps only runs with a detector whose name contains it, ignoring
+    case, so "kinetix" finds runs with any of the Kinetix detectors.
+    """
     results = client.search(SpecQuery(spec.name))
     results = results.search(Key("start.time") >= since).search(
         Key("start.time") < until
     )
     if data_session:
         results = results.search(Key("start.data_session") == data_session)
+    wanted = detector.strip().lower() if detector else ""
     runs = []
     for uid, run in results.items():
         metadata = dict(run.metadata)
         start = metadata.get("start", {})
+        if wanted and not any(
+            wanted in str(name).lower() for name in start.get("detectors") or []
+        ):
+            continue
         runs.append(
             RunSummary(
                 uid=uid,
@@ -80,7 +94,8 @@ class QtScanBrowser(QWidget):
 
     Selecting a run shows its metadata, plus a button for each callback attached
     (with :meth:`add_callback`) to one of the run's specs. The same callbacks are
-    offered in the run's right-click menu.
+    offered in the run's right-click menu. Any run opens in a :class:`QtRunViewer`
+    from its button or menu, or by double-clicking it.
     """
 
     _COLUMNS = ["Time", "Scan ID", "UID"]
@@ -105,6 +120,12 @@ class QtScanBrowser(QWidget):
         for date_edit in (self._since, self._until):
             date_edit.setCalendarPopup(True)
             date_edit.setDisplayFormat("yyyy-MM-dd")
+        self._detector = QLineEdit()
+        self._detector.setPlaceholderText("any")
+        self._detector.setToolTip(
+            "Only runs with a detector whose name contains this, e.g. kinetix"
+        )
+        self._detector.returnPressed.connect(self.search)
         self._search_button = QPushButton("Search")
         self._search_button.clicked.connect(self.search)
         self._status = QLabel()
@@ -116,6 +137,8 @@ class QtScanBrowser(QWidget):
         controls.addWidget(self._since)
         controls.addWidget(QLabel("To:"))
         controls.addWidget(self._until)
+        controls.addWidget(QLabel("Detector:"))
+        controls.addWidget(self._detector)
         controls.addWidget(self._search_button)
         controls.addWidget(self._status, stretch=1)
 
@@ -130,6 +153,7 @@ class QtScanBrowser(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
+        self._table.cellDoubleClicked.connect(self._on_double_click)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_context_menu)
 
@@ -183,6 +207,7 @@ class QtScanBrowser(QWidget):
             since,
             until,
             data_session,
+            self._detector.text(),
             _connect={
                 "returned": self._on_results,
                 "errored": self._on_search_error,
@@ -230,14 +255,15 @@ class QtScanBrowser(QWidget):
         run = self._selected_run()
         if run is None:
             return
-        for label, callback in self._callbacks_for(run):
+        actions = [("Open in viewer", self.open_viewer), *self._callbacks_for(run)]
+        for label, callback in actions:
             button = QPushButton(label)
             button.clicked.connect(
                 lambda _=False, cb=callback, uid=run.uid: self._invoke(cb, uid)
             )
             self._callback_bar.addWidget(button)
         self._callback_bar.addStretch()
-        _fill_tree(self._metadata.invisibleRootItem(), run.metadata)
+        fill_metadata_tree(self._metadata.invisibleRootItem(), run.metadata)
         for i in range(self._metadata.topLevelItemCount()):
             self._metadata.topLevelItem(i).setExpanded(True)
 
@@ -248,29 +274,25 @@ class QtScanBrowser(QWidget):
         self._table.selectRow(row)
         run = self._runs[row]
         menu = QMenu(self)
-        callbacks = self._callbacks_for(run)
-        for label, callback in callbacks:
+        actions = [("Open in viewer", self.open_viewer), *self._callbacks_for(run)]
+        for label, callback in actions:
             menu.addAction(
                 label, lambda cb=callback, uid=run.uid: self._invoke(cb, uid)
             )
-        if not callbacks:
-            menu.addAction("No actions for this run").setEnabled(False)
         menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    def _on_double_click(self, row: int, _column: int) -> None:
+        self._invoke(self.open_viewer, self._runs[row].uid)
+
+    def open_viewer(self, uid: str) -> QtRunViewer:
+        """Open run ``uid`` in a new viewer window, reading it from the catalog."""
+        # Parented so Qt keeps it alive; it is still its own window.
+        viewer = QtRunViewer(self._client, uid, parent=self)
+        viewer.show()
+        return viewer
 
     def _invoke(self, callback: ScanCallback, uid: str) -> None:
         try:
             callback(uid)
         except Exception as ex:
             QMessageBox.critical(self, "Action failed", f"{type(ex).__name__}: {ex}")
-
-
-def _fill_tree(parent: QTreeWidgetItem, value: Any) -> None:
-    items = value.items() if isinstance(value, dict) else enumerate(value)
-    for key, child in items:
-        item = QTreeWidgetItem(parent, [str(key)])
-        if isinstance(child, (dict, list)) and child:
-            _fill_tree(item, child)
-        else:
-            item.setText(
-                1, child if isinstance(child, str) else json.dumps(child, default=str)
-            )
