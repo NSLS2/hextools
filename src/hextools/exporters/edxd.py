@@ -1,14 +1,13 @@
+"""Export EDXD runs from Tiled to HDF5 and JSON files."""
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 
-import numpy as np
-
-from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 import h5py
-import xarray as xr
+import numpy as np
+from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
-import json
 
 from hextools.utils import ensure_available
 
@@ -25,9 +24,19 @@ def _json_default(obj):
 
 def export_edxd_run_to_h5(
     edxd_scan: BlueskyRunV3 | str | int,
-    tiled_client: CatalogOfBlueskyRuns | None = None
+    tiled_client: CatalogOfBlueskyRuns | None = None,
 ):
+    """Export an EDXD run's data to a NeXus/HDF5 file and its metadata to JSON.
 
+    Files are written to the proposal's ``edxd/metadata/scan_<scan_id>`` directory.
+
+    Parameters
+    ----------
+    edxd_scan : BlueskyRunV3 | str | int
+        The run to export, or its uid/scan id to look up in ``tiled_client``.
+    tiled_client : CatalogOfBlueskyRuns | None, optional
+        The catalog to look up the run in. If None, will pull from global namespace.
+    """
     # TODO: add validation to check that it is in fact an EDXD run
     if isinstance(edxd_scan, (str, int)):
         if tiled_client is None:
@@ -41,12 +50,14 @@ def export_edxd_run_to_h5(
 
     primary_data = run["primary"].read()
     baseline_data = run["baseline"].read()
-    proposal = run.start.get('data_session')
-    cycle = run.start.get('cycle')
-    scan_id = run.start.get('scan_id')
+    proposal = run.start.get("data_session")
+    cycle = run.start.get("cycle")
+    scan_id = run.start.get("scan_id")
     if any(v is None for v in (proposal, cycle, scan_id)):
         raise ValueError("Missing required run metadata: proposal, cycle, or scan_id")
-    scan_id_dir_path = Path(f"/nsls2/data/hex/proposals/{cycle}/{proposal}/edxd/metadata/scan_{scan_id:05}")
+    scan_id_dir_path = Path(
+        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/edxd/metadata/scan_{scan_id:05}"
+    )
     if not scan_id_dir_path.exists():
         scan_id_dir_path.mkdir(parents=True, exist_ok=True)
 

@@ -119,13 +119,16 @@ version-file = "src/hextools/_version.py"
 typeCheckingMode = "standard"
 reportMissingImports = false  # Ignore missing stubs in imported modules
 
+[tool.ty.rules]
+unused-type-ignore-comment = "ignore"
+
 
 [tool.pytest.ini_options]
 # Run pytest with all our checkers, and don't spam us with massive tracebacks on error
 addopts = """
     --tb=native -vv --strict-markers --doctest-modules
     --doctest-glob="*.rst" --doctest-glob="*.md"
-    --ignore=docs/examples --ignore=src/hextools/profiles --ignore=src/hextools/gui
+    --ignore=docs/examples --ignore=docs/_scripts --ignore=src/hextools/profiles --ignore=src/hextools/gui
     """
 # https://iscinumpy.gitlab.io/post/bound-version-constraints/#watch-for-warnings
 filterwarnings = [
@@ -183,6 +186,13 @@ convention = "numpy"
 # See https://github.com/DiamondLightSource/python-copier-template/issues/154
 # Remove this line to forbid private member access in tests
 "tests/**/*" = ["SLF001", "S101", "D"]
+# Qt requires camelCase names for overridden methods (closeEvent, sizeHint, ...).
+"src/hextools/gui/**/*" = ["N802"]
+# Vendored from bluesky_widgets; kept close to upstream.
+"src/hextools/gui/_threading.py" = ["D", "E501", "N803", "SLF001"]
+"src/hextools/gui/_event_loop.py" = ["D", "SLF001"]
+# IPython startup profile: star imports populate the operator namespace on purpose.
+"src/hextools/profiles/**/*" = ["F403", "F405"]
 
 [tool.ruff.lint.flake8-import-conventions.extend-aliases]
 # We often shorten "Annotated" to "A" for brevity

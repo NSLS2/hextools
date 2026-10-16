@@ -39,6 +39,8 @@ ScanCallback = Callable[[str], Any]
 
 @dataclass
 class RunSummary:
+    """Summary of a Bluesky run shown in the scan browser."""
+
     uid: str
     scan_id: int | None
     time: float
@@ -51,7 +53,9 @@ def search_runs(
 ) -> list[RunSummary]:
     """Find runs with ``spec`` started in ``[since, until)``, newest first."""
     results = client.search(SpecQuery(spec.name))
-    results = results.search(Key("start.time") >= since).search(Key("start.time") < until)
+    results = results.search(Key("start.time") >= since).search(
+        Key("start.time") < until
+    )
     if data_session:
         results = results.search(Key("start.data_session") == data_session)
     runs = []
@@ -81,7 +85,9 @@ class QtScanBrowser(QWidget):
 
     _COLUMNS = ["Time", "Scan ID", "UID"]
 
-    def __init__(self, tiled_client: Any, specs: list[Spec], re: RunEngine, parent=None):
+    def __init__(
+        self, tiled_client: Any, specs: list[Spec], re: RunEngine, parent=None
+    ):
         super().__init__(parent)
         self._client = tiled_client
         self._specs = list(specs)
@@ -130,7 +136,9 @@ class QtScanBrowser(QWidget):
         self._callback_bar = QHBoxLayout()
         self._metadata = QTreeWidget()
         self._metadata.setHeaderLabels(["Key", "Value"])
-        self._metadata.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self._metadata.header().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -224,7 +232,9 @@ class QtScanBrowser(QWidget):
             return
         for label, callback in self._callbacks_for(run):
             button = QPushButton(label)
-            button.clicked.connect(lambda _=False, cb=callback, uid=run.uid: self._invoke(cb, uid))
+            button.clicked.connect(
+                lambda _=False, cb=callback, uid=run.uid: self._invoke(cb, uid)
+            )
             self._callback_bar.addWidget(button)
         self._callback_bar.addStretch()
         _fill_tree(self._metadata.invisibleRootItem(), run.metadata)
@@ -240,7 +250,9 @@ class QtScanBrowser(QWidget):
         menu = QMenu(self)
         callbacks = self._callbacks_for(run)
         for label, callback in callbacks:
-            menu.addAction(label, lambda cb=callback, uid=run.uid: self._invoke(cb, uid))
+            menu.addAction(
+                label, lambda cb=callback, uid=run.uid: self._invoke(cb, uid)
+            )
         if not callbacks:
             menu.addAction("No actions for this run").setEnabled(False)
         menu.exec(self._table.viewport().mapToGlobal(pos))
@@ -259,4 +271,6 @@ def _fill_tree(parent: QTreeWidgetItem, value: Any) -> None:
         if isinstance(child, (dict, list)) and child:
             _fill_tree(item, child)
         else:
-            item.setText(1, child if isinstance(child, str) else json.dumps(child, default=str))
+            item.setText(
+                1, child if isinstance(child, str) else json.dumps(child, default=str)
+            )

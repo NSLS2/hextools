@@ -29,10 +29,12 @@ def shutter_factory() -> Callable[[str], Shutter]:
             shutter = Shutter(name, name=name)
         # the only two arcs Shutter.set awaits: a command put flips the status readback
         callback_on_mock_execute(
-            shutter.open_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN)
+            shutter.open_cmd,
+            lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN),
         )
         callback_on_mock_execute(
-            shutter.close_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED)
+            shutter.close_cmd,
+            lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED),
         )
         return shutter
 
@@ -143,14 +145,17 @@ async def test_take_radiograph_single_row(
     assert start["plan_args"]["delay"] == wait
 
     # bp.count sleeps only for what is left of the delay after each acquisition,
-    # so how many delay sleeps happen depends on timing; longer ones are shutter settling
+    # so how many delay sleeps happen depends on timing; longer ones are
+    # shutter settling
     delay_sleeps = [m for m in messages_by_type.get("sleep", []) if m.args[0] <= wait]
     assert len(delay_sleeps) <= num_acquisitions - 1
     assert all(m.args[0] > 0 for m in delay_sleeps)
 
     assert await ktx.driver.acquire_time.get_value() == exposure_time
     assert await ktx.driver.num_images.get_value() == num_images
-    assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED  # finalizer closed it
+    assert (
+        await photon_shutter.status.get_value() == ShutterStatus.CLOSED
+    )  # finalizer closed it
 
     assert await ktx.driver.acquire_period.get_value() == pytest.approx(
         exposure_time + FRAME_PERIOD_MARGIN

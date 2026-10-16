@@ -48,7 +48,12 @@ def _is_connected(obj: Any) -> bool:
         if getattr(obj, "_mock", None) is not None:
             return True
         task = getattr(obj, "_connect_task", None)
-        return bool(task is not None and task.done() and not task.cancelled() and task.exception() is None)
+        return bool(
+            task is not None
+            and task.done()
+            and not task.cancelled()
+            and task.exception() is None
+        )
     # Classic ophyd objects expose a ``connected`` property.
     return bool(getattr(obj, "connected", False))
 
@@ -148,7 +153,11 @@ class QtAvailableDevices(QWidget):
         """``(label, type name, is-connected check)`` for each row to show."""
         if self._is_qserver:
             return [
-                (name, dtype.__name__, lambda n=name, t=dtype: self._qserver_connected(n, t))
+                (
+                    name,
+                    dtype.__name__,
+                    lambda n=name, t=dtype: self._qserver_connected(n, t),
+                )
                 for name, dtype in self._devices
             ]
         return [
@@ -189,7 +198,10 @@ class QtAvailableDevices(QWidget):
     def closeEvent(self, event):
         if self._is_qserver:
             events = self._re_client.events  # type: ignore[union-attr]
-            for emitter in (events.allowed_devices_changed, events.allowed_plans_changed):
+            for emitter in (
+                events.allowed_devices_changed,
+                events.allowed_plans_changed,
+            ):
                 try:
                     emitter.disconnect(self._on_model_changed)
                 except (ValueError, TypeError, RuntimeError):

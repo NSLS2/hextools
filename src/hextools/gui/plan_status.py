@@ -21,7 +21,7 @@ from bluesky.callbacks.best_effort import BestEffortCallback, hinted_fields
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from qtpy.QtCore import QObject, Qt, QTimer, Signal, Slot
-from qtpy.QtGui import QFont, QFontDatabase
+from qtpy.QtGui import QColor, QFont, QFontDatabase, QPainter, QPen
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QFormLayout,
@@ -44,7 +44,6 @@ from qtpy.QtWidgets import (
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_sources import _walk_namespace
 from hextools.gui.log_watcher import LogWatcher, level_color
-from hextools.log import LOGGER_NAME
 from hextools.utils.nl_msg_hook import MsgHookNarrator, nl_msg_hook
 
 _NO_PLAN = "\u2014"  # em dash
@@ -54,7 +53,7 @@ _EXIT_STATUS_LABELS = {"success": "Success", "fail": "Failed", "abort": "Aborted
 logger = logging.getLogger(__name__)
 
 
-class _Unrenderable(Exception):
+class _UnrenderableError(Exception):
     """A plan argument has no expression that would recreate it in the namespace."""
 
 
@@ -65,10 +64,14 @@ def _render(value: Any, names: Mapping[int, str]) -> str:
     if isinstance(value, enum.Enum):
         if isinstance(value, str):
             return repr(value.value)
-        raise _Unrenderable
+        raise _UnrenderableError
     if value is None or isinstance(value, (bool, int, float, complex, str, bytes)):
         return repr(value)
-    if hasattr(value, "dtype") and hasattr(value, "item") and getattr(value, "ndim", None) == 0:
+    if (
+        hasattr(value, "dtype")
+        and hasattr(value, "item")
+        and getattr(value, "ndim", None) == 0
+    ):
         return repr(value.item())  # numpy scalar
     if isinstance(value, list):
         return "[" + ", ".join(_render(v, names) for v in value) + "]"
@@ -76,15 +79,21 @@ def _render(value: Any, names: Mapping[int, str]) -> str:
         inner = ", ".join(_render(v, names) for v in value)
         return f"({inner},)" if len(value) == 1 else f"({inner})"
     if isinstance(value, dict):
-        return "{" + ", ".join(f"{_render(k, names)}: {_render(v, names)}" for k, v in value.items()) + "}"
-    raise _Unrenderable
+        return (
+            "{"
+            + ", ".join(
+                f"{_render(k, names)}: {_render(v, names)}" for k, v in value.items()
+            )
+            + "}"
+        )
+    raise _UnrenderableError
 
 
 def _display(value: Any, names: Mapping[int, str]) -> str:
     """Like :func:`_render`, but always returns something readable."""
     try:
         return _render(value, names)
-    except _Unrenderable:
+    except _UnrenderableError:
         name = getattr(value, "name", None)
         return name if isinstance(name, str) else repr(value)
 
@@ -140,7 +149,7 @@ class PlanRecord:
 
 
 def _import_function(reference: str | None) -> Callable | None:
-    """Resolve a ``module:qualname`` reference, or return None if it no longer exists."""
+    """Resolve a ``module:qualname`` reference, or return None if it is gone."""
     if not reference:
         return None
     module_name, _, qualname = reference.partition(":")
@@ -188,18 +197,31 @@ def _record_plan(plan: Any, namespace: Mapping[str, Any]) -> PlanRecord:
     if varkw:
         items.extend(args.get(varkw, {}).items())
 
-    func = gen.gi_frame.f_globals.get(code.co_name) if gen.gi_frame is not None else None
-    # Only re-run via a module-level function whose (unwrapped) code is this generator's.
-    if not callable(func) or getattr(inspect.unwrap(func), "__code__", None) is not code:
+    func = (
+        gen.gi_frame.f_globals.get(code.co_name) if gen.gi_frame is not None else None
+    )
+    # Only re-run via a module-level function whose (unwrapped) code is this
+    # generator's.
+    if (
+        not callable(func)
+        or getattr(inspect.unwrap(func), "__code__", None) is not code
+    ):
         func = None
 
-    # Keyword arguments left at a ``None`` default (e.g. auto-resolved devices) add nothing.
+    # Keyword arguments left at a ``None`` default (e.g. auto-resolved devices) add
+    # nothing.
     if func is not None:
-        defaults = {name: p.default for name, p in inspect.signature(func).parameters.items()}
+        defaults = {
+            name: p.default for name, p in inspect.signature(func).parameters.items()
+        }
         items = [
             (key, value)
             for key, value in items
-            if not (key is not None and value is None and defaults.get(key, inspect.Parameter.empty) is None)
+            if not (
+                key is not None
+                and value is None
+                and defaults.get(key, inspect.Parameter.empty) is None
+            )
         ]
 
     rerunnable = True
@@ -207,7 +229,7 @@ def _record_plan(plan: Any, namespace: Mapping[str, Any]) -> PlanRecord:
     for key, value in items:
         try:
             text = _render(value, names)
-        except _Unrenderable:
+        except _UnrenderableError:
             rerunnable = False
             text = _display(value, names)
         parts.append(text if key is None else f"{key}={text}")
@@ -235,6 +257,7 @@ class PlanMonitor(QObject):
     plan_finished = Signal(object)
     run_started = Signal(object, str, str)
     document = Signal(str, object)
+    state_changed = Signal(str)
 
     def __init__(
         self,
@@ -280,6 +303,7 @@ class PlanMonitor(QObject):
 
     # These run on the RunEngine thread; Qt queues the signals onto the GUI thread.
     def _on_state(self, new_state: str, old_state: str):
+        self.state_changed.emit(new_state)
         if new_state == "running" and old_state == "idle":
             plan = getattr(self._re, "_plan", None)  # noqa: SLF001
             self._current = _record_plan(plan, self._namespace)
@@ -304,6 +328,64 @@ class PlanMonitor(QObject):
         self.document.emit(name, doc)
 
 
+_STATE_COLORS = {
+    "running": QColor("#2e9e44"),
+    "paused": QColor("#e0a000"),
+    "panicked": QColor("#d32f2f"),
+}
+_TRANSITION_COLOR = QColor(
+    "#e0a000"
+)  # pausing, stopping, aborting, halting, suspending
+
+
+class _RunEngineStateIndicator(QWidget):
+    """Spinning arc while the RunEngine works, pause bars when paused.
+
+    Nothing is drawn when idle.
+    """
+
+    def __init__(self, size: int = 18, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+        self._state = "idle"
+        self._angle = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(40)
+        self._timer.timeout.connect(self._advance)
+
+    def set_state(self, state: str):
+        self._state = state
+        spinning = state not in ("idle", "paused", "panicked")
+        if spinning and not self._timer.isActive():
+            self._timer.start()
+        elif not spinning:
+            self._timer.stop()
+        self.update()
+
+    def _advance(self):
+        self._angle = (self._angle + 12) % 360
+        self.update()
+
+    def paintEvent(self, event):
+        if self._state == "idle":
+            return
+        color = _STATE_COLORS.get(self._state, _TRANSITION_COLOR)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(color, 2.5)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        rect = self.rect().adjusted(3, 3, -3, -3)
+        if self._state == "paused":
+            x1, x2 = rect.left() + 2, rect.right() - 2
+            painter.drawLine(x1, rect.top(), x1, rect.bottom())
+            painter.drawLine(x2, rect.top(), x2, rect.bottom())
+        elif self._state == "panicked":
+            painter.drawEllipse(rect)
+        else:
+            painter.drawArc(rect, -self._angle * 16, 270 * 16)
+
+
 class QtPlanStatus(QWidget):
     """Compact summary: plan name, scan ids, and the latest INFO-or-above log message.
 
@@ -311,7 +393,7 @@ class QtPlanStatus(QWidget):
     plan and the current run's scan id are shown too, updating with each new run.
     """
 
-    def __init__(self, monitor: PlanMonitor, logger_name: str = LOGGER_NAME, parent=None):
+    def __init__(self, monitor: PlanMonitor, logger_name: str, parent=None):
         super().__init__(parent)
         self._plan = QLabel(_NO_PLAN)
         self._inner_plan = QLabel(_NO_PLAN)
@@ -322,12 +404,22 @@ class QtPlanStatus(QWidget):
         self._last.setWordWrap(True)
         self._last.setMinimumWidth(260)
         # Wrap to the available width rather than widening the window.
-        self._last.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._last.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
         self._outer_name = ""
         self._scan_ids: list[str] = []
 
+        self._indicator = _RunEngineStateIndicator()
+        self._state = QLabel()
+        state_row = QHBoxLayout()
+        state_row.setContentsMargins(0, 0, 0, 0)
+        state_row.addWidget(self._indicator)
+        state_row.addWidget(self._state, stretch=1)
+
         form = QFormLayout()
         form.setContentsMargins(8, 6, 8, 6)
+        form.addRow("RunEngine:", state_row)
         form.addRow("Plan:", self._plan)
         form.addRow("Inner plan:", self._inner_plan)
         form.addRow("Scan ID:", self._scan_id)
@@ -345,6 +437,8 @@ class QtPlanStatus(QWidget):
 
         monitor.plan_started.connect(self._on_plan_started)
         monitor.run_started.connect(self._on_run_started)
+        monitor.state_changed.connect(self._on_state_changed)
+        self._on_state_changed(str(monitor.run_engine.state))
         self._watcher = LogWatcher(logger_name, level=logging.INFO, parent=self)
         self._watcher.record.connect(self._on_record)
 
@@ -362,6 +456,15 @@ class QtPlanStatus(QWidget):
         self._inner_scan_id.setText(_NO_PLAN)
         self._set_inner_visible(False)
         self._last.setText(_NO_PLAN)
+
+    @Slot(str)
+    def _on_state_changed(self, state: str):
+        self._indicator.set_state(state)
+        self._indicator.setVisible(state != "idle")
+        self._state.setText(state.capitalize())
+        font = self._state.font()
+        font.setBold(state != "idle")
+        self._state.setFont(font)
 
     @Slot(object, str, str)
     def _on_run_started(self, scan_id, uid: str, plan_name: str):
@@ -401,10 +504,14 @@ class QtLiveTable(QWidget):
         self._table = QTableWidget(0, 0)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
         self._table.setFont(_monospace_font())
         self._footer = QLabel("")
-        self._footer.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._footer.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
 
         vbox = QVBoxLayout(self)
         vbox.setContentsMargins(0, 0, 0, 0)
@@ -421,7 +528,9 @@ class QtLiveTable(QWidget):
         # Mirrors BestEffortCallback.start's choice of dimensions.
         self._start_doc = doc
         motors = doc.get("motors")
-        guess = [([m], "primary") for m in motors] if motors else [(["time"], "primary")]
+        guess = (
+            [([m], "primary") for m in motors] if motors else [(["time"], "primary")]
+        )
         dimensions = doc.get("hints", {}).get("dimensions")
         self._cleanup_motor_heuristic = dimensions is None
         if dimensions is None or len({d[1] for d in dimensions}) != 1:
@@ -447,7 +556,9 @@ class QtLiveTable(QWidget):
                     fixed.append("time")
                     continue
                 hint = doc.get("hints", {}).get(obj_name, {})
-                fixed.extend(hint.get("fields", doc.get("object_keys", {}).get(obj_name, [])))
+                fixed.extend(
+                    hint.get("fields", doc.get("object_keys", {}).get(obj_name, []))
+                )
             self._dim_fields = fixed
         columns = [c for c in hinted_fields(doc) if c not in self._all_dim_fields]
         data_keys = doc.get("data_keys", {})
@@ -455,7 +566,8 @@ class QtLiveTable(QWidget):
         self._fields = [
             f
             for f in list(self._all_dim_fields) + columns
-            if f in data_keys and data_keys[f].get("dtype") in ("number", "integer", "string", "boolean")
+            if f in data_keys
+            and data_keys[f].get("dtype") in ("number", "integer", "string", "boolean")
         ]
         self._data_keys = data_keys
         self._descriptor_uid = doc["uid"]
@@ -469,10 +581,13 @@ class QtLiveTable(QWidget):
             return
         data = doc.get("data", {})
         filled = doc.get("filled", {})
-        cells = [str(doc.get("seq_num", "")), str(datetime.fromtimestamp(doc["time"]).time())[:10]]
-        for field in self._fields:
-            if field in data and filled.get(field, True):
-                cells.append(self._format(field, data[field]))
+        cells = [
+            str(doc.get("seq_num", "")),
+            str(datetime.fromtimestamp(doc["time"]).time())[:10],
+        ]
+        for name in self._fields:
+            if name in data and filled.get(name, True):
+                cells.append(self._format(name, data[name]))
             else:
                 cells.append("")
         scrollbar = self._table.verticalScrollBar()
@@ -481,7 +596,9 @@ class QtLiveTable(QWidget):
         self._table.insertRow(row)
         for column, text in enumerate(cells):
             item = QTableWidgetItem(text)
-            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            item.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
             self._table.setItem(row, column, item)
         if at_bottom:
             self._table.scrollToBottom()
@@ -503,7 +620,9 @@ class QtLiveTable(QWidget):
         dtype = self._data_keys.get(field, {}).get("dtype")
         try:
             if dtype == "number":
-                precision = self._data_keys[field].get("precision", self._DEFAULT_PRECISION)
+                precision = self._data_keys[field].get(
+                    "precision", self._DEFAULT_PRECISION
+                )
                 try:
                     precision = int(precision)
                 except (TypeError, ValueError):
@@ -569,9 +688,12 @@ class QtPlanProgressView(QWidget):
 
 
 class QtPlanExecutionView(QWidget):
-    """The running plan's full call, above the records logged to ``logger_name`` since it started."""
+    """The running plan's full call, above the records logged since it started.
 
-    def __init__(self, monitor: PlanMonitor, logger_name: str = LOGGER_NAME, parent=None):
+    Records are those logged to ``logger_name``.
+    """
+
+    def __init__(self, monitor: PlanMonitor, logger_name, parent=None):
         super().__init__(parent)
         self._call = QLabel("No plan has run yet.")
         self._call.setFont(_monospace_font())
@@ -585,7 +707,9 @@ class QtPlanExecutionView(QWidget):
         self._messages = QPlainTextEdit()
         self._messages.setReadOnly(True)
         self._messages.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self._messages.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._messages.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
 
         progress_tabs = QTabWidget()
         progress_tabs.addTab(QtPlanProgressView(monitor), "Progress")
@@ -614,18 +738,23 @@ class QtPlanExecutionView(QWidget):
     def _on_record(self, created: float, levelno: int, levelname: str, message: str):
         scrollbar = self._messages.verticalScrollBar()
         at_bottom = scrollbar.value() == scrollbar.maximum()
-        self._messages.appendHtml(_record_html(created, levelno, levelname, message, "%H:%M:%S"))
+        self._messages.appendHtml(
+            _record_html(created, levelno, levelname, message, "%H:%M:%S")
+        )
         # Only follow new lines if the user hasn't scrolled up to read history.
         if at_bottom:
             scrollbar.setValue(scrollbar.maximum())
 
 
-def _record_html(created: float, levelno: int, levelname: str, message: str, datefmt: str) -> str:
+def _record_html(
+    created: float, levelno: int, levelname: str, message: str, datefmt: str
+) -> str:
     """One log line as HTML, with only the level name colored."""
     color = level_color(levelno).name()
     return (
         f"[{datetime.fromtimestamp(created):{datefmt}}] "
-        f'<span style="color:{color}">{html.escape(levelname)}</span>: {html.escape(message)}'
+        f'<span style="color:{color}">{html.escape(levelname)}</span>: '
+        f"{html.escape(message)}"
     )
 
 
@@ -634,7 +763,7 @@ class QtPlanLogView(QWidget):
 
     _MAX_LINES = 20000
 
-    def __init__(self, monitor: PlanMonitor, logger_name: str = LOGGER_NAME, parent=None):
+    def __init__(self, monitor: PlanMonitor, logger_name: str, parent=None):
         super().__init__(parent)
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
@@ -655,7 +784,9 @@ class QtPlanLogView(QWidget):
 
     @Slot(float, int, str, str)
     def _on_record(self, created: float, levelno: int, levelname: str, message: str):
-        self._log.appendHtml(_record_html(created, levelno, levelname, message, "%Y-%m-%d %H:%M:%S"))
+        self._log.appendHtml(
+            _record_html(created, levelno, levelname, message, "%Y-%m-%d %H:%M:%S")
+        )
 
 
 class QtPlanHistory(QWidget):
@@ -673,7 +804,9 @@ class QtPlanHistory(QWidget):
     _COLUMNS = ("Start", "Stop", "Plan", "Arguments", "Status", "Scan ID", "UID")
     _ARGUMENTS_COLUMN = 3
 
-    def __init__(self, monitor: PlanMonitor, history_file: str | Path | None = None, parent=None):
+    def __init__(
+        self, monitor: PlanMonitor, history_file: str | Path | None = None, parent=None
+    ):
         super().__init__(parent)
         self._monitor = monitor
         self._records: list[PlanRecord] = []  # same order as table rows
@@ -687,7 +820,9 @@ class QtPlanHistory(QWidget):
         self._table.verticalHeader().setVisible(False)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(self._ARGUMENTS_COLUMN, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(
+            self._ARGUMENTS_COLUMN, QHeaderView.ResizeMode.Stretch
+        )
         self._table.itemSelectionChanged.connect(self._update_button)
 
         self._rerun_button = QPushButton("Re-run Selected Plan")
@@ -712,8 +847,11 @@ class QtPlanHistory(QWidget):
             entries = json.loads(self._history_file.read_text())
             records = [PlanRecord.from_json(entry) for entry in entries]
         except (OSError, ValueError, KeyError, TypeError) as ex:
-            # Don't overwrite a file we couldn't read; it may hold history worth recovering.
-            logger.warning("Not saving plan history: failed to load %s: %s", self._history_file, ex)
+            # Don't overwrite a file we couldn't read; it may hold history worth
+            # recovering.
+            logger.warning(
+                "Not saving plan history: failed to load %s: %s", self._history_file, ex
+            )
             self._history_file = None
             return
         for record in records:  # stored oldest first
@@ -725,7 +863,9 @@ class QtPlanHistory(QWidget):
         try:
             self._write(self._history_file)
         except OSError as ex:
-            logger.warning("Failed to save plan history to %s: %s", self._history_file, ex)
+            logger.warning(
+                "Failed to save plan history to %s: %s", self._history_file, ex
+            )
 
     def save_as(self, path: str | Path):
         """Write the history to ``path`` and keep saving there as plans finish.
@@ -764,7 +904,9 @@ class QtPlanHistory(QWidget):
             self._fmt_time(record.stop_time),
             record.name,
             record.arguments,
-            _EXIT_STATUS_LABELS.get(record.exit_status or "", record.exit_status or _NOT_APPLICABLE),
+            _EXIT_STATUS_LABELS.get(
+                record.exit_status or "", record.exit_status or _NOT_APPLICABLE
+            ),
             ", ".join(scan_ids) or _NOT_APPLICABLE,
             ", ".join(record.uids) or _NOT_APPLICABLE,
         )
@@ -797,7 +939,9 @@ class QtPlanHistory(QWidget):
         if record is None or not record.rerunnable:
             return
         if self._monitor.run_engine.state != "idle":
-            QMessageBox.warning(self, "RunEngine busy", "Wait for the current plan to finish.")
+            QMessageBox.warning(
+                self, "RunEngine busy", "Wait for the current plan to finish."
+            )
             return
         namespace = self._monitor.namespace
         existing = namespace.get(record.name)

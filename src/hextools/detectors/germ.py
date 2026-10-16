@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated as A
 
+import numpy as np
 from ophyd_async.core import (
     DEFAULT_TIMEOUT,
     DetectorAcquireLogic,
@@ -23,26 +24,23 @@ from ophyd_async.core import (
     wait_for_value,
 )
 from ophyd_async.core import StandardReadableFormat as Format
-from ophyd_async.epics.core import EpicsDevice, PvSuffix
 from ophyd_async.epics.adcore import (
     ADBaseColorMode,
     ADBaseDataType,
-    ADBaseIO,
     ADHDFDataLogic,
     ADMultipartDataLogic,
-    ADWriterFactory,
     NDArrayDescription,
     NDFileHDF5IO,
     NDPluginBaseIO,
-    NDFileIO,
     NDPluginFileIO,
-    NDProcessIO,
     NDStatsIO,
 )
-import numpy as np
+from ophyd_async.epics.core import EpicsDevice, PvSuffix
 
 
 class TDCSlopeTimes(StrictEnum):
+    """TDC slope time setting."""
+
     ONE_US = "1us"
     TWO_US = "2us"
     THREE_US = "3us"
@@ -53,16 +51,22 @@ class TDCSlopeTimes(StrictEnum):
 
 
 class TDCMode(StrictEnum):
+    """TDC mode: time of arrival or time over threshold."""
+
     TOA = "ToA"
     TOT = "ToT"
 
 
 class InputPolarity(StrictEnum):
+    """Input signal polarity."""
+
     POSITIVE = "Positive"
     NEGATIVE = "Negative"
 
 
 class MonitorMode(StrictEnum):
+    """Signal routed to the monitor output."""
+
     OFF = "Off"
     TEMPERATURE = "Temperature"
     BASELINE = "Baseline"
@@ -72,6 +76,8 @@ class MonitorMode(StrictEnum):
 
 
 class Gain(StrictEnum):
+    """Detector gain, given as the full-scale energy range."""
+
     GAIN_240KEV = "240keV"
     GAIN_120KEV = "120keV"
     GAIN_60KEV = "60keV"
@@ -79,6 +85,8 @@ class Gain(StrictEnum):
 
 
 class ShapingTime(StrictEnum):
+    """Pulse shaping time."""
+
     ST_0_125_US = "0.125us"
     ST_0_25_US = "0.25us"
     ST_0_5_US = "0.5us"
@@ -90,21 +98,29 @@ class ShapingTime(StrictEnum):
 
 
 class CountMode(StrictEnum):
+    """Counting mode: timed or continuous."""
+
     TIMED = "Timed"
     CONTINUOUS = "Continuous"
 
 
 class ShotMode(StrictEnum):
+    """Acquisition shot mode: one shot or auto count."""
+
     ONE_SHOT = "OneShot"
     AUTO_COUNT = "AutoCount"
 
 
 class LeakagePulseMode(StrictEnum):
+    """Leakage pulse source: real or simulated."""
+
     REAL = "Real"
     SIMULATED = "Simulated"
 
 
 class InternalLeakCurrent(StrictEnum):
+    """Internal leakage current setting."""
+
     OFF = "Off"
     TWO_PA = "2pA"
     EIGHT_PA = "8pA"
@@ -343,6 +359,8 @@ class GeRMAcquireLogic(DetectorAcquireLogic):
 
 @dataclass
 class GeRMStatsDataLogic(DetectorDataLogic):
+    """Data logic that reads a single stats signal from the GeRM detector."""
+
     signal: SignalR
     hinted: bool = True
 
@@ -351,6 +369,7 @@ class GeRMStatsDataLogic(DetectorDataLogic):
 
     def get_hinted_fields(self, datakey_name: str) -> Sequence[str]:
         return [self.signal.name] if self.hinted else []
+
 
 class GeRMDetector(StandardDetector):
     """The ophyd class for GeRM detector."""
@@ -372,9 +391,7 @@ class GeRMDetector(StandardDetector):
         self.add_detector_logics(GeRMAcquireLogic(self.driver))
         self.hdf = NDFileHDF5IO(prefix + "MCA1:HDF1:", name="hdf")
         self.tiff = NDPluginFileIO(prefix + "MCA1:TIFF1:", name="tiff")
-        self.stats1 = NDStatsIO(
-            "XF:27ID1-ES{GeRM-Det:1}MCA1:Stats1:", name="stats1"
-        )
+        self.stats1 = NDStatsIO("XF:27ID1-ES{GeRM-Det:1}MCA1:Stats1:", name="stats1")
         self.save_as_hdf()
         self.add_config_signals(*config_sigs)
         super().__init__(name=name)
@@ -396,7 +413,7 @@ class GeRMDetector(StandardDetector):
                 "multipart/related;type=image/tiff",
                 hinted=False,
             ),
-            GeRMStatsDataLogic(self.stats1.total)
+            GeRMStatsDataLogic(self.stats1.total),
         )
 
     def save_as_hdf(self) -> None:
@@ -414,5 +431,5 @@ class GeRMDetector(StandardDetector):
                 self.hdf,
                 hinted=False,
             ),
-            GeRMStatsDataLogic(self.stats1.total)
+            GeRMStatsDataLogic(self.stats1.total),
         )

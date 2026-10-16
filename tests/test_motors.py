@@ -4,7 +4,11 @@ from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
 from ophyd_async.core import init_devices, set_mock_value
 
-from hextools.motors import CameraObjective, FOV_20_40_mm_Camera, FOV_2_4_mm_Camera, HomeStatus
+from hextools.motors import (
+    CameraObjective,
+    FOV_2_4_mm_Camera,
+    HomeStatus,
+)
 
 
 @pytest.fixture

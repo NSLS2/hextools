@@ -18,6 +18,7 @@ from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 
 from bluesky import RunEngine
+from bluesky_widgets.models.run_engine_client import RunEngineClient
 from bluesky_widgets.qt.threading import FunctionWorker
 from qtpy.QtCore import Qt, QTimer, Signal, Slot
 from qtpy.QtGui import QIntValidator
@@ -36,9 +37,13 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from bluesky_widgets.models.run_engine_client import RunEngineClient
 
-from hextools.utils import get_proposal_info, is_running_in_ci, list_proposals, switch_proposal
+from hextools.utils import (
+    get_proposal_info,
+    is_running_in_ci,
+    list_proposals,
+    switch_proposal,
+)
 
 RunEngineMetadata = MutableMapping[str, Any]
 
@@ -125,7 +130,10 @@ class QtReMetadataMonitor(QWidget):
         elif isinstance(self._re, RunEngine):
             return self._re.md
 
-        raise RuntimeError("RE Metadata Viewer widget must be initialized with a RunEngineClient or RunEngine instance.")
+        raise RuntimeError(
+            "RE Metadata Viewer widget must be initialized with a RunEngineClient "
+            "or RunEngine instance."
+        )
 
     def _start_worker(self):
         # Skip if a request is still in flight to avoid overlapping polls.
@@ -182,11 +190,11 @@ class QtProposalInfo(QtReMetadataMonitor):
                 "Cycle": "cycle",
                 "Proposal Title": "proposal/title",
                 "Proposal Type": "proposal/type",
-                "PI Name": "proposal/pi_name"
+                "PI Name": "proposal/pi_name",
             },
             poll_period=poll_period,
             parent=parent,
-            title="Proposal Info"
+            title="Proposal Info",
         )
         self._switch_worker = None
         self._change_button = QPushButton("Change Proposal…")
@@ -200,11 +208,14 @@ class QtProposalInfo(QtReMetadataMonitor):
         client = self._re._client  # noqa: SLF001
         response = client.re_metadata()
         if not response.get("success", False):
-            raise RuntimeError(response.get("msg") or "Couldn't read the RunEngine metadata.")
+            raise RuntimeError(
+                response.get("msg") or "Couldn't read the RunEngine metadata."
+            )
         md = dict(response.get("re_metadata") or {})
         updated = switch_proposal(proposal, username, password, md=md)
         if is_running_in_ci():
-            # Outside mock mode RE.md is Redis-backed, so the switch already reached the worker.
+            # Outside mock mode RE.md is Redis-backed, so the switch already reached
+            # the worker.
             keys = ("data_session", "username", "start_datetime", "proposal")
             changes = {k: updated[k] for k in keys if k in updated}
             client.script_upload(f"RE.md.update({changes!r})")
@@ -236,11 +247,13 @@ class QtProposalInfo(QtReMetadataMonitor):
 
     def _on_switch_errored(self, error: Exception):
         self._reset_button()
-        QMessageBox.critical(self, "Couldn't change proposal", f"{type(error).__name__}: {error}")
+        QMessageBox.critical(
+            self, "Couldn't change proposal", f"{type(error).__name__}: {error}"
+        )
 
 
 class QtChangeProposalDialog(QDialog):
-    """Pick one of the beamline's proposals, see its details, and sign in to switch to it."""
+    """Pick a beamline proposal, see its details, and sign in to switch to it."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -248,16 +261,25 @@ class QtChangeProposalDialog(QDialog):
         self.setMinimumWidth(420)
         self._list_worker = None
         self._info_workers: set[FunctionWorker] = set()
-        self._lists: dict[str, list[str]] = {}
+        self._lists: dict[str, list[tuple[str, str]]] = {}
 
         # Editable, so a proposal missing from the list can still be typed in.
         self._proposal = QComboBox()
         self._proposal.setEditable(True)
+        self._proposal.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self._proposal.setValidator(QIntValidator(1, 999_999_999, self))
+        # Long titles widen the popup, not the dialog.
+        self._proposal.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._proposal.setMinimumContentsLength(10)
         self._proposal.lineEdit().setPlaceholderText("Loading proposals\u2026")
         self._proposal.currentTextChanged.connect(self._on_proposal_changed)
+        self._proposal.activated.connect(self._on_activated)
         self._commissioning = QCheckBox("Commissioning")
-        self._commissioning.setToolTip("List the beamline's commissioning proposals instead of user proposals.")
+        self._commissioning.setToolTip(
+            "List the beamline's commissioning proposals instead of user proposals."
+        )
         self._commissioning.toggled.connect(self._populate)
 
         self._title = QLabel(_PLACEHOLDER)
@@ -306,26 +328,41 @@ class QtChangeProposalDialog(QDialog):
         self._list_worker.errored.connect(self._on_proposals_errored)
         self._list_worker.start()
 
-    def _on_proposals_listed(self, proposals: dict[str, list[str]]):
+    def _on_proposals_listed(self, proposals: dict[str, list[tuple[str, str]]]):
         self._list_worker = None
         self._lists = proposals
         self._populate()
         self._proposal.lineEdit().setPlaceholderText("Select or type a proposal number")
 
     def _populate(self):
-        """Fill the dropdown with the commissioning or the user proposals, per the toggle."""
+        """Fill the dropdown with commissioning or user proposals, per the toggle."""
         kind = "commissioning" if self._commissioning.isChecked() else "user"
         self._proposal.blockSignals(True)
         self._proposal.clear()
-        self._proposal.addItems(self._lists.get(kind, []))
+        for i, (number, title) in enumerate(self._lists.get(kind, [])):
+            summary = " ".join(title.split())
+            self._proposal.addItem(
+                f"{number} \u2014 {summary}" if summary else number, number
+            )
+            self._proposal.setItemData(i, title, Qt.ItemDataRole.ToolTipRole)
+        view = self._proposal.view()
+        view.setMinimumWidth(min(view.sizeHintForColumn(0) + 24, 900))
         self._proposal.setCurrentIndex(-1)
         self._proposal.blockSignals(False)
         self._on_proposal_changed("")
         self._update_ok()
 
+    def _on_activated(self, index: int):
+        # Items read "number — title"; keep only the number in the edit field.
+        number = self._proposal.itemData(index)
+        if number:
+            self._proposal.setEditText(number)
+
     def _on_proposals_errored(self, error: Exception):
         self._list_worker = None
-        self._proposal.lineEdit().setPlaceholderText("Couldn't load proposals; type a number")
+        self._proposal.lineEdit().setPlaceholderText(
+            "Couldn't load proposals; type a number"
+        )
 
     def _on_proposal_changed(self, text: str):
         for label in (self._title, self._type, self._pi):
@@ -335,7 +372,9 @@ class QtChangeProposalDialog(QDialog):
         self._title.setText("Loading\u2026")
         worker = FunctionWorker(get_proposal_info, text)
         worker.returned.connect(lambda info, number=text: self._on_info(number, info))
-        worker.errored.connect(lambda error, number=text: self._on_info_error(number, error))
+        worker.errored.connect(
+            lambda error, number=text: self._on_info_error(number, error)
+        )
         # Keep each worker referenced until it finishes, even if the selection moves on.
         self._info_workers.add(worker)
         worker.finished.connect(lambda w=worker: self._info_workers.discard(w))
@@ -348,10 +387,23 @@ class QtChangeProposalDialog(QDialog):
         self._title.setText(info.get("title") or _PLACEHOLDER)
         self._type.setText(info.get("type") or _PLACEHOLDER)
         self._pi.setText(info.get("pi_name") or _PLACEHOLDER)
+        self._fit_height()
 
     def _on_info_error(self, number: str, error: Exception):
         if number == self._proposal.currentText():
             self._title.setText(f"Couldn't fetch proposal: {error}")
+            self._fit_height()
+
+    def _fit_height(self):
+        """Grow the dialog so a wrapped or multi-line title isn't cut off."""
+        layout = self.layout()
+        layout.activate()
+        if layout.hasHeightForWidth():
+            height = layout.totalHeightForWidth(self.width())
+        else:
+            height = layout.totalSizeHint().height()
+        if height > self.height():
+            self.resize(self.width(), height)
 
     def _update_ok(self):
         filled = self._proposal.currentText().isdigit() and all(
@@ -360,5 +412,9 @@ class QtChangeProposalDialog(QDialog):
         self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(filled)
 
     def values(self) -> tuple[int, str, str]:
-        """The selected proposal number, username, and password."""
-        return int(self._proposal.currentText()), self._username.text().strip(), self._password.text()
+        """Return the selected proposal number, username, and password."""
+        return (
+            int(self._proposal.currentText()),
+            self._username.text().strip(),
+            self._password.text(),
+        )

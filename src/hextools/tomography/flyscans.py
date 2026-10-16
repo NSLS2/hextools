@@ -1,50 +1,43 @@
 """Tomography plans for HEX beamline."""
 
-from collections import defaultdict
 import logging
-from hextools.motors import SampleTower
-from collections.abc import Mapping, Sequence
-from tracemalloc import start
+from collections import defaultdict
+from collections.abc import Sequence
+from typing import Any
 
 from bluesky import plan_patterns
 from bluesky import plan_stubs as bps
-from bluesky.protocols import Collectable, Flyable, HasName, Movable, Readable
+from bluesky import preprocessors as bpp
+from bluesky.protocols import Collectable, Flyable
 from bluesky.utils import (
-    CustomPlanMetadata,
     FailedStatus,
     MsgGenerator,
     RunEngineControlException,
-    plan,
 )
-from nslsii import detectors
-import numpy as np
-from ophyd_async.core import StandardMovable, DetectorTrigger, StandardFlyable, TriggerInfo
-from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
+from ophyd_async.core import (
+    DetectorTrigger,
+    TriggerInfo,
+)
+from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.fastcs.panda import HDFPanda
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
-from typing import Any, MutableMapping
-from hextools.detectors import enable_preview_mode
-from hextools.utils import Steppable
 
+from hextools.detectors import FRAME_PERIOD_MARGIN, enable_preview_mode
+from hextools.motors import SampleTower
+from hextools.photon_delivery_system import Shutter
 from hextools.photon_delivery_system.shutter import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )
-from hextools.utils import ensure_available, get_obj_from_ipython_ns
-from hextools.photon_delivery_system import Shutter
+from hextools.utils import Steppable, ensure_available
 
 from ..detectors.phantom import PhantomDetector
 from ..flyers import SingleAxisFlyableLogic, construct_fly_info_models
 from ..motors import RotationMotor
-from bluesky import preprocessors as bpp, plans as bp
-
-from hextools.detectors import FRAME_PERIOD_MARGIN
 
 logger = logging.getLogger("hextools")
 
 #: Most frames any detector may drop before a flyscan is treated as failed.
 MAX_MISSING_FRAMES = 10
-
 
 
 # TODO: Remove once bluesky has a fly stub builtin
@@ -82,7 +75,6 @@ def _fly_stub(
     :func:`bluesky.preprocessors.fly_during_wrapper`
     :func:`bluesky.preprocessors.fly_during_decorator`
     """
-
     # Extract list of collectable detectors from flyers
     dets = [flyer for flyer in flyers if isinstance(flyer, Collectable)]
 
@@ -97,13 +89,16 @@ def _fly_stub(
     # If flush period given, collect while completing.
     if collect_flush_period is not None:
         yield from bps.collect_while_completing(
-            flyers, dets, flush_period=collect_flush_period, stream_name=stream_name, watch=watch
+            flyers,
+            dets,
+            flush_period=collect_flush_period,
+            stream_name=stream_name,
+            watch=watch,
         )
     else:
         # Otherwise, wait for all flyers to complete before collecting.
         yield from bps.complete_all(*flyers, wait=True)
         yield from bps.collect_all(*dets, name=stream_name)
-
 
 
 def tomo_dark_flat(
@@ -118,7 +113,7 @@ def tomo_dark_flat(
     photon_shutter: Shutter | None = None,
 ):
     """Take a series of dark and flat images for tomography.
-    
+
     Parameters
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
@@ -130,7 +125,8 @@ def tomo_dark_flat(
     num_flat_images : int, optional
         The number of flat images to acquire. Default is 50.
     x_offset : float, optional
-        The offset to apply to the sample tower's x1 position for flat images. Default is 0.0.
+        The offset to apply to the sample tower's x1 position for flat images.
+        Default is 0.0.
     use_shutter : bool, optional
         Whether to use the shutter for the acquisition. Default is True.
     sample_tower : SampleTower | None, optional
@@ -140,7 +136,6 @@ def tomo_dark_flat(
     photon_shutter : Shutter | None, optional
         The photon shutter to use. If None, will attempt to ensure availability.
     """
-    
     sample_tower = ensure_available(SampleTower, sample_tower=sample_tower)
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
@@ -155,14 +150,22 @@ def tomo_dark_flat(
         "x_offset": x_offset,
     }
 
-    @bpp.reset_positions_decorator([sample_tower.x1, *[det.driver.acquire_time for det in detectors]])
+    @bpp.reset_positions_decorator(
+        [sample_tower.x1, *[det.driver.acquire_time for det in detectors]]
+    )
     @bpp.run_decorator(md=_md)
     @bpp.stage_decorator([*detectors])
     def _body():
         yield from ensure_shutter_closed(photon_shutter)
 
         for det in detectors:
-            yield from bps.prepare(det, TriggerInfo(livetime=exposure_time, collections_per_event=num_dark_images), group="prepare-dark")
+            yield from bps.prepare(
+                det,
+                TriggerInfo(
+                    livetime=exposure_time, collections_per_event=num_dark_images
+                ),
+                group="prepare-dark",
+            )
 
         yield from bps.wait(group="prepare-dark")
         yield from bps.trigger_and_read(list(detectors), name="dark")
@@ -172,7 +175,13 @@ def tomo_dark_flat(
         if use_shutter:
             yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
         for det in detectors:
-            yield from bps.prepare(det, TriggerInfo(livetime=exposure_time, collections_per_event=num_flat_images), group="prepare-flat")
+            yield from bps.prepare(
+                det,
+                TriggerInfo(
+                    livetime=exposure_time, collections_per_event=num_flat_images
+                ),
+                group="prepare-flat",
+            )
         yield from bps.wait(group="prepare-flat")
         yield from bps.trigger_and_read(list(detectors), name="flat")
 
@@ -184,7 +193,6 @@ def tomo_dark_flat(
                 yield from enable_preview_mode(det)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
-
 
 
 def tomo_flyscan(
@@ -204,7 +212,7 @@ def tomo_flyscan(
     photon_shutter: Shutter | None = None,
 ):
     """Take a single tomography fly scan.
-    
+
     Parameters
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
@@ -214,7 +222,8 @@ def tomo_flyscan(
     exposure_time : float
         The exposure time for each projection.
     acquire_period : float | None
-        The period between acquisitions. If None, it will be set to exposure_time + some margin.
+        The period between acquisitions. If None, it will be set to
+        exposure_time + some margin.
     images_to_average : int
         The number of images to average for each projection.
     start : float
@@ -226,7 +235,8 @@ def tomo_flyscan(
     sample_name : str | None
         The name of the sample being scanned.
     time_based : bool
-        Whether the triggers are issued equally spaced in time, as opposed to being position-based.
+        Whether the triggers are issued equally spaced in time, as opposed to
+        being position-based.
     panda : HDFPanda | None
         The HDF Panda device to use.
     rot_motor : RotationMotor | None
@@ -236,7 +246,6 @@ def tomo_flyscan(
     photon_shutter : Shutter | None
         The photon shutter to use.
     """
-
     panda = ensure_available(HDFPanda, panda=panda)
     rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
@@ -351,13 +360,15 @@ def tomo_flyscan(
                 if most_missing >= num_projections / 2:
                     raise
                 raise RuntimeError(
-                    f"Scan failed! Detector(s) missed up to {most_missing} frame(s). Failure threshold: {MAX_MISSING_FRAMES}"
+                    f"Scan failed! Detector(s) missed up to {most_missing} frame(s). "
+                    f"Failure threshold: {MAX_MISSING_FRAMES}"
                 ) from err
-            for det, missing in missing.items():
-                logger.warning(
-                    f"Detector {det} missed {missing} frame(s)"
-                )
-            logger.warning(f"Max missed frames {most_missing} is below failure threshold {MAX_MISSING_FRAMES}")
+            for det, count in missing.items():
+                logger.warning(f"Detector {det} missed {count} frame(s)")
+            logger.warning(
+                f"Max missed frames {most_missing} is below failure threshold "
+                f"{MAX_MISSING_FRAMES}"
+            )
             # Record the frames that every device did manage to write.
             yield from bps.collect(
                 *[dev for dev in all_devices if isinstance(dev, Collectable)],
@@ -399,7 +410,7 @@ def tomo_flyscan_loop(
     photon_shutter: Shutter | None = None,
 ):
     """Take a series of tomography fly scans, with interspersed dark/flat acquisitions.
-    
+
     Parameters
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
@@ -409,7 +420,8 @@ def tomo_flyscan_loop(
     exposure_time : float
         The exposure time for each projection.
     acquire_period : float | None, optional
-        The period between successive acquisitions. If None, it will be determined automatically.
+        The period between successive acquisitions. If None, it will be
+        determined automatically.
     images_to_average : int, optional
         The number of images to average for each projection. Default is 1.
     start : float, optional
@@ -421,15 +433,20 @@ def tomo_flyscan_loop(
     delay_between_tomograms : float, optional
         The delay between successive tomography fly scans. Default is 0.0.
     dark_flat_offset : float, optional
-        The offset to apply for dark/flat acquisitions. A value of 0.0 means no darks/flats. Default is 0.0.
+        The offset to apply for dark/flat acquisitions. A value of 0.0 means no
+        darks/flats. Default is 0.0.
     num_dark_images : int, optional
-        The number of dark images to acquire for each dark/flat acquisition. Default is 20.
+        The number of dark images to acquire for each dark/flat acquisition.
+        Default is 20.
     num_flat_images : int, optional
-        The number of flat images to acquire for each dark/flat acquisition. Default is 50.
+        The number of flat images to acquire for each dark/flat acquisition.
+        Default is 50.
     dark_flat_frequency : int, optional
-        The frequency at which to take dark/flat acquisitions. Default is 0 (no dark/flats).
+        The frequency at which to take dark/flat acquisitions. Default is 0
+        (no dark/flats).
     dark_flat_exposure_time : float | None, optional
-        The exposure time for dark/flat acquisitions. If None, it will use the same exposure time as the projections.
+        The exposure time for dark/flat acquisitions. If None, it will use the
+        same exposure time as the projections.
     use_shutter : bool, optional
         Whether to use the shutter during acquisitions. Default is True.
     sample_name : str | None, optional
@@ -446,10 +463,10 @@ def tomo_flyscan_loop(
         The front-end shutter to use during acquisitions. Default is None.
     photon_shutter : Shutter | None, optional
         The photon shutter to use during acquisitions. Default is None.
-    
+
     """
-    
-    # Flats need the sample moved out of the beam, so a zero offset means no darks/flats.
+    # Flats need the sample moved out of the beam, so a zero offset means no
+    # darks/flats.
     take_dark_flats = dark_flat_offset != 0.0
 
     def _dark_flat():
@@ -517,9 +534,9 @@ def tomo_nd_step_scan(
     use_shutter: bool = True,
     alternate_flyscan_dir: bool = False,
     dark_flat_offset: float = 0.0,
-    dark_flat_exposure_time : float | None = None,
-    num_dark_images : int = 20,
-    num_flat_images : int = 50,
+    dark_flat_exposure_time: float | None = None,
+    num_dark_images: int = 20,
+    num_flat_images: int = 50,
     dark_flat_frequency: int = 0,
     sample_name: str | None = None,
     time_based: bool = True,
@@ -612,7 +629,8 @@ def tomo_nd_step_scan(
 
     @bpp.reset_positions_decorator(motors)
     def _body():
-        # Flats need the sample moved out of the beam, so a zero offset means no darks/flats.
+        # Flats need the sample moved out of the beam, so a zero offset means no
+        # darks/flats.
         take_dark_flats = dark_flat_offset != 0
 
         def _dark_flat():
@@ -665,10 +683,14 @@ def tomo_nd_step_scan(
                     attempt += 1
                     if num_retries > 0 and attempt <= num_retries:
                         logger.error(
-                            f"Flyscan at grid point {i} failed ({err}), retrying (attempt {attempt}/{num_retries})."
+                            f"Flyscan at grid point {i} failed ({err}), retrying "
+                            f"(attempt {attempt}/{num_retries})."
                         )
                     else:
-                        raise RuntimeError(f"Flyscan at grid point {i} failed after {attempt} attempts.") from err
+                        raise RuntimeError(
+                            f"Flyscan at grid point {i} failed after {attempt} "
+                            "attempts."
+                        ) from err
 
             # The final dark/flat below covers the last grid point.
             is_last = i == num_points - 1
@@ -714,7 +736,7 @@ def tomo_1d_step_scan(
     sample_tower: SampleTower | None = None,
 ):
     """1-D tomography step scan: a tomo flyscan at each point along one axis.
-    
+
     Parameters
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
@@ -732,7 +754,8 @@ def tomo_1d_step_scan(
     exposure_time : float
         The exposure time for each image.
     acquire_period : float | None, optional
-        The period between consecutive acquisitions. If None, the period is determined by the exposure time.
+        The period between consecutive acquisitions. If None, the period is
+        determined by the exposure time.
     images_to_average : int, optional
         The number of images to average for each acquisition.
     start : float, optional
@@ -773,7 +796,10 @@ def tomo_1d_step_scan(
     return (
         yield from tomo_nd_step_scan(
             detectors,
-            step_motor, step_start, step_stop, num_tomograms,
+            step_motor,
+            step_start,
+            step_stop,
+            num_tomograms,
             num_projections=num_projections,
             exposure_time=exposure_time,
             acquire_period=acquire_period,
@@ -856,7 +882,8 @@ def tomo_2d_step_scan(
     exposure_time : float
         The exposure time for each image.
     acquire_period : float | None, default None
-        The period between acquisitions. If None, the acquisition will proceed as fast as possible.
+        The period between acquisitions. If None, the acquisition will proceed
+        as fast as possible.
     images_to_average : int, default 1
         The number of images to average for each acquisition.
     start : float, default 0
@@ -896,8 +923,14 @@ def tomo_2d_step_scan(
     return (
         yield from tomo_nd_step_scan(
             detectors,
-            outer_motor, outer_start, outer_stop, outer_num,
-            inner_motor, inner_start, inner_stop, inner_num,
+            outer_motor,
+            outer_start,
+            outer_stop,
+            outer_num,
+            inner_motor,
+            inner_start,
+            inner_stop,
+            inner_num,
             num_projections=num_projections,
             exposure_time=exposure_time,
             acquire_period=acquire_period,
@@ -917,4 +950,3 @@ def tomo_2d_step_scan(
             photon_shutter=photon_shutter,
         )
     )
-

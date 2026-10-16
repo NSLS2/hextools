@@ -133,7 +133,9 @@ async def test_change_energy_with_auto_tune(RE: RunEngine, dclm: DCLM):
 def _mock_peak_stats(mocker, *centers):
     """Patch PeakStats so each auto-tune scan gets the next center (None = no peak)."""
     instances = [mocker.MagicMock(cen=cen, x_data=None) for cen in centers]
-    mocker.patch("hextools.photon_delivery_system.dclm.PeakStats", side_effect=instances)
+    mocker.patch(
+        "hextools.photon_delivery_system.dclm.PeakStats", side_effect=instances
+    )
 
 
 async def test_change_energy_no_peak_coarse_scan(RE: RunEngine, dclm: DCLM, mocker):

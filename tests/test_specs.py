@@ -29,7 +29,7 @@ from hextools.specs import (
 
 
 class FakeRun:
-    """Minimal stand-in for a BlueskyRunV3: a start document and streams of field names."""
+    """Minimal stand-in for a BlueskyRunV3."""
 
     def __init__(self, start: dict[str, Any], streams: dict[str, list[str]]):
         self.start = start
@@ -133,7 +133,11 @@ def _xrd_calibration() -> FakeRun:
 
 def _energy_auto_tune() -> FakeRun:
     return FakeRun(
-        {"plan_name": "energy_auto_tune", "detectors": ["screen"], "motors": ["pitch2"]},
+        {
+            "plan_name": "energy_auto_tune",
+            "detectors": ["screen"],
+            "motors": ["pitch2"],
+        },
         {"primary": ["screen", "screen-stats1-total", "pitch2"]},
     )
 
@@ -217,8 +221,12 @@ def test_require_dark_flat_with_streams():
 
 
 def test_require_dark_flat_with_uids():
-    specs._require_dark_flat(FakeRun({"dark_scan_uid": "d", "flat_scan_uid": "f"}, {}), ["det"])
-    specs._require_dark_flat(FakeRun({"flat_scan_uid": "f"}, {"dark": ["det"]}), ["det"])
+    specs._require_dark_flat(
+        FakeRun({"dark_scan_uid": "d", "flat_scan_uid": "f"}, {}), ["det"]
+    )
+    specs._require_dark_flat(
+        FakeRun({"flat_scan_uid": "f"}, {"dark": ["det"]}), ["det"]
+    )
     with pytest.raises(SpecValidationError, match=r"missing \['dark_scan_uid'\]"):
         specs._require_dark_flat(FakeRun({"flat_scan_uid": "f"}, {}), ["det"])
     with pytest.raises(SpecValidationError, match=r"missing \['flat_scan_uid'\]"):
@@ -229,14 +237,18 @@ def test_require_dark_flat_with_uids():
 
 
 @pytest.mark.parametrize(("spec", "validator", "make"), CASES, ids=CASE_IDS)
-def test_valid_run_passes(spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]):
+def test_valid_run_passes(
+    spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]
+):
     validator(make())
     validator(make(), spec.version)
     validate_run(make(), spec)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(("spec", "validator", "make"), CASES, ids=CASE_IDS)
-def test_wrong_plan_name_fails(spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]):
+def test_wrong_plan_name_fails(
+    spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]
+):
     run = _mutated(make, lambda r: r.start.update(plan_name="count"))
     with pytest.raises(SpecValidationError, match="plan_name is 'count'"):
         validator(run)
@@ -319,9 +331,13 @@ def test_tomo_flyscan_dark_flat_uid_fallback(stream: str):
     validate_tomo_flyscan(run)
 
 
-@pytest.mark.parametrize("plan_name", ["tomo_1d_step_scan", "tomo_2d_step_scan", "tomo_nd_step_scan"])
+@pytest.mark.parametrize(
+    "plan_name", ["tomo_1d_step_scan", "tomo_2d_step_scan", "tomo_nd_step_scan"]
+)
 def test_tomo_step_scan_plan_names(plan_name: str):
-    validate_tomo_step_scan(_mutated(_tomo_step_scan, lambda r: r.start.update(plan_name=plan_name)))
+    validate_tomo_step_scan(
+        _mutated(_tomo_step_scan, lambda r: r.start.update(plan_name=plan_name))
+    )
 
 
 @pytest.mark.parametrize("key", ["shape", "extents", "snaking"])
@@ -348,7 +364,9 @@ def test_tomo_step_scan_positions_stream():
 
 def test_tomo_step_scan_checks_every_point_stream():
     run = _mutated(_tomo_step_scan, lambda r: r.streams["primary_1_0"].remove("angle"))
-    with pytest.raises(SpecValidationError, match=r"'primary_1_0' is missing \['angle'\]"):
+    with pytest.raises(
+        SpecValidationError, match=r"'primary_1_0' is missing \['angle'\]"
+    ):
         validate_tomo_step_scan(run)
 
 
@@ -361,7 +379,9 @@ def test_tomo_step_scan_plain_primary_is_not_a_point_stream():
 
 
 def test_tomo_alignment_scan_flat_is_optional():
-    validate_tomo_alignment_scan(_mutated(_tomo_alignment_scan, lambda r: r.streams.pop("flat")))
+    validate_tomo_alignment_scan(
+        _mutated(_tomo_alignment_scan, lambda r: r.streams.pop("flat"))
+    )
     run = _mutated(_tomo_alignment_scan, lambda r: r.streams["flat"].clear())
     with pytest.raises(SpecValidationError, match=r"'flat' is missing \['kinetix1'\]"):
         validate_tomo_alignment_scan(run)
@@ -390,10 +410,13 @@ def test_radiograph_checks_every_detector():
 
 
 @pytest.mark.parametrize(
-    "plan_name", ["edxd_count", "edxd_scan", "edxd_grid_scan", "edxd_custom_pos_list_grid"]
+    "plan_name",
+    ["edxd_count", "edxd_scan", "edxd_grid_scan", "edxd_custom_pos_list_grid"],
 )
 def test_edxd_scan_plan_names(plan_name: str):
-    validate_edxd_scan(_mutated(_edxd_scan, lambda r: r.start.update(plan_name=plan_name)))
+    validate_edxd_scan(
+        _mutated(_edxd_scan, lambda r: r.start.update(plan_name=plan_name))
+    )
 
 
 @pytest.mark.parametrize("motors", [None, [], ["x"], ["x", "y"]])
@@ -424,13 +447,17 @@ def test_edxd_scan_missing_field(field: str):
 
 
 def test_edxd_calibration_needs_a_stats_field():
-    run = _mutated(_edxd_calibration, lambda r: r.streams["primary"].remove("germ-stats1-total"))
+    run = _mutated(
+        _edxd_calibration, lambda r: r.streams["primary"].remove("germ-stats1-total")
+    )
     with pytest.raises(SpecValidationError, match="no '<det>-stats1-total' field"):
         validate_edxd_calibration(run)
 
 
 def test_edxd_calibration_ignores_detectors_key():
-    validate_edxd_calibration(_mutated(_edxd_calibration, lambda r: r.start.update(detectors=7)))
+    validate_edxd_calibration(
+        _mutated(_edxd_calibration, lambda r: r.start.update(detectors=7))
+    )
 
 
 def test_xrd_calibration_rules():
@@ -474,10 +501,14 @@ def test_validate_run_unknown_spec():
         validate_run(FakeRun({}, {}), Spec("Unknown", version="1"))  # type: ignore[arg-type]
 
 
-def test_validate_run_dispatches_by_name_and_passes_version(monkeypatch: pytest.MonkeyPatch):
+def test_validate_run_dispatches_by_name_and_passes_version(
+    monkeypatch: pytest.MonkeyPatch,
+):
     calls: list[tuple[Any, str | None]] = []
     monkeypatch.setitem(
-        specs._VALIDATORS, RADIOGRAPH_V1.name, lambda run, version: calls.append((run, version))
+        specs._VALIDATORS,
+        RADIOGRAPH_V1.name,
+        lambda run, version: calls.append((run, version)),
     )
     run = FakeRun({}, {})
     validate_run(run, Spec(RADIOGRAPH_V1.name, version="2"))  # type: ignore[arg-type]

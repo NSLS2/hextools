@@ -1,10 +1,18 @@
 """Detector utility functions for HEX beamline."""
 
-from ophyd_async.core import OnOff
-from ophyd_async.epics.adkinetix import KinetixDetector, KinetixReadoutMode, KinetixTriggerMode
-from ophyd_async.epics.advimba import VimbaDetector, VimbaTriggerSource, VimbaExposeOutMode
-from ophyd_async.epics.adcore import ADImageMode, NDPluginBaseIO
 import bluesky.plan_stubs as bps
+from ophyd_async.core import OnOff
+from ophyd_async.epics.adcore import ADImageMode, NDPluginBaseIO
+from ophyd_async.epics.adkinetix import (
+    KinetixDetector,
+    KinetixReadoutMode,
+    KinetixTriggerMode,
+)
+from ophyd_async.epics.advimba import (
+    VimbaDetector,
+    VimbaExposeOutMode,
+    VimbaTriggerSource,
+)
 
 _KINETIX_MAX_SENSOR_SIZE = 3200
 _KINETIX_VALID_BINNING = {1, 2, 4}
@@ -184,13 +192,12 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
     cam : KinetixDetector | VimbaDetector
         The camera to enable preview mode for.
     """
-
     acquiring = yield from bps.rd(cam.driver.acquire)
     if acquiring:
         yield from bps.abs_set(cam.driver.acquire, False, wait=True)
 
     if hasattr(cam, "proc"):
-        proc_plugin = getattr(cam, "proc")
+        proc_plugin = cam.proc
         if isinstance(proc_plugin, NDPluginBaseIO):
             yield from bps.mv(proc_plugin.enable_callbacks, False)
 
@@ -199,9 +206,12 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
         yield from bps.mv(cam.driver.trigger_mode, KinetixTriggerMode.INTERNAL)
     elif isinstance(cam, VimbaDetector):
         yield from bps.mv(
-            cam.driver.trigger_mode, OnOff.OFF,
-            cam.driver.trigger_source, VimbaTriggerSource.FREERUN,
-            cam.driver.exposure_mode, VimbaExposeOutMode.TIMED,
+            cam.driver.trigger_mode,
+            OnOff.OFF,
+            cam.driver.trigger_source,
+            VimbaTriggerSource.FREERUN,
+            cam.driver.exposure_mode,
+            VimbaExposeOutMode.TIMED,
         )
     yield from bps.sleep(0.1)
 

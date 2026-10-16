@@ -3,15 +3,12 @@
 import asyncio
 
 from ophyd_async.core import (
-    DEFAULT_TIMEOUT,
     ConfinedModel,
     FlyableLogic,
     FlyMotorInfo,
     wait_for_value,
 )
 from ophyd_async.fastcs.panda import CommonPandaBlocks, PandaPcompDirection
-
-from .motors import get_encoder_value_from_pos
 
 
 class SingleAxisFlyscanInfo(ConfinedModel):
@@ -63,7 +60,7 @@ class SingleAxisFlyableLogic(FlyableLogic[SingleAxisFlyscanInfo, None]):
             calc.out_units.set(value.position_dataset_units),
             calc.out_scale.set(value.position_scale),
             calc.out_offset.set(value.position_offset),
-            bita.set(0)
+            bita.set(0),
         ]
         if not value.time_based:
             coros.extend(
@@ -163,7 +160,6 @@ def construct_fly_info_models(
     tuple[SingleAxisFlyscanInfo, FlyMotorInfo]
         The fly info models for a single axis flyscan.
     """
-
     dist_to_start = (start_position - current_position) / encoder_resolution
     start_in_counts = round(current_enc_position + dist_to_start)
     signed_travel_counts = round((stop_position - start_position) / encoder_resolution)

@@ -19,13 +19,10 @@ tuple of Python classes (e.g. ``(KinetixDetector, PhantomDetector)``); pass
 
 from __future__ import annotations
 
-
-from collections import deque
-from collections.abc import Callable, Iterable, Iterator, Mapping
 from abc import ABC, abstractmethod
+from collections import deque
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any
-
-import IPython
 
 _DEVICE_BASES: tuple[type, ...]
 _SIGNAL_BASES: list[type] = []
@@ -63,7 +60,11 @@ def _iter_children(name: str, obj: Any) -> Iterator[tuple[str, Any]]:
     """
     if _AsyncDevice is not None and isinstance(obj, _AsyncDevice):
         for key, child in obj.children():
-            if _DeviceVector is not None and isinstance(obj, _DeviceVector) and key.isdigit():
+            if (
+                _DeviceVector is not None
+                and isinstance(obj, _DeviceVector)
+                and key.isdigit()
+            ):
                 yield f"{name}[{key}]", child
             elif _DeviceMap is not None and isinstance(obj, _DeviceMap) and key in obj:
                 yield f"{name}[{key!r}]", child
@@ -109,8 +110,8 @@ def _walk_namespace(namespace: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _looks_like_device(obj: Any) -> bool:
-    """Check if an object is an instance of an ophyd(-async) device
-    
+    """Check if an object is an instance of an ophyd(-async) device.
+
     Parameters
     ----------
     obj : Any
@@ -121,7 +122,6 @@ def _looks_like_device(obj: Any) -> bool:
     bool
         True if the object is an instance of an ophyd(-async) device, False otherwise.
     """
-
     if _DEVICE_BASES and isinstance(obj, _DEVICE_BASES):
         return True
     return False
@@ -141,19 +141,15 @@ class DeviceSource(ABC):
         ...
 
     @abstractmethod
-    def is_valid_device(
-        self, name: str, types: tuple[type, ...] | None = None
-    ) -> bool:
+    def is_valid_device(self, name: str, types: tuple[type, ...] | None = None) -> bool:
         """Return True if ``name`` is a known device matching ``types``."""
         ...
 
-    def subscribe(self, callback: Callable[..., None]) -> None:
+    def subscribe(self, callback: Callable[..., None]) -> None:  # noqa: B027
         """Register ``callback`` to be notified when the device set changes."""
-        ...
 
-    def unsubscribe(self, callback: Callable[..., None]) -> None:
+    def unsubscribe(self, callback: Callable[..., None]) -> None:  # noqa: B027
         """Remove a previously registered ``callback``."""
-        ...
 
 
 class NamespaceDeviceSource(DeviceSource):
@@ -171,7 +167,7 @@ class NamespaceDeviceSource(DeviceSource):
 
     def list_devices(self, types: tuple[type, ...] | None = None) -> list[str]:
         """Get a list of device_names matching the given types.
-        
+
         Parameters
         ----------
         types : tuple[type, ...] | None, optional
@@ -182,7 +178,6 @@ class NamespaceDeviceSource(DeviceSource):
         list[str]
             The sorted list of device names matching the given types.
         """
-
         names = [
             name
             for name, obj in _walk_namespace(self._namespace).items()
@@ -190,11 +185,9 @@ class NamespaceDeviceSource(DeviceSource):
         ]
         return sorted(names)
 
-    def is_valid_device(
-        self, name: str, types: tuple[type, ...] | None = None
-    ) -> bool:
+    def is_valid_device(self, name: str, types: tuple[type, ...] | None = None) -> bool:
         """Check if the given name corresponds to a valid device of the specified types.
-        
+
         Parameters
         ----------
         name : str
@@ -205,9 +198,9 @@ class NamespaceDeviceSource(DeviceSource):
         Returns
         -------
         bool
-            True if the device is valid and matches the specified types, False otherwise.
+            True if the device is valid and matches the specified types,
+            False otherwise.
         """
-
         obj = _walk_namespace(self._namespace).get(name)
         if obj is None:
             return False
@@ -216,20 +209,21 @@ class NamespaceDeviceSource(DeviceSource):
     @staticmethod
     def _matches(obj: Any, types: tuple[type, ...] | None) -> bool:
         """Check if the object matches the given types or looks like a device.
-        
+
         Parameters
         ----------
         obj : Any
             The object to check.
         types : tuple[type, ...] | None
-            The acceptable types. If None, any object that looks like a device is acceptable.
+            The acceptable types. If None, any object that looks like a device
+            is acceptable.
 
         Returns
         -------
         bool
-            True if the object matches the given types or looks like a device, False otherwise.
+            True if the object matches the given types or looks like a device,
+            False otherwise.
         """
-
         if types:
             return isinstance(obj, types)
         # Untyped inputs would otherwise list every signal of every device.
@@ -279,9 +273,7 @@ class QueueServerDeviceSource(DeviceSource):
         ]
         return sorted(names)
 
-    def is_valid_device(
-        self, name: str, types: tuple[type, ...] | None = None
-    ) -> bool:
+    def is_valid_device(self, name: str, types: tuple[type, ...] | None = None) -> bool:
         info = self._walk().get(name)
         if not isinstance(info, dict):
             return False

@@ -77,6 +77,8 @@ myst-parser = ">=5.1.0,<6"
 inflection = ">=0.5.1,<0.6"
 pytest-timeout = ">=2.4.0,<3"
 tiled-server = ">=0.2.14,<0.3"
+# SQLAlchemy 2.1 no longer pulls in greenlet, which tiled-server's async catalog needs.
+greenlet = "*"
 python-build = ">=1.2.2,<2"
 pyside6 = ">=6.11.1,<7"
 yamale = ">=6.1.0,<7"
@@ -108,10 +110,27 @@ hex-gui = "python -m hextools.gui"
 [feature.gui-dev.tasks]
 hex-gui-mock = "python -m hextools.gui --mock"
 
+[feature.docs.dependencies]
+sphinx = "*"
+sphinx-autobuild = "*"
+myst-parser = ">=5.1.0,<6"
+furo = "*"
+sphinx-autodoc-typehints = "*"
+sphinx-copybutton = "*"
+
+# `pixi run -e docs docs` builds to docs/_build/html; `pixi run -e docs docs true [port]` live-serves.
+[feature.docs.tasks.build-docs]
+cmd = "{% if serve == 'true' %}sphinx-autobuild --port {{ port }} --open-browser{% else %}sphinx-build -W --keep-going{% endif %} docs docs/_build/html"
+args = [
+  { arg = "serve", default = "false", choices = ["true", "false"] },
+  { arg = "port", default = "8000" },
+]
+
 [environments]
 # Base environments
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
+docs = { features = ["docs"], solve-group = "default" }
 
 # Profile environments
 terminal = {features = ["profile", "terminal"], solve-group = "profile"}

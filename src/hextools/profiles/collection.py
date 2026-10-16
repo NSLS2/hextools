@@ -1,84 +1,59 @@
 """Bluesky profile for the 27-ID-1 HEX beamline at NSLS-II."""
 
 import os
-
-from ophyd_async.core import PathInfo
-
-from hextools.detectors.germ import GeRMDetector, GeRMStatsDataLogic
+from pathlib import PurePath, PureWindowsPath
 
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
-    call_in_bluesky_event_loop,
 )
-from bluesky.utils import ProgressBarManager
+from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
-from pathlib import PurePath, PureWindowsPath
 from nslsii.ophyd_async.providers import NSLS2PathProvider
-from pathlib import Path
+from ophyd_async.core import PathInfo
 from ophyd_async.epics.adcore import (
     ADWriterFactory,
+    ContAcqDetector,
     NDStatsIO,
     PluginSignalDataLogic,
-    ContAcqDetector,
 )
-from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
+from ophyd_async.sim import SimMotor
 from tiled.client import from_uri, simple
-from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
-from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
-from hextools.utils import show_docs, StartDocAwareFilenameProvider
-from hextools.log import configure_logger, log_pauses, log_plan_exceptions
 
-from hextools.detectors.phantom import PhantomDetector
+from hextools.detectors.germ import GeRMDetector
 from hextools.detectors.kinetix import kinetix_factory
+from hextools.detectors.phantom import PhantomDetector
+from hextools.edxd import *
+from hextools.log import *
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
-from hextools.suspenders import SuspendFloorUnlessOpsMode
 from hextools.motors import (
     CollimatorTable,
+    EDXDTable,
     FOV_2_4_mm_Camera,
+    FOV_20_40_mm_Camera,
     OpticsTable,
     SampleTower,
-    FOV_20_40_mm_Camera,
-    move_motor,
-    CollimatorTable,
-    EDXDTable,
 )
-from hextools.photon_delivery_system import (
-    DCLM,
-    Filter,
-    Shutter,
-    Slits,
-    load_filters,
-    change_energy,
-    change_beam_mode,
-)
+from hextools.photon_delivery_system import *
+from hextools.suspenders import SuspendFloorUnlessOpsMode
+from hextools.tomography import *
 from hextools.utils import (
     ProposalIDPrompt,
+    StartDocAwareFilenameProvider,
     auto_init_devices,
     initialize_run_engine,
     is_running_in_ci,
     print_proposal_info,
     print_version_info,
-    reset_scan_id,
 )
-
-from hextools.tomography import (
-    tomo_flyscan,tomo_flyscan_loop, tomo_alignment_scan, tomo_1d_step_scan, tomo_2d_step_scan, tomo_dark_flat, LastDarkFlatUIDTracker
-)
-from hextools.edxd import configure_test_pulses, edxd_scan, edxd_count, edxd_grid_scan, edxd_2theta_tilt, edxd_calib_scan, edxd_custom_pos_list_grid
-
-
-from ophyd_async.sim import SimMotor
-
 
 # Adjust the default timeout for ophyd async to 60s
-from ophyd_async.core import DEFAULT_TIMEOUT
 DEFAULT_TIMEOUT = 60.0
 
 # Environment variables for Redis host and ophyd_async detector state preservation
@@ -97,9 +72,9 @@ RE.md["facility"] = "NSLS-II"
 RE.md["group"] = "HEX"
 RE.md["beamline_id"] = "27-ID-1"
 
-# Log any exception raised during a plan as an error, and any pause as a warning.
+# Log any exception raised during a plan as an error, and every RunEngine state change.
 log_plan_exceptions(RE, logger)
-log_pauses(RE, logger)
+log_state_changes(RE, logger)
 
 # Uncomment if running in the terminal to get progress bars.
 # RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
@@ -140,27 +115,43 @@ RE.subscribe(LastDarkFlatUIDTracker(RE.md))
 filename_provider = StartDocAwareFilenameProvider()
 RE.subscribe(filename_provider.doc_callback)
 
+
 # TODO: Get this upstream
 class HEXPathProvider(NSLS2PathProvider):
+    """NSLS-II path provider with configurable scan ID zero-padding."""
 
     def __init__(self, *args, scan_id_padding: int = 6, **kwargs):
         super().__init__(*args, **kwargs)
         self._scan_id_padding = scan_id_padding
 
-    def _generate_directory_path(self, base_path: PurePath, datakey_name: str) -> PurePath:
+    def _generate_directory_path(
+        self, base_path: PurePath, datakey_name: str
+    ) -> PurePath:
         base_path = super()._generate_directory_path(base_path, datakey_name)
         if self._include_scan_id_dir:
-            base_path = base_path.parent / f"scan_{self._metadata_dict['scan_id']:0{self._scan_id_padding}d}"
+            base_path = (
+                base_path.parent
+                / f"scan_{self._metadata_dict['scan_id']:0{self._scan_id_padding}d}"
+            )
         return base_path
 
     def __call__(self, datakey_name) -> PathInfo:
         # NSLS2PathProvider doesn't pass the datakey to the filename provider.
-        return super().__call__(datakey_name).model_copy(
-            update={"filename": self._filename_provider(datakey_name)}
+        return (
+            super()
+            .__call__(datakey_name)
+            .model_copy(update={"filename": self._filename_provider(datakey_name)})
         )
 
+
 # Define our global default path provider for the beamline
-path_provider = HEXPathProvider(RE.md, filename_provider=filename_provider, include_scan_id_dir=True, granularity="year", scan_id_padding=5)
+path_provider = HEXPathProvider(
+    RE.md,
+    filename_provider=filename_provider,
+    include_scan_id_dir=True,
+    granularity="year",
+    scan_id_padding=5,
+)
 
 with auto_init_devices(timeout=2.0):
     # Shutters (Front-end and photon)
@@ -245,7 +236,7 @@ with auto_init_devices(timeout=2.0):
     )
     # TODO: Remove this once the StandardDetector -> StandardReadble change is merged.
     fs_window_cam.add_detector_logics(
-       PluginSignalDataLogic(fs_window_cam.driver, fs_window_stats.mean_value)
+        PluginSignalDataLogic(fs_window_cam.driver, fs_window_stats.mean_value)
     )
 
     f_hutch_cam = VimbaDetector(
@@ -257,7 +248,9 @@ with auto_init_devices(timeout=2.0):
     # For the Perkin-Elmer detector, we use a separate path provider
     # Since we need to specify the write directory as a windows path.
     pe_path_provider = NSLS2PathProvider(
-        RE.md, filename_provider=filename_provider, base_write_dir=PureWindowsPath("Z:\\proposals")
+        RE.md,
+        filename_provider=filename_provider,
+        base_write_dir=PureWindowsPath("Z:\\proposals"),
     )
     perkin_elmer = ContAcqDetector(
         "XF:27ID1-ES{PE-Det:1}",

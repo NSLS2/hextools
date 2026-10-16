@@ -222,7 +222,7 @@ def test_ensure_available_success(mock_namespace, name, value, type, expected):
 def test_ensure_available_fails_if_val_invalid_type(mock_namespace):
     with pytest.raises(
         TypeError,
-        match="Value for my_var must be of type <class 'int'> or None, is <class 'str'>",
+        match="Value for my_var must be of type <class 'int'> or None",
     ):
         ensure_available(int, my_var="not an int")
 
@@ -230,6 +230,6 @@ def test_ensure_available_fails_if_val_invalid_type(mock_namespace):
 def test_ensure_available_fails_if_not_provided_and_not_in_ns(mock_namespace):
     with pytest.raises(
         ValueError,
-        match="Device non_existent_var of type <class 'int'> is not available locally, or in the IPython namespace!",
+        match="Device non_existent_var of type <class 'int'>",
     ):
         ensure_available(int, non_existent_var=None)

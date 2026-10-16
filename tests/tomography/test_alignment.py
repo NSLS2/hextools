@@ -411,7 +411,9 @@ async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
         )
     )
 
-    with pytest.raises(RuntimeError, match=f"Shutter {fe_shutter.name} is not in the desired state"):
+    with pytest.raises(
+        RuntimeError, match=f"Shutter {fe_shutter.name} is not in the desired state"
+    ):
         RE(
             tomo_alignment_scan(
                 kinetix_det_factory(1),
@@ -487,12 +489,16 @@ async def test_tomo_alignment_scan(
 
     # Before the run: max velocity, exposure settings and one image per trigger.
     open_run = next(i for i, msg in enumerate(messages) if msg.command == "open_run")
-    setup = {msg.obj: msg.args[0] for msg in messages[:open_run] if msg.command == "set"}
+    setup = {
+        msg.obj: msg.args[0] for msg in messages[:open_run] if msg.command == "set"
+    }
     assert setup[rotation_motor.velocity] == 10000
     assert setup[ktx1.driver.acquire_time] == exposure_time
     assert setup[ktx1.driver.num_images] == 1
     first_rotation = next(
-        msg for msg in messages[open_run:] if msg.command == "set" and msg.obj == rotation_motor
+        msg
+        for msg in messages[open_run:]
+        if msg.command == "set" and msg.obj == rotation_motor
     )
     assert first_rotation.args == np.float64(init_angle)
 

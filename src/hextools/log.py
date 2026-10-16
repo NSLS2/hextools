@@ -141,29 +141,35 @@ def log_plan_exceptions(
     re.preprocessors.append(preprocessor)
 
 
-def log_pauses(re: RunEngine, logger: logging.Logger | str = _LOGGER_NAME) -> None:
-    """Log a warning on ``logger`` whenever ``re`` pauses.
+def log_state_changes(
+    re: RunEngine, logger: logging.Logger | str = _LOGGER_NAME
+) -> None:
+    """Log every state transition of ``re`` on ``logger``.
 
-    Configured as an RE state hook that will be called whenever the RE changes state.
-    If an exisiting state hook is present, it will be called after logging the pause.
+    Transitions are logged as info, a pause as a warning, and a panic as an error.
+    Configured as an RE state hook; an existing state hook is still called afterward.
 
     Parameters
     ----------
     re : RunEngine
-        The RunEngine instance to monitor for pauses.
+        The RunEngine instance to monitor.
     logger : logging.Logger | str, default _LOGGER_NAME
-        The logger to use for warning messages.
-        Can be a logger instance or the name of a logger.
-
+        The logger to log to. Can be a logger instance or the name of a logger.
     """
     log = logging.getLogger(logger) if isinstance(logger, str) else logger
     previous_hook = re.state_hook
 
     def state_hook(new_state, old_state):
-        if str(new_state) == "paused":
+        new, old = str(new_state), str(old_state)
+        if new == "paused":
             log.warning(
-                "Plan paused. Resume, stop, abort, or halt the RunEngine to continue."
+                f"Run engine transitioned from {old} to {new}.",
+                "Resume, stop, abort, or halt the RunEngine to continue.",
             )
+        elif new == "panicked":
+            log.error(f"Run engine transitioned from {old} to {new}.")
+        else:
+            log.info(f"Run engine transitioned from {old} to {new}.")
         if previous_hook is not None:
             previous_hook(new_state, old_state)
 
@@ -172,6 +178,6 @@ def log_pauses(re: RunEngine, logger: logging.Logger | str = _LOGGER_NAME) -> No
 
 __all__ = [
     "configure_logger",
-    "log_pauses",
     "log_plan_exceptions",
+    "log_state_changes",
 ]

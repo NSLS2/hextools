@@ -1,17 +1,19 @@
 """Radiograph acquisition plan for the HEX beamline."""
 
-from bluesky import plan_stubs as bps, plans as bp
 import bluesky.preprocessors as bpp
-from ophyd_async.epics.adkinetix import KinetixDetector
-from ophyd_async.epics.adcore import ContAcqDetector
+from bluesky import plan_stubs as bps
+from bluesky import plans as bp
 from ophyd_async.core import DetectorTrigger, TriggerInfo
-from hextools.detectors import PhantomDetector
-from hextools.photon_delivery_system.shutter import ensure_shutter_closed, ensure_shutter_open
-from hextools.utils import ensure_available
-    
-from hextools.photon_delivery_system import Shutter
+from ophyd_async.epics.adcore import ContAcqDetector
+from ophyd_async.epics.adkinetix import KinetixDetector
 
-from hextools.detectors import FRAME_PERIOD_MARGIN
+from hextools.detectors import FRAME_PERIOD_MARGIN, PhantomDetector
+from hextools.photon_delivery_system import Shutter
+from hextools.photon_delivery_system.shutter import (
+    ensure_shutter_closed,
+    ensure_shutter_open,
+)
+from hextools.utils import ensure_available
 
 
 def take_radiograph(
@@ -63,7 +65,6 @@ def take_radiograph(
     photon_shutter : Shutter
         the photon shutter to open/close around the acquisition
     """
-
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
 
@@ -102,9 +103,7 @@ def take_radiograph(
         if description is not None:
             _md["description"] = description
 
-        yield from bp.count(
-            detectors, num_acquisitions, delay=time_gap, md=_md
-        )
+        yield from bp.count(detectors, num_acquisitions, delay=time_gap, md=_md)
 
     def _cleanup():
         yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)

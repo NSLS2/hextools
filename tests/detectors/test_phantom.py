@@ -17,10 +17,9 @@ from ophyd_async.core import (
     init_devices,
     set_mock_value,
 )
-
 from ophyd_async.epics.adcore import (
-    ADBaseDataType, 
-    ADWriterFactory, 
+    ADBaseDataType,
+    ADWriterFactory,
     NDPluginFileIO,
     NDProcessIO,
 )
@@ -232,7 +231,9 @@ async def test_arm_logic_arm_success(
     set_mock_value(phantom_arm_logic.driver.trigger_received, True)
     set_mock_value(phantom_arm_logic.driver.post_trig_frames, 10)
     set_mock_value(phantom_arm_logic.driver.complete_and_valid, True)
-    set_mock_value(phantom_arm_logic.driver.array_counter, 10)  # Matches post_trig_frames
+    set_mock_value(
+        phantom_arm_logic.driver.array_counter, 10
+    )  # Matches post_trig_frames
     set_mock_value(phantom_arm_logic.driver.total_frame_count, 10)
 
     await phantom_arm_logic.start_acquiring()  # Should complete without exceptions
@@ -358,7 +359,7 @@ async def test_detector_full_stack(
     set_mock_value(phantom.driver.total_frame_count, 20)
     set_mock_value(phantom.driver.selected_cine, 1)
     proc = phantom.get_plugin_by_name("proc", NDProcessIO)
-    set_mock_value(proc.num_filter, 1) # the IOC's default; a mock starts at 0
+    set_mock_value(proc.num_filter, 1)  # the IOC's default; a mock starts at 0
 
     def _on_acquire(value, **kwargs):
         if value:
@@ -423,5 +424,5 @@ async def test_detector_full_stack(
     assert "primary" in run
     assert "phantom" in run["primary"]
     data = run["primary"]["phantom"].read()
-    assert data.shape == (1, 11, 3, 4) # one event of 11 frames
+    assert data.shape == (1, 11, 3, 4)  # one event of 11 frames
     assert data.dtype == np.uint16

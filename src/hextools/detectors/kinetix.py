@@ -2,10 +2,19 @@
 
 import asyncio
 
-from ophyd_async.core import DeviceMock, callback_on_mock_put, default_mock_class, set_mock_put_proceeds, set_mock_value
+from ophyd_async.core import (
+    DeviceMock,
+    callback_on_mock_put,
+    set_mock_put_proceeds,
+    set_mock_value,
+)
+from ophyd_async.epics.adcore import (
+    ADBaseDataType,
+    ADWriterFactory,
+    NDFileHDF5IO,
+)
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
-from ophyd_async.epics.adcore import ADImageMode, ADWriterFactory, NDFileHDF5IO, ADBaseDataType
-import bluesky.plan_stubs as bps
+
 
 class KinetixDetectorMock(DeviceMock[KinetixDetector]):
     """Mock behaviour that simulates Kinetix internal series acquisition."""
@@ -72,7 +81,7 @@ class KinetixDetectorMock(DeviceMock[KinetixDetector]):
 
 
 def kinetix_factory(num: int, path_provider, name: str):
-    """Helper factory function to create a KinetixDetector with HDF writer.
+    """Create a KinetixDetector with HDF writer.
 
     Parameters
     ----------
@@ -88,11 +97,9 @@ def kinetix_factory(num: int, path_provider, name: str):
     KinetixDetector
         The created Kinetix detector with HDF writer.
     """
-
     return KinetixDetector(
         f"XF:27ID1-BI{{Kinetix-Det:{num}}}",
         ADWriterFactory.hdf(path_provider, hinted=False),
         proc_suffix="Proc1:",
         name=name,
     )
-

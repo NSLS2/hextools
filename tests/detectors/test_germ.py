@@ -1,20 +1,19 @@
 import asyncio
 
 import pytest
-
 from ophyd_async.core import (
+    DetectorTrigger,
     TriggerInfo,
     callback_on_mock_put,
+    init_devices,
     set_mock_value,
-    DetectorTrigger,
 )
+
 from hextools.detectors.germ import (
-    GeRMTriggerLogic,
     GeRMAcquireLogic,
-    GeRMDetector,
     GeRMDetectorIO,
+    GeRMTriggerLogic,
 )
-from ophyd_async.core import init_devices
 
 
 @pytest.fixture

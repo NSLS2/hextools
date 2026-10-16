@@ -4,15 +4,21 @@ import logging
 import pytest
 from bluesky import RunEngine
 from bluesky import plan_stubs as bps
-from bluesky.utils import FailedStatus, Msg, RequestAbort, RequestStop, RunEngineInterrupted
+from bluesky.utils import (
+    FailedStatus,
+    Msg,
+    RequestAbort,
+    RequestStop,
+    RunEngineInterrupted,
+)
 
 from hextools.log import (
     LEVEL_COLORS,
     LOGGER_NAME,
     ColorFormatter,
     configure_logger,
-    log_pauses,
     log_plan_exceptions,
+    log_state_changes,
 )
 
 
@@ -38,7 +44,9 @@ def test_color_formatter_colors_level_name(level):
 
 
 def test_color_formatter_can_disable_color():
-    text = ColorFormatter(fmt="%(levelname)s %(message)s", color=False).format(_record(logging.ERROR))
+    text = ColorFormatter(fmt="%(levelname)s %(message)s", color=False).format(
+        _record(logging.ERROR)
+    )
     assert text == "ERROR hello"
 
 
@@ -135,7 +143,9 @@ def test_log_plan_exceptions_logs_plan_errors_and_reraises(RE: RunEngine, plan_l
 
     with pytest.raises(ValueError, match="boom"):
         RE(plan())
-    assert _levels_and_messages(plan_log) == [(logging.ERROR, "Plan failed with ValueError: boom")]
+    assert _levels_and_messages(plan_log) == [
+        (logging.ERROR, "Plan failed with ValueError: boom")
+    ]
 
 
 def test_log_plan_exceptions_logs_errors_from_failed_messages(RE: RunEngine, plan_log):
@@ -146,7 +156,11 @@ def test_log_plan_exceptions_logs_errors_from_failed_messages(RE: RunEngine, pla
         RE(plan())
     assert len(plan_log) == 1
     assert plan_log[0].levelno == logging.ERROR
-    assert plan_log[0].getMessage().startswith(f"Plan failed with {type(excinfo.value).__name__}")
+    assert (
+        plan_log[0]
+        .getMessage()
+        .startswith(f"Plan failed with {type(excinfo.value).__name__}")
+    )
 
 
 def test_log_plan_exceptions_logs_the_cause_of_failed_status(RE: RunEngine, plan_log):
@@ -159,7 +173,9 @@ def test_log_plan_exceptions_logs_the_cause_of_failed_status(RE: RunEngine, plan
 
     with pytest.raises(FailedStatus):
         RE(plan())
-    assert _levels_and_messages(plan_log) == [(logging.ERROR, "Plan failed with ValueError: motor stalled")]
+    assert _levels_and_messages(plan_log) == [
+        (logging.ERROR, "Plan failed with ValueError: motor stalled")
+    ]
 
 
 def test_log_plan_exceptions_logs_the_cause_of_a_failed_move(RE: RunEngine, plan_log):
@@ -177,7 +193,9 @@ def test_log_plan_exceptions_logs_the_cause_of_a_failed_move(RE: RunEngine, plan
     with pytest.raises(FailedStatus) as excinfo:
         RE(bps.mv(Stalls(), 1))
     assert isinstance(excinfo.value.__cause__, RuntimeError)
-    assert _levels_and_messages(plan_log) == [(logging.ERROR, "Plan failed with RuntimeError: motor stalled")]
+    assert _levels_and_messages(plan_log) == [
+        (logging.ERROR, "Plan failed with RuntimeError: motor stalled")
+    ]
 
 
 def test_log_plan_exceptions_logs_failed_status_without_cause(RE: RunEngine, plan_log):
@@ -187,7 +205,9 @@ def test_log_plan_exceptions_logs_failed_status_without_cause(RE: RunEngine, pla
 
     with pytest.raises(FailedStatus):
         RE(plan())
-    assert _levels_and_messages(plan_log) == [(logging.ERROR, "Plan failed with FailedStatus: status")]
+    assert _levels_and_messages(plan_log) == [
+        (logging.ERROR, "Plan failed with FailedStatus: status")
+    ]
 
 
 def test_log_plan_exceptions_ignores_successful_plans(RE: RunEngine, plan_log):
@@ -213,7 +233,9 @@ def test_log_plan_exceptions_logs_aborts_as_warnings(RE: RunEngine, plan_log):
         RE(plan())
     except Exception:
         pass
-    assert _levels_and_messages(plan_log) == [(logging.WARNING, "Plan aborted (RequestAbort).")]
+    assert _levels_and_messages(plan_log) == [
+        (logging.WARNING, "Plan aborted (RequestAbort).")
+    ]
 
 
 def test_log_plan_exceptions_accepts_a_logger(RE: RunEngine, logger_name):
@@ -229,17 +251,21 @@ def test_log_plan_exceptions_accepts_a_logger(RE: RunEngine, logger_name):
 
     with pytest.raises(RuntimeError):
         RE(plan())
-    assert _levels_and_messages(handler.records) == [(logging.ERROR, "Plan failed with RuntimeError: bad")]
+    assert _levels_and_messages(handler.records) == [
+        (logging.ERROR, "Plan failed with RuntimeError: bad")
+    ]
 
 
-def test_log_pauses_warns_on_pause_and_chains_existing_hook(RE: RunEngine, logger_name):
+def test_log_state_changes_logs_transitions_and_chains_existing_hook(
+    RE: RunEngine, logger_name
+):
     logger = logging.getLogger(logger_name)
     logger.setLevel(logging.DEBUG)
     handler = _ListHandler()
     logger.addHandler(handler)
     states: list[str] = []
     RE.state_hook = lambda new, old: states.append(str(new))
-    log_pauses(RE, logger_name)
+    log_state_changes(RE, logger_name)
 
     def plan():
         yield from bps.checkpoint()
@@ -248,9 +274,10 @@ def test_log_pauses_warns_on_pause_and_chains_existing_hook(RE: RunEngine, logge
 
     with pytest.raises(RunEngineInterrupted):
         RE(plan())
-    assert [(r.levelno, r.getMessage().split(".")[0]) for r in handler.records] == [
-        (logging.WARNING, "Plan paused")
-    ]
     RE.resume()
-    assert len(handler.records) == 1
+    messages = [(r.levelno, r.getMessage().split(".")[0]) for r in handler.records]
+    assert messages[0] == (logging.INFO, "RunEngine changed from idle to running")
+    assert (logging.WARNING, "RunEngine changed from pausing to paused") in messages
+    assert messages[-1] == (logging.INFO, "RunEngine changed from running to idle")
+    assert len(messages) == len(states)
     assert "paused" in states and states[-1] == "idle"
