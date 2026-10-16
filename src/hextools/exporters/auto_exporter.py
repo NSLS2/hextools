@@ -23,6 +23,7 @@ from hextools.exporters.tomography import (
     export_tomo_dark_flat_to_h5,
     export_tomo_flyscan_to_h5,
 )
+from hextools.log import configure_logger
 from hextools.specs import EDXD_SCAN_V1, TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
 
 logger = logging.getLogger("hextools.exporters.auto_exporter")
@@ -198,7 +199,10 @@ def main() -> None:
         default=None,
         help="CSV file to append each closed run's export status to",
     )
+    parser.add_argument("--debug", action="store_true", help="enable debug logging")
     args = parser.parse_args()
+
+    configure_logger(level=logging.DEBUG if args.debug else logging.INFO)
 
     catalog = from_uri(args.tiled_uri)
     for segment in args.catalog.strip("/").split("/"):
