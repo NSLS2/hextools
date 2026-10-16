@@ -1,18 +1,13 @@
 """Motion stages and related utility functions for the HEX beamline."""
 
-import asyncio
-
+import bluesky.plan_stubs as bps
 from ophyd_async.core import (
     AsyncMovable,
     AsyncStatus,
-    DeviceMock,
     StandardReadable,
     StrictEnum,
-    callback_on_mock_put,
     default_mock_class,
     derived_signal_r,
-    set_mock_put_proceeds,
-    set_mock_value,
     wait_for_value,
 )
 from ophyd_async.core import (
@@ -24,9 +19,12 @@ from ophyd_async.epics.core import (
     epics_signal_rw,
     epics_triggerable_command,
 )
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor, VeloAndAcclRespectingMotorMock
-
-import bluesky.plan_stubs as bps
+from ophyd_async.epics.motor import (
+    Motor as AsyncEpicsMotor,
+)
+from ophyd_async.epics.motor import (
+    VeloAndAcclRespectingMotorMock,
+)
 
 # Make every Motor respect velocity/acceleration in mock mode by default.
 default_mock_class(VeloAndAcclRespectingMotorMock)(AsyncEpicsMotor)
@@ -140,7 +138,7 @@ class HomeStatus(StrictEnum):
     HOMED = "Homed"
 
 
-class FOV_2_4_mm_Camera(
+class FOV_2_4_mm_Camera(  # noqa: N801
     StandardReadable, EpicsDevice, AsyncMovable[CameraObjective | str]
 ):
     """HEX double objective camera."""
@@ -212,7 +210,7 @@ class FOV_2_4_mm_Camera(
         await wait_for_value(rb_check, True, timeout=None)
 
 
-class FOV_20_40_mm_Camera(StandardReadable, EpicsDevice):
+class FOV_20_40_mm_Camera(StandardReadable, EpicsDevice):  # noqa: N801
     """HEX wide field of view camera."""
 
     def __init__(self, prefix: str, name: str = "fov_20_40_mm_camera"):
@@ -244,7 +242,9 @@ class CollimatorTable(StandardReadable, EpicsDevice):
             self.y_coarse = AsyncEpicsMotor(prefix + "CMT:1-Ax:Yc}Mtr", name="y_coarse")
             self.y_fine = AsyncEpicsMotor(prefix + "CMT:1-Ax:Yf}Mtr", name="y_fine")
             # TODO: Consider renaming PV to follow format of above.
-            self.slits_pitch = AsyncEpicsMotor(prefix + "Slt:CMT-Ax:Pitch}Mtr", name="slits_pitch")
+            self.slits_pitch = AsyncEpicsMotor(
+                prefix + "Slt:CMT-Ax:Pitch}Mtr", name="slits_pitch"
+            )
 
 
 def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = None):
@@ -260,12 +260,12 @@ def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = Non
     value : float
         The target position for the motor.
     timeout : float, optional
-        Maximum time to wait for the motor to reach the target position. Defaults to None.
+        Maximum time to wait for the motor to reach the target position.
+        Defaults to None.
 
     Raises
     ------
     RuntimeError
         If the motor fails to reach the target position within the specified timeout.
     """
-
     yield from bps.mv(motor, value, timeout=timeout)

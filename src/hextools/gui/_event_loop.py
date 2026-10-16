@@ -8,8 +8,8 @@ from qtpy.QtWidgets import QApplication
 
 from ._threading import wait_for_workers_to_quit
 
-
 _our_app_name = None
+
 
 def get_our_app_name():
     return _our_app_name
@@ -37,7 +37,9 @@ def gui_qt(app_name):
         if qtpy.QT5:
             QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
         elif qtpy.QT6:
-            QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+            QApplication.setHighDpiScaleFactorRoundingPolicy(
+                Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+            )
         # if this is the first time the Qt app is being instantiated, we set
         # the name, so that we know whether to raise_ in Window.show()
         app = QApplication([app_name])

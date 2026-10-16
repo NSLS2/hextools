@@ -7,8 +7,6 @@ import logging
 from qtpy.QtCore import QObject, Signal
 from qtpy.QtGui import QColor
 
-from hextools.log import LOGGER_NAME
-
 #: Text color for each log level in the GUI.
 LEVEL_QCOLORS: dict[int, QColor] = {
     logging.DEBUG: QColor("#3a9bd9"),
@@ -34,20 +32,23 @@ class _SignalHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            self._watcher.record.emit(record.created, record.levelno, record.levelname, record.getMessage())
+            self._watcher.record.emit(
+                record.created, record.levelno, record.levelname, record.getMessage()
+            )
         except RuntimeError:
             pass  # The watcher's Qt object was deleted.
 
 
 class LogWatcher(QObject):
-    """Emits ``record(created, levelno, levelname, message)`` for each record logged to ``logger_name``.
+    """Emit ``record`` for each record logged to ``logger_name``.
 
-    Records may be logged from any thread; Qt delivers the signal on the watcher's thread.
+    The signal carries ``(created, levelno, levelname, message)``. Records may be
+    logged from any thread; Qt delivers the signal on the watcher's thread.
     """
 
     record = Signal(float, int, str, str)
 
-    def __init__(self, logger_name: str = LOGGER_NAME, level: int = logging.NOTSET, parent=None):
+    def __init__(self, logger_name: str, level: int = logging.NOTSET, parent=None):
         super().__init__(parent)
         logger = logging.getLogger(logger_name)
         handler = _SignalHandler(self, level)

@@ -29,7 +29,7 @@ from hextools.specs import (
 
 
 class FakeRun:
-    """Minimal stand-in for a BlueskyRunV3: a start document and streams of field names."""
+    """Minimal stand-in for a BlueskyRunV3."""
 
     def __init__(self, start: dict[str, Any], streams: dict[str, list[str]]):
         self.start = start
@@ -124,7 +124,11 @@ def _xrd_calibration() -> FakeRun:
 
 def _energy_auto_tune() -> FakeRun:
     return FakeRun(
-        {"plan_name": "energy_auto_tune", "detectors": ["screen"], "motors": ["pitch2"]},
+        {
+            "plan_name": "energy_auto_tune",
+            "detectors": ["screen"],
+            "motors": ["pitch2"],
+        },
         {"primary": ["screen", "screen-stats1-mean_value", "pitch2"]},
     )
 
@@ -212,14 +216,18 @@ def test_require_optional_str():
 
 
 @pytest.mark.parametrize(("spec", "validator", "make"), CASES, ids=CASE_IDS)
-def test_valid_run_passes(spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]):
+def test_valid_run_passes(
+    spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]
+):
     validator(make())
     validator(make(), spec.version)
     validate_run(make(), spec)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(("spec", "validator", "make"), CASES, ids=CASE_IDS)
-def test_wrong_plan_name_fails(spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]):
+def test_wrong_plan_name_fails(
+    spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]
+):
     run = _mutated(make, lambda r: r.start.update(plan_name="count"))
     with pytest.raises(SpecValidationError, match="plan_name is 'count'"):
         validator(run)
@@ -244,7 +252,11 @@ def test_missing_primary_stream_fails(
 @pytest.mark.parametrize(
     ("spec", "validator", "make"),
     [case for case in CASES if case[0] not in (EDXD_CALIBRATION_V1, TOMO_DARK_FLAT_V1)],
-    ids=[i for i in CASE_IDS if i not in (EDXD_CALIBRATION_V1.name, TOMO_DARK_FLAT_V1.name)],
+    ids=[
+        i
+        for i in CASE_IDS
+        if i not in (EDXD_CALIBRATION_V1.name, TOMO_DARK_FLAT_V1.name)
+    ],
 )
 def test_missing_detectors_key_fails(
     spec: Spec, validator: Callable[..., None], make: Callable[[], FakeRun]
@@ -277,7 +289,9 @@ def test_missing_detector_field_fails(
 # --- Spec-specific rules --------------------------------------------------------------
 
 
-@pytest.mark.parametrize("key", ["exposure_time", "num_dark_images", "num_flat_images", "x_offset"])
+@pytest.mark.parametrize(
+    "key", ["exposure_time", "num_dark_images", "num_flat_images", "x_offset"]
+)
 def test_tomo_dark_flat_missing_start_key(key: str):
     run = _mutated(_tomo_dark_flat, lambda r: r.start.pop(key))
     with pytest.raises(SpecValidationError, match=rf"missing \['{key}'\]"):
@@ -298,7 +312,9 @@ def test_tomo_dark_flat_flat_must_cover_dark_detectors():
 
 
 def test_tomo_dark_flat_needs_a_detector():
-    run = _mutated(_tomo_dark_flat, lambda r: r.streams.update(dark=["ts_kinetix1", "seq_num"]))
+    run = _mutated(
+        _tomo_dark_flat, lambda r: r.streams.update(dark=["ts_kinetix1", "seq_num"])
+    )
     with pytest.raises(SpecValidationError, match="no detector fields"):
         validate_tomo_dark_flat(run)
 
@@ -322,7 +338,9 @@ def test_tomo_flyscan_missing_start_key(key: str):
 
 
 def test_tomo_flyscan_missing_rotation_angle():
-    run = _mutated(_tomo_flyscan, lambda r: r.streams["primary"].remove("rotation_angle"))
+    run = _mutated(
+        _tomo_flyscan, lambda r: r.streams["primary"].remove("rotation_angle")
+    )
     with pytest.raises(SpecValidationError, match=r"missing \['rotation_angle'\]"):
         validate_tomo_flyscan(run)
 
@@ -334,12 +352,16 @@ def test_tomo_flyscan_dark_flat_link_is_optional():
 
     validate_tomo_flyscan(_mutated(_tomo_flyscan, drop_link))
     run = _mutated(_tomo_flyscan, lambda r: r.start.update(last_dark_flat_uid=3))
-    with pytest.raises(SpecValidationError, match="'last_dark_flat_uid' must be a string"):
+    with pytest.raises(
+        SpecValidationError, match="'last_dark_flat_uid' must be a string"
+    ):
         validate_tomo_flyscan(run)
 
 
 def test_tomo_alignment_scan_flat_is_optional():
-    validate_tomo_alignment_scan(_mutated(_tomo_alignment_scan, lambda r: r.streams.pop("flat")))
+    validate_tomo_alignment_scan(
+        _mutated(_tomo_alignment_scan, lambda r: r.streams.pop("flat"))
+    )
     run = _mutated(_tomo_alignment_scan, lambda r: r.streams["flat"].clear())
     with pytest.raises(SpecValidationError, match=r"'flat' is missing \['kinetix1'\]"):
         validate_tomo_alignment_scan(run)
@@ -368,10 +390,13 @@ def test_radiograph_checks_every_detector():
 
 
 @pytest.mark.parametrize(
-    "plan_name", ["edxd_count", "edxd_scan", "edxd_grid_scan", "edxd_custom_pos_list_grid"]
+    "plan_name",
+    ["edxd_count", "edxd_scan", "edxd_grid_scan", "edxd_custom_pos_list_grid"],
 )
 def test_edxd_scan_plan_names(plan_name: str):
-    validate_edxd_scan(_mutated(_edxd_scan, lambda r: r.start.update(plan_name=plan_name)))
+    validate_edxd_scan(
+        _mutated(_edxd_scan, lambda r: r.start.update(plan_name=plan_name))
+    )
 
 
 @pytest.mark.parametrize("motors", [None, [], ["x"], ["x", "y"]])
@@ -402,13 +427,17 @@ def test_edxd_scan_missing_field(field: str):
 
 
 def test_edxd_calibration_needs_a_stats_field():
-    run = _mutated(_edxd_calibration, lambda r: r.streams["primary"].remove("germ-stats1-total"))
+    run = _mutated(
+        _edxd_calibration, lambda r: r.streams["primary"].remove("germ-stats1-total")
+    )
     with pytest.raises(SpecValidationError, match="no '<det>-stats1-total' field"):
         validate_edxd_calibration(run)
 
 
 def test_edxd_calibration_ignores_detectors_key():
-    validate_edxd_calibration(_mutated(_edxd_calibration, lambda r: r.start.update(detectors=7)))
+    validate_edxd_calibration(
+        _mutated(_edxd_calibration, lambda r: r.start.update(detectors=7))
+    )
 
 
 def test_xrd_calibration_rules():
@@ -452,10 +481,14 @@ def test_validate_run_unknown_spec():
         validate_run(FakeRun({}, {}), Spec("Unknown", version="1"))  # type: ignore[arg-type]
 
 
-def test_validate_run_dispatches_by_name_and_passes_version(monkeypatch: pytest.MonkeyPatch):
+def test_validate_run_dispatches_by_name_and_passes_version(
+    monkeypatch: pytest.MonkeyPatch,
+):
     calls: list[tuple[Any, str | None]] = []
     monkeypatch.setitem(
-        specs._VALIDATORS, RADIOGRAPH_V1.name, lambda run, version: calls.append((run, version))
+        specs._VALIDATORS,
+        RADIOGRAPH_V1.name,
+        lambda run, version: calls.append((run, version)),
     )
     run = FakeRun({}, {})
     validate_run(run, Spec(RADIOGRAPH_V1.name, version="2"))  # type: ignore[arg-type]

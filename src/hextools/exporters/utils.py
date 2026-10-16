@@ -1,27 +1,24 @@
+"""Utility functions for exporters."""
 
-from collections.abc import Mapping
-from typing import Any
+import json
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
+import h5py
 import numpy as np
-
-from bluesky_tiled_plugins import CatalogOfBlueskyRuns
+from bluesky_tiled_plugins.clients.bluesky_event_stream import BlueskyEventStreamV3
+from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 from tiled.structures.data_source import DataSource
 from tiled.utils import path_from_uri
-import h5py
-import xarray as xr
-from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
-from bluesky_tiled_plugins.clients.bluesky_event_stream import BlueskyEventStreamV3
-import json
-
-from hextools.utils import ensure_available
 
 logger = logging.getLogger("hextools.exporters.utils")
 
 
 __all__ = ["_json_default"]
+
 
 def _json_default(obj):
     if isinstance(obj, Mapping):
@@ -63,18 +60,28 @@ def create_baseline_dataset(run: BlueskyRunV3, h5file: h5py.File):
     for key, value in baseline_data.items():
         baseline_group.create_dataset(key, data=value)
 
-def find_hdf_datasets(bs_run: BlueskyRunV3, stream_name: str, scan_id_dir_path: Path) -> dict[str, tuple[str, str, int]]:
+
+def find_hdf_datasets(
+    bs_run: BlueskyRunV3, stream_name: str, scan_id_dir_path: Path
+) -> dict[str, tuple[str, str, int]]:
     """Map dataset name to (relative file path, internal dataset path, ndim)."""
     stream = bs_run[stream_name]
     if not isinstance(stream, BlueskyEventStreamV3):
-        raise ValueError(f"Run {bs_run.start['uid']} has no '{stream_name}' event stream")
+        raise ValueError(
+            f"Run {bs_run.start['uid']} has no '{stream_name}' event stream"
+        )
     # One request for the whole stream; CompositeClient[key] re-lists the stream on every lookup
     contents = stream.include_data_sources().get_contents()
     logger.debug(f"Fetched {len(contents)} entries from stream {stream.item['id']}")
     found = {}
     for dataset_name, item in contents.items():
-        data_sources = [DataSource.from_json(d) for d in item["attributes"].get("data_sources") or []]
-        data_source = next((ds for ds in data_sources if ds.mimetype == "application/x-hdf5"), None)
+        data_sources = [
+            DataSource.from_json(d)
+            for d in item["attributes"].get("data_sources") or []
+        ]
+        data_source = next(
+            (ds for ds in data_sources if ds.mimetype == "application/x-hdf5"), None
+        )
         if data_source is None:
             logger.debug(f"Skipping {dataset_name}: no HDF5 data source")
             continue
@@ -86,5 +93,9 @@ def find_hdf_datasets(bs_run: BlueskyRunV3, stream_name: str, scan_id_dir_path: 
             dataset = "/".join(dataset)
         # Relative links keep the .nxs valid if the proposal directory is moved
         relpath = os.path.relpath(filepath, scan_id_dir_path)
-        found[dataset_name] = (relpath, dataset, len(item["attributes"]["structure"]["shape"]))
+        found[dataset_name] = (
+            relpath,
+            dataset,
+            len(item["attributes"]["structure"]["shape"]),
+        )
     return found

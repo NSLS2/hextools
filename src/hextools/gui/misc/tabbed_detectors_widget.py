@@ -1,3 +1,5 @@
+"""Tabbed live viewers for area detector NTNDArray streams."""
+
 from typing import Any
 
 from bluesky_widgets.models.run_engine_client import RunEngineClient
@@ -99,7 +101,9 @@ class QtTabbedDetectorsWidget(QTabWidget):
 
     @Slot()
     def _refresh(self):
-        available = {name: self._source.is_valid_device(name) for name in self._detectors}
+        available = {
+            name: self._source.is_valid_device(name) for name in self._detectors
+        }
         for name in self._detectors:
             viewer = self._viewers.get(name)
             if viewer is None:
@@ -122,8 +126,16 @@ class QtTabbedDetectorsWidget(QTabWidget):
                 tab = QWidget()
                 row = QHBoxLayout(tab)
                 row.setContentsMargins(0, 0, 0, 0)
-                viewers = [self._make_viewer(name) for name in names]
-                for viewer in viewers:
+                viewers = []
+                for i, name in enumerate(names):
+                    # Put the rightmost viewer's vertical profile on its outer edge.
+                    kwargs = (
+                        {"v_profile_position": "right"}
+                        if i == len(names) - 1 and i > 0
+                        else {}
+                    )
+                    viewer = self._make_viewer(name, **kwargs)
+                    viewers.append(viewer)
                     row.addWidget(viewer, stretch=1)
                 self._combined_tabs[label] = tab
                 self._tab_viewers[tab] = viewers
@@ -156,8 +168,8 @@ class QtTabbedDetectorsWidget(QTabWidget):
         super().hideEvent(event)
         self._sync_running()
 
-    def _make_viewer(self, name: str) -> NTNDAViewerWidget:
-        return NTNDAViewerWidget(**self._detectors[name])
+    def _make_viewer(self, name: str, **overrides: Any) -> NTNDAViewerWidget:
+        return NTNDAViewerWidget(**{**self._detectors[name], **overrides})
 
     def _tab_position(self, name: str) -> int:
         """Index that keeps tabs in the order the detectors were given."""

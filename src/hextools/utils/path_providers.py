@@ -1,11 +1,13 @@
+"""HEX-specific path and filename providers."""
+
+import logging
 from collections import Counter
-from collections.abc import Sequence
 from typing import Any
 
 from nslsii.ophyd_async.providers import TimestampFilenameProvider
-import logging
 
 logger = logging.getLogger("hextools")
+
 
 class StartDocAwareFilenameProvider(TimestampFilenameProvider):
     """Prefix filenames with prefix depending on the current run's plan name.
@@ -46,7 +48,10 @@ class StartDocAwareFilenameProvider(TimestampFilenameProvider):
             elif file_index == 1:
                 prefix = "flat"
             else:
-                logger.warning(f"Unexpected file index for tomo_dark_flat plan: {file_index}. Should be 0 or 1.")
+                logger.warning(
+                    f"Unexpected file index for tomo_dark_flat plan: {file_index}",
+                    "Should be 0 or 1.",
+                )
                 prefix = plan_name + "_" + str(file_index)
 
         elif plan_name.startswith("tomo"):

@@ -7,7 +7,6 @@ have its streaming cache enabled. Run with ``python -m hextools.exporters.auto_e
 import argparse
 import csv
 import logging
-import os
 import time
 from collections.abc import Callable
 from functools import partial
@@ -20,8 +19,10 @@ from tiled.client import from_uri
 from tiled.client.stream import LiveChildMetadataUpdated
 
 from hextools.exporters.edxd import export_edxd_run_to_h5
-from hextools.exporters.tomography import export_tomo_dark_flat_to_h5, export_tomo_flyscan_to_h5
-from hextools.log import configure_logger
+from hextools.exporters.tomography import (
+    export_tomo_dark_flat_to_h5,
+    export_tomo_flyscan_to_h5,
+)
 from hextools.specs import EDXD_SCAN_V1, TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
 
 logger = logging.getLogger("hextools.exporters.auto_exporter")
@@ -47,7 +48,13 @@ def _record_run(csv_path: Path, run: BlueskyRunV3, succeeded: bool) -> None:
             if write_header:
                 writer.writerow(CSV_COLUMNS)
             writer.writerow(
-                [run.start.get("scan_id"), run.start.get("plan_name"), uid, run.stop.get("exit_status"), "success" if succeeded else "failure"]
+                [
+                    run.start.get("scan_id"),
+                    run.start.get("plan_name"),
+                    uid,
+                    run.stop.get("exit_status"),
+                    "success" if succeeded else "failure",
+                ]
             )
     except OSError:
         logger.exception(f"Failed to record run {uid} in {csv_path}")
@@ -88,7 +95,9 @@ class RunEndSubscription:
     Use as a context manager; the websocket is closed on exit.
     """
 
-    def __init__(self, catalog: CatalogOfBlueskyRuns, callback: Callable[[BlueskyRunV3], None]):
+    def __init__(
+        self, catalog: CatalogOfBlueskyRuns, callback: Callable[[BlueskyRunV3], None]
+    ):
         self._catalog = catalog
         self._callback = callback
         # partial objects have no __name__, so fall back to the wrapped function's
@@ -99,18 +108,28 @@ class RunEndSubscription:
         self._subscription = catalog.subscribe()
         # Tiled holds callbacks weakly; bound methods stay registered while this object lives.
         # The default executor has one worker, so callbacks run one at a time in the order runs closed
-        self._subscription.child_metadata_updated.add_callback(self._on_metadata_updated)
+        self._subscription.child_metadata_updated.add_callback(
+            self._on_metadata_updated
+        )
         self._subscription.stream_closed.add_callback(self._on_stream_closed)
-        logger.debug(f"Created run-end subscription on {catalog.uri} calling {self._callback_name}")
+        logger.debug(
+            f"Created run-end subscription on {catalog.uri} calling {self._callback_name}"
+        )
 
     def __enter__(self) -> "RunEndSubscription":
-        logger.info(f"Entering run-end subscription context for catalog {self._catalog.uri}")
+        logger.info(
+            f"Entering run-end subscription context for catalog {self._catalog.uri}"
+        )
         return self
 
     def __exit__(self, *exc_info) -> None:
-        logger.info("Closing the Tiled subscription; waiting for any in-progress callback to finish")
+        logger.info(
+            "Closing the Tiled subscription; waiting for any in-progress callback to finish"
+        )
         self._subscription.disconnect()
-        logger.info(f"Closed the Tiled subscription after handling {len(self._handled)} run(s)")
+        logger.info(
+            f"Closed the Tiled subscription after handling {len(self._handled)} run(s)"
+        )
 
     def run(self) -> None:
         """Block, handling runs as they close, until the stream ends or is interrupted."""
@@ -122,7 +141,9 @@ class RunEndSubscription:
     def _on_metadata_updated(self, update: LiveChildMetadataUpdated) -> None:
         # TiledWriter adds the stop document to the run's metadata when the run closes
         if "stop" not in update.metadata:
-            logger.debug(f"Ignoring metadata update for {update.key}: run has not closed")
+            logger.debug(
+                f"Ignoring metadata update for {update.key}: run has not closed"
+            )
             return
 
         start = update.metadata.get("start", {})
@@ -141,23 +162,37 @@ class RunEndSubscription:
         try:
             run = self._catalog[uid]
             if not isinstance(run, BlueskyRunV3):
-                raise TypeError(f"Run {uid} is a {type(run).__name__}, not a BlueskyRunV3")
+                raise TypeError(
+                    f"Run {uid} is a {type(run).__name__}, not a BlueskyRunV3"
+                )
             logger.info(f"Calling {self._callback_name} for run {uid}")
             self._callback(run)
         except Exception:
             logger.exception(f"{self._callback_name} failed for run {uid}")
         else:
-            logger.info(f"{self._callback_name} finished for run {uid} in {time.monotonic() - t0:.1f} s")
+            logger.info(
+                f"{self._callback_name} finished for run {uid} in {time.monotonic() - t0:.1f} s"
+            )
 
     def _on_stream_closed(self, sub) -> None:
         logger.warning(f"Tiled closed the stream for {sub}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run metadata exporters when Bluesky runs close in Tiled.")
+    parser = argparse.ArgumentParser(
+        description="Run metadata exporters when Bluesky runs close in Tiled."
+    )
     parser.add_argument("--tiled-uri", default="https://tiled.nsls2.bnl.gov")
-    parser.add_argument("--catalog", default="hex/raw", help="path of the run catalog on the Tiled server")
-    parser.add_argument("--csv", default=None, help="CSV file to append each closed run's export status to")
+    parser.add_argument(
+        "--catalog",
+        default="hex/raw",
+        help="path of the run catalog on the Tiled server",
+    )
+    parser.add_argument(
+        "--csv",
+        default=None,
+        help="CSV file to append each closed run's export status to",
+    )
     args = parser.parse_args()
 
     catalog = from_uri(args.tiled_uri)

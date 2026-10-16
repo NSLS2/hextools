@@ -1,13 +1,26 @@
 """Detector utility functions for HEX beamline."""
 
-from typing import Sequence
-
-from ophyd_async.core import OnOff
-from ophyd_async.epics.adkinetix import KinetixDetector, KinetixReadoutMode, KinetixTriggerMode
-from ophyd_async.epics.advimba import VimbaDetector, VimbaTriggerSource, VimbaExposeOutMode
-from ophyd_async.epics.adcore import ADImageMode, AreaDetector, NDPluginBaseIO
-import bluesky.plan_stubs as bps
 import logging
+from collections.abc import Sequence
+
+import bluesky.plan_stubs as bps
+from ophyd_async.core import OnOff
+from ophyd_async.epics.adcore import (
+    ADImageMode,
+    AreaDetector,
+    NDPluginBaseIO,
+    NDProcessIO,
+)
+from ophyd_async.epics.adkinetix import (
+    KinetixDetector,
+    KinetixReadoutMode,
+    KinetixTriggerMode,
+)
+from ophyd_async.epics.advimba import (
+    VimbaDetector,
+    VimbaExposeOutMode,
+    VimbaTriggerSource,
+)
 
 logger = logging.getLogger("hextools")
 
@@ -189,24 +202,25 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
     cam : KinetixDetector | VimbaDetector
         The camera to enable preview mode for.
     """
-
     acquiring = yield from bps.rd(cam.driver.acquire)
     if acquiring:
         yield from bps.abs_set(cam.driver.acquire, False, wait=True)
 
     if hasattr(cam, "proc"):
-        proc_plugin = getattr(cam, "proc")
-        if isinstance(proc_plugin, NDPluginBaseIO):
-            yield from bps.mv(proc_plugin.enable_callbacks, False)
+        proc_plugin = cam.get_plugin("proc", NDProcessIO)
+        yield from bps.mv(proc_plugin.enable_callbacks, False)
 
     yield from bps.mv(cam.driver.image_mode, ADImageMode.CONTINUOUS)
     if isinstance(cam, KinetixDetector):
         yield from bps.mv(cam.driver.trigger_mode, KinetixTriggerMode.INTERNAL)
     elif isinstance(cam, VimbaDetector):
         yield from bps.mv(
-            cam.driver.trigger_mode, OnOff.OFF,
-            cam.driver.trigger_source, VimbaTriggerSource.FREERUN,
-            cam.driver.exposure_mode, VimbaExposeOutMode.TIMED,
+            cam.driver.trigger_mode,
+            OnOff.OFF,
+            cam.driver.trigger_source,
+            VimbaTriggerSource.FREERUN,
+            cam.driver.exposure_mode,
+            VimbaExposeOutMode.TIMED,
         )
     yield from bps.sleep(0.1)
 
@@ -215,11 +229,24 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
     yield from bps.abs_set(cam.driver.acquire, True, wait=False)
 
 
-def set_plugin_queue_sizes(dets: Sequence[AreaDetector], queue_size: int, wait=False, group=None):
+def set_plugin_queue_sizes(
+    dets: AreaDetector | Sequence[AreaDetector], queue_size: int
+):
+    """Set the queue size of all plugins known to ophyd to a given value.
 
+    Parameters
+    ----------
+    dets : AreaDetector | Sequence[AreaDetector]
+        The detector or list of detectors whose plugin queue sizes are to be set.
+    queue_size : int
+        The desired queue size for all plugins.
+    """
     sigs = []
+    if isinstance(dets, AreaDetector):
+        dets = [dets]
+
     for det in dets:
-        for child_name, child in det.children():
+        for _, child in det.children():
             if isinstance(child, NDPluginBaseIO):
                 sigs.extend([child.queue_size, queue_size])
 

@@ -43,8 +43,8 @@ import IPython
 from bluesky import RunEngine
 from bluesky.utils import RunEngineInterrupted
 from bluesky_queueserver_api import BPlan
-from bluesky_widgets.qt.threading import FunctionWorker
 from bluesky_widgets.models.run_engine_client import RunEngineClient
+from bluesky_widgets.qt.threading import FunctionWorker
 from qtpy.QtCore import QEvent, QSize, Qt, QTimer, Signal, Slot
 from qtpy.QtGui import QDoubleValidator, QIntValidator
 from qtpy.QtWidgets import (
@@ -56,7 +56,6 @@ from qtpy.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QMessageBox,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -64,14 +63,12 @@ from qtpy.QtWidgets import (
 )
 
 from hextools.gui._ipython import run_in_ipython, show_plan_error
-from hextools.log import unwrap_failed_status
 from hextools.gui.device_selector_widget import DynamicDeviceSelector
 from hextools.gui.device_sources import (
-    DeviceSource,
     NamespaceDeviceSource,
     QueueServerDeviceSource,
 )
-
+from hextools.log import _unwrap_failed_status
 
 _NO_SELECTION = "\u2014"  # em dash placeholder for an unset single device
 
@@ -82,7 +79,9 @@ def _param_tooltips(plan) -> dict[str, str]:
     if not doc:
         return {}
     try:
-        parsed = docstring_parser.parse(doc, style=docstring_parser.DocstringStyle.NUMPYDOC)
+        parsed = docstring_parser.parse(
+            doc, style=docstring_parser.DocstringStyle.NUMPYDOC
+        )
     except docstring_parser.ParseError:
         return {}
     tooltips = {}
@@ -107,6 +106,7 @@ def _unwrap_optional(annotation):
             return non_none[0], is_optional
         return annotation, is_optional
     return annotation, False
+
 
 def _scalar_type(annotation):
     """Return int/float/bool/str for a scalar annotation, else None."""
@@ -134,6 +134,7 @@ def _is_list_annotation(annotation) -> bool:
         collections.abc.Iterable,
     )
 
+
 def _list_element_type(annotation):
     """Return the type of elements in a list/tuple/set/frozenset annotation, or None."""
     base, _ = _unwrap_optional(annotation)
@@ -142,11 +143,14 @@ def _list_element_type(annotation):
         return None
     return args[0]
 
+
 def _is_device_list_annotation(annotation) -> bool:
-    if _is_list_annotation(annotation) and _device_types(_list_element_type(annotation)) is not None:
+    if (
+        _is_list_annotation(annotation)
+        and _device_types(_list_element_type(annotation)) is not None
+    ):
         return True
     return False
-
 
 
 def _device_types(annotation) -> tuple[type, ...] | None:
@@ -158,7 +162,9 @@ def _device_types(annotation) -> tuple[type, ...] | None:
         members = [
             a
             for a in typing.get_args(base)
-            if a is not type(None) and isinstance(a, type) and issubclass(a, tuple(device_bases))
+            if a is not type(None)
+            and isinstance(a, type)
+            and issubclass(a, tuple(device_bases))
         ]
         return tuple(members) or None
     if isinstance(base, type) and issubclass(base, tuple(device_bases)):
@@ -176,7 +182,7 @@ def _element_device_types(annotation) -> tuple[type, ...] | None:
 
 
 class _VerticalScrollArea(QScrollArea):
-    """Scrolls vertically only, and is always wide enough for its content plus the scrollbar."""
+    """Scroll vertically only, always wide enough for content plus the scrollbar."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -189,7 +195,8 @@ class _VerticalScrollArea(QScrollArea):
         widget.installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        # Content width changes (e.g. devices populated, rows added) must re-size the area.
+        # Content width changes (e.g. devices populated, rows added) must re-size
+        # the area.
         if obj is self.widget() and event.type() == QEvent.Type.LayoutRequest:
             self.updateGeometry()
         return super().eventFilter(obj, event)
@@ -267,7 +274,10 @@ class QtPlanWidget(QWidget):
         else:
             ipython = IPython.get_ipython()
             if ipython is None:
-                raise RuntimeError("Failed to detect ipython instance, required for plan argument validation")
+                raise RuntimeError(
+                    "Failed to detect ipython instance, "
+                    "required for plan argument validation"
+                )
             self._device_source = NamespaceDeviceSource(ipython.user_ns)
         self._worker = None
         self._scalar_fields: list[tuple[str, type, QWidget, bool]] = []
@@ -283,7 +293,8 @@ class QtPlanWidget(QWidget):
         group_box = QGroupBox(title)
         vbox = QVBoxLayout()
 
-        # Inputs scroll instead of growing the window; the button and status stay visible.
+        # Inputs scroll instead of growing the window; the button and status stay
+        # visible.
         fields = QWidget()
         fields_layout = QVBoxLayout(fields)
         fields_layout.setContentsMargins(0, 0, 0, 0)
@@ -351,9 +362,6 @@ class QtPlanWidget(QWidget):
                 self._add_enum_field(form, name, enum_cls, param, required)
                 continue
 
-            # print(f"Processing parameter '{name}' with annotation '{annotation}'")
-            # print(f"Required: {required}")
-            # print(f"Is list: {_is_list_annotation(annotation)}, is device list: {_is_device_list_annotation(annotation)}")
             if _is_device_list_annotation(annotation):
                 types_ = _element_device_types(annotation)
                 self._add_device_list_field(vbox, name, types_, required)
@@ -375,7 +383,6 @@ class QtPlanWidget(QWidget):
             params_box = QGroupBox("Parameters")
             params_box.setLayout(form)
             vbox.addWidget(params_box)
-
 
     def _add_scalar_list_field(self, form, name, kind, param, required):
         widget = QLineEdit()
@@ -517,11 +524,7 @@ class QtPlanWidget(QWidget):
                 continue
             try:
                 kwargs[name] = (
-                    int(text)
-                    if kind is int
-                    else float(text)
-                    if kind is float
-                    else text
+                    int(text) if kind is int else float(text) if kind is float else text
                 )
             except ValueError as ex:
                 raise ValueError(f"'{name}' is not a valid {kind.__name__}") from ex
@@ -542,7 +545,9 @@ class QtPlanWidget(QWidget):
                     else elems
                 )
             except ValueError as ex:
-                raise ValueError(f"'{name}' contains invalid {kind.__name__} values") from ex
+                raise ValueError(
+                    f"'{name}' contains invalid {kind.__name__} values"
+                ) from ex
 
         for name, combo, required in self._enum_fields:
             value = combo.currentData()
@@ -566,9 +571,7 @@ class QtPlanWidget(QWidget):
         for name, value in kwargs.items():
             if name in device_keys:
                 rendered = (
-                    "[" + ", ".join(value) + "]"
-                    if isinstance(value, list)
-                    else value
+                    "[" + ", ".join(value) + "]" if isinstance(value, list) else value
                 )
             else:
                 rendered = repr(value)
@@ -616,7 +619,7 @@ class QtPlanWidget(QWidget):
             show_plan_error(self, "Plan execution failed", error)
             return
         if error is not None:
-            self._set_status(f"Plan failed: {unwrap_failed_status(error)}", error=True)
+            self._set_status(f"Plan failed: {_unwrap_failed_status(error)}", error=True)
             show_plan_error(self, "Plan execution failed", error)
             return
         self._set_status("Plan complete.")

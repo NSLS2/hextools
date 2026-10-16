@@ -1,12 +1,19 @@
+"""Plans for storing and applying device settings."""
+
+from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ophyd_async.core import Device, YamlSettingsProvider, walk_rw_signals
-from ophyd_async.plan_stubs import store_settings, retrieve_settings, apply_settings, apply_settings_if_different
-from ophyd_async.fastcs.panda import HDFPanda, apply_panda_settings
-from pathlib import Path
-from datetime import datetime
 from IPython.core.getipython import get_ipython
+from ophyd_async.core import Device, YamlSettingsProvider, walk_rw_signals
+from ophyd_async.fastcs.panda import HDFPanda, apply_panda_settings
+from ophyd_async.plan_stubs import (
+    apply_settings,
+    apply_settings_if_different,
+    retrieve_settings,
+    store_settings,
+)
 
 _SETTINGS_ROOT = Path(__file__).parent
 _SNAPSHOT_DIR = _SETTINGS_ROOT / "snapshots"
@@ -36,16 +43,25 @@ def _is_connected(device: Device) -> bool:
     if getattr(device, "_mock", None) is not None:
         return True
     task = getattr(device, "_connect_task", None)
-    return bool(task is not None and task.done() and not task.cancelled() and task.exception() is None)
+    return bool(
+        task is not None
+        and task.done()
+        and not task.cancelled()
+        and task.exception() is None
+    )
+
 
 def store_device_settings_snapshot(name: str = "snapshot"):
-    """Store a snapshot of the settings for all devices in the current IPython namespace."""
-
+    """Store a snapshot of the settings for all devices."""
     ipython = get_ipython()
     if ipython is None:
         raise RuntimeError("Could not establish IPython environment")
 
-    snapshot_dir = Path(__file__).parent / "snapshots" / (name + "_" + datetime.now().strftime("%Y%m%d_%H%M%S"))
+    snapshot_dir = (
+        Path(__file__).parent
+        / "snapshots"
+        / (name + "_" + datetime.now().strftime("%Y%m%d_%H%M%S"))
+    )
 
     provider = YamlSettingsProvider(snapshot_dir)
     for obj in ipython.user_ns.values():
@@ -54,8 +70,13 @@ def store_device_settings_snapshot(name: str = "snapshot"):
             yield from store_settings(provider, obj.name, obj)
 
 
-def store_device_settings(device: Device, name: str | None = None, only_config: bool = False, overwrite: bool = False):
-    """Store the settings for a device into a yml file
+def store_device_settings(
+    device: Device,
+    name: str | None = None,
+    only_config: bool = False,
+    overwrite: bool = False,
+):
+    """Store the settings for a device into a yml file.
 
     Parameters
     ----------
@@ -68,7 +89,6 @@ def store_device_settings(device: Device, name: str | None = None, only_config: 
     overwrite : bool, optional
         If True, overwrite the existing settings file if it exists.
     """
-
     settings_dir = Path(__file__).parent / device.name
     settings_dir.mkdir(parents=True, exist_ok=True)
     provider = YamlSettingsProvider(settings_dir)
@@ -80,7 +100,9 @@ def store_device_settings(device: Device, name: str | None = None, only_config: 
     yield from store_settings(provider, filename, device, only_config=only_config)
 
 
-def apply_device_settings(device: Device, name: SavedDeviceSettings | None = None, only_config: bool = False):
+def apply_device_settings(
+    device: Device, name: SavedDeviceSettings | None = None, only_config: bool = False
+):
     """Apply the settings for a device from a yml file.
 
     Parameters
@@ -92,15 +114,18 @@ def apply_device_settings(device: Device, name: SavedDeviceSettings | None = Non
     only_config : bool, optional
         If True, only the configuration settings of the device are applied.
     """
-
     settings_dir = Path(__file__).parent / device.name
     provider = YamlSettingsProvider(settings_dir)
 
     filename = name or device.name
     if not (settings_dir / f"{filename}.yaml").exists():
-        raise FileNotFoundError(f"Settings file '{filename}.yaml' not found in '{settings_dir}'")
+        raise FileNotFoundError(
+            f"Settings file '{filename}.yaml' not found in '{settings_dir}'"
+        )
 
-    settings = yield from retrieve_settings(provider, filename, device, only_config=only_config)
+    settings = yield from retrieve_settings(
+        provider, filename, device, only_config=only_config
+    )
 
     apply_plan = apply_settings
     if isinstance(device, HDFPanda):

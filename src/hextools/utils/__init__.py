@@ -4,10 +4,11 @@ import asyncio
 import os
 import shutil
 import sys
-from collections.abc import MutableMapping
+from collections.abc import AsyncIterable, MutableMapping
 from datetime import datetime
-from typing import Any, AsyncIterable, AsyncIterator, OrderedDict, TypeVar
+from typing import Any, TypeVar
 
+from bluesky import plan_stubs as bps
 from bluesky.run_engine import RunEngine
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
@@ -20,29 +21,29 @@ from ophyd_async.core import (
     DeviceVector,
     NotConnectedError,
     Signal,
-    WatchableAsyncStatus,
-    Watcher,
-    WatcherUpdate,
     wait_for_connection,
     walk_devices,
 )
-from ophyd_async.sim import SimMotor
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+from ophyd_async.sim import SimMotor
 from pygments.token import Token
 from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
 from rich.console import Console
-from bluesky import plan_stubs as bps
-from .nl_msg_hook import nl_msg_hook
-from .path_providers import StartDocAwareFilenameProvider
+
+from .nl_msg_hook import nl_msg_hook as nl_msg_hook
+from .path_providers import (
+    StartDocAwareFilenameProvider as StartDocAwareFilenameProvider,
+)
 
 Steppable = AsyncEpicsMotor | SimMotor
 
 NSVarT = TypeVar("NSVarT")
 
+
 def get_obj_from_ipython_ns(var_name: str, var_type: type[NSVarT]) -> NSVarT | None:
     """Get an obj from the IPython ns if it exists and is of the correct type.
-    
+
     var_name : str
         The name of the variable to retrieve from the IPython namespace.
     var_type : type[NSVarT]
@@ -51,7 +52,8 @@ def get_obj_from_ipython_ns(var_name: str, var_type: type[NSVarT]) -> NSVarT | N
     Returns
     -------
     NSVarT | None
-        The object from the IPython namespace if it exists and is of the correct type, otherwise None.
+        The object from the IPython namespace if it exists and is of the correct
+        type, otherwise None.
     """
     ipython = get_ipython()
     if ipython is not None:
@@ -63,15 +65,17 @@ def get_obj_from_ipython_ns(var_name: str, var_type: type[NSVarT]) -> NSVarT | N
 
 def ensure_available(var_type: type[NSVarT], **kwargs: NSVarT | None) -> NSVarT:
     """Ensure that an object with a given name is available in the current scope.
-    
-    If the object is not available locally, attempt to retrieve it from the IPython namespace.
-    
+
+    If the object is not available locally, attempt to retrieve it from the IPython
+    namespace.
+
     Parameters
     ----------
     var_type : type[NSVarT]
         The expected type of the object.
     **kwargs : NSVarT | None
-        A single keyword argument where the key is the name of the variable and the value is the object or None.
+        A single keyword argument where the key is the name of the variable and the
+        value is the object or None.
 
     Returns
     -------
@@ -85,7 +89,6 @@ def ensure_available(var_type: type[NSVarT], **kwargs: NSVarT | None) -> NSVarT:
     TypeError
         If the provided value is not of the expected type or None.
     """
-
     if len(kwargs) != 1:
         raise ValueError("Can only check availability of a single object at a time.")
 
@@ -102,13 +105,14 @@ def ensure_available(var_type: type[NSVarT], **kwargs: NSVarT | None) -> NSVarT:
         if value is not None:
             return value
         raise ValueError(
-            f"Object {name} of type {var_type} is not available locally, or in the IPython namespace!"
+            f"Object {name} of type {var_type} is not available locally, "
+            "or in the IPython namespace!"
         )
 
-async def merge_async_iterables(*aiterables: AsyncIterable):
 
+async def merge_async_iterables(*aiterables: AsyncIterable):
     """Merge multiple async iterables into a single async iterable.
-    
+
     Parameters
     ----------
     *aiterables : AsyncIterable
@@ -117,7 +121,8 @@ async def merge_async_iterables(*aiterables: AsyncIterable):
     Returns
     -------
     AsyncIterable
-        An async iterable that yields items from all input async iterables as they become available.
+        An async iterable that yields items from all input async iterables as they
+        become available.
     """
     queue: asyncio.Queue = asyncio.Queue()
     sentinel = object()
@@ -138,13 +143,12 @@ async def merge_async_iterables(*aiterables: AsyncIterable):
 
 def is_running_in_ci() -> bool:
     """Check if the code is running in a continuous integration environment.
-    
+
     Returns
     -------
     bool
         True if running in a continuous integration environment, False otherwise.
     """
-
     return os.environ.get("HEXTOOLS_RUNNING_IN_CI", "false").lower() in [
         "true",
         "1",
@@ -154,7 +158,6 @@ def is_running_in_ci() -> bool:
 
 def print_version_info():
     """Print version information for bluesky, ophyd_async, tiled, and hextools."""
-
     from bluesky import __version__ as bluesky_version
     from ophyd_async import __version__ as ophyd_async_version
     from tiled import __version__ as tiled_version
@@ -170,7 +173,7 @@ def print_version_info():
 
 def show_docs(name: str, doc: dict[str, Any]):
     """Print out the bluesky documents in a readable format.
-    
+
     Parameters
     ----------
     name : str
@@ -178,7 +181,6 @@ def show_docs(name: str, doc: dict[str, Any]):
     doc : dict[str, Any]
         The document to print.
     """
-
     rprint(f"------- {name} ---------")
     rprint(doc)
 
@@ -209,7 +211,6 @@ def initialize_run_engine() -> RunEngine:
     RunEngine
         An initialized bluesky RunEngine with appropriate metadata.
     """
-
     if is_running_in_ci():
         return RunEngine(
             {
@@ -224,9 +225,7 @@ def initialize_run_engine() -> RunEngine:
                 },
             }
         )
-    return RunEngine(
-        RedisJSONDict(open_redis_client(redis_ssl=True), "")
-    )
+    return RunEngine(RedisJSONDict(open_redis_client(redis_ssl=True), ""))
 
 
 def print_proposal_info(md: MutableMapping[str, Any]):
@@ -235,7 +234,6 @@ def print_proposal_info(md: MutableMapping[str, Any]):
     md : MutableMapping[str, Any]
         The metadata dictionary from the RunEngine.
     """
-
     proposal_md = md.get("proposal", {})
     if proposal_md:
         rprint(
@@ -256,7 +254,6 @@ def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
     verbose : bool, optional
         Whether to print detailed information, by default True.
     """
-
     md = sync_experiment(proposal_id, "HEX", redis_ssl=True)
 
     rprint(
@@ -277,56 +274,79 @@ _MOCK_PROPOSALS = {
 _MOCK_COMMISSIONING = ["123456"]
 
 
-def _sorted_desc(proposals: set[str]) -> list[str]:
-    return sorted(proposals, key=lambda p: int(p) if p.isdigit() else 0, reverse=True)
+def _sorted_desc(proposals: dict[str, str]) -> list[tuple[str, str]]:
+    return sorted(
+        proposals.items(),
+        key=lambda p: int(p[0]) if p[0].isdigit() else 0,
+        reverse=True,
+    )
 
 
-def list_proposals(beamline: str = "HEX") -> dict[str, list[str]]:
-    """Proposal numbers for ``beamline``, newest first.
+def list_proposals(beamline: str = "HEX") -> dict[str, list[tuple[str, str]]]:
+    """Return ``(number, title)`` of the proposals for ``beamline``, newest first.
 
     Returns
     -------
-    dict[str, list[str]]
+    dict[str, list[tuple[str, str]]]
         ``"user"``: the beamline's proposals in the current cycle, and
         ``"commissioning"``: its commissioning proposals.
     """
     if is_running_in_ci():
+        titles = {p: info["title"] for p, info in _MOCK_PROPOSALS.items()}
         return {
-            "user": [p for p in _MOCK_PROPOSALS if p not in _MOCK_COMMISSIONING],
-            "commissioning": list(_MOCK_COMMISSIONING),
+            "user": [(p, t) for p, t in titles.items() if p not in _MOCK_COMMISSIONING],
+            "commissioning": [(p, titles.get(p, "")) for p in _MOCK_COMMISSIONING],
         }
 
     import httpx
 
     with httpx.Client(base_url=NSLS2_API_URL, timeout=10) as client:
-        cycle = client.get("/v1/facility/nsls2/cycles/current").raise_for_status().json()["cycle"]
+        cycle = (
+            client.get("/v1/facility/nsls2/cycles/current")
+            .raise_for_status()
+            .json()["cycle"]
+        )
         in_cycle = set(
-            client.get(f"/v1/facility/nsls2/cycle/{cycle}/proposals").raise_for_status().json()["proposals"]
+            client.get(f"/v1/facility/nsls2/cycle/{cycle}/proposals")
+            .raise_for_status()
+            .json()["proposals"]
         )
         # The beamline-filtered listing needs an API key; this public one doesn't.
-        beamline_proposals = client.get(
-            "/v1/proposals/recent/1000", params={"beamline": beamline}
-        ).raise_for_status().json()["proposals"]
+        beamline_proposals = (
+            client.get("/v1/proposals/recent/1000", params={"beamline": beamline})
+            .raise_for_status()
+            .json()["proposals"]
+        )
         commissioning = set(
             client.get("/v1/proposals/commissioning", params={"beamline": beamline})
             .raise_for_status()
             .json()
             .get("commissioning_proposals", [])
         )
-    user = {p["proposal_id"] for p in beamline_proposals if p["proposal_id"] in in_cycle}
-    return {"user": _sorted_desc(user - commissioning), "commissioning": _sorted_desc(commissioning)}
+    titles = {p["proposal_id"]: p.get("title") or "" for p in beamline_proposals}
+    user = {p: t for p, t in titles.items() if p in in_cycle and p not in commissioning}
+    return {
+        "user": _sorted_desc(user),
+        "commissioning": _sorted_desc({p: titles.get(p, "") for p in commissioning}),
+    }
 
 
 def get_proposal_info(proposal_number: int | str) -> dict[str, str]:
-    """The ``title``, ``type``, and ``pi_name`` of a proposal."""
+    """Return the ``title``, ``type``, and ``pi_name`` of a proposal."""
     if is_running_in_ci():
-        info = _MOCK_PROPOSALS.get(str(proposal_number), {"title": "Mock proposal", "type": "Mock"})
+        info = _MOCK_PROPOSALS.get(
+            str(proposal_number), {"title": "Mock proposal", "type": "Mock"}
+        )
         return {**info, "pi_name": os.getenv("USER", "Unknown")}
 
     import httpx
 
     with httpx.Client(base_url=NSLS2_API_URL, timeout=10) as client:
-        proposal = client.get(f"/v1/proposal/{proposal_number}").raise_for_status().json()["proposal"]
+        proposal = (
+            client.get(f"/v1/proposal/{proposal_number}")
+            .raise_for_status()
+            .json()["proposal"]
+        )
     if "error_message" in proposal:
         raise ValueError(proposal["error_message"])
     pi = next((u for u in proposal.get("users") or [] if u.get("is_pi")), {})
@@ -338,14 +358,21 @@ def get_proposal_info(proposal_number: int | str) -> dict[str, str]:
 
 
 def _run_sync_experiment(
-    proposal_number: int, username: str, password: str, beamline: str, timeout: float = 60.0
+    proposal_number: int,
+    username: str,
+    password: str,
+    beamline: str,
+    timeout: float = 60.0,
 ) -> str:
-    """Run ``sync-experiment``, answering its prompts; return its output or raise on failure."""
+    """Run ``sync-experiment``, answering its prompts.
+
+    Return its output, or raise on failure.
+    """
     import pexpect
 
-    exe = shutil.which("sync-experiment", path=os.path.dirname(sys.executable)) or shutil.which(
-        "sync-experiment"
-    )
+    exe = shutil.which(
+        "sync-experiment", path=os.path.dirname(sys.executable)
+    ) or shutil.which("sync-experiment")
     if exe is None:
         raise RuntimeError("The sync-experiment command was not found.")
 
@@ -373,7 +400,11 @@ def _run_sync_experiment(
 
     if child.exitstatus != 0:
         lines = [line for line in output.splitlines() if line.strip()]
-        raise RuntimeError(lines[-1] if lines else f"sync-experiment failed (exit status {child.exitstatus}).")
+        raise RuntimeError(
+            lines[-1]
+            if lines
+            else f"sync-experiment failed (exit status {child.exitstatus})."
+        )
     return output
 
 
@@ -420,12 +451,16 @@ def _failed_paths(error: Exception, prefix: str = "") -> list[str]:
     sub = error.sub_errors if isinstance(error, NotConnectedError) else {}
     if not sub:
         return [prefix.rstrip(".")]
-    return [p for name, err in sub.items() for p in _failed_paths(err, f"{prefix}{name}.")]
+    return [
+        p for name, err in sub.items() for p in _failed_paths(err, f"{prefix}{name}.")
+    ]
 
 
 def _count_connected_signals(device: Device, error: Exception) -> tuple[int, int]:
-    """(connected, total) signals of ``device``, given the error from connecting it."""
-    signals = [path for path, d in walk_devices(device).items() if isinstance(d, Signal)]
+    """Count (connected, total) signals of ``device``, given its connection error."""
+    signals = [
+        path for path, d in walk_devices(device).items() if isinstance(d, Signal)
+    ]
     if not signals:
         return 0, 1
     failed = [p for p in _failed_paths(error) if p]
@@ -435,7 +470,9 @@ def _count_connected_signals(device: Device, error: Exception) -> tuple[int, int
     return len(signals) - len(down), len(signals)
 
 
-def auto_init_devices(timeout: float = 1.0, ok_message = "OK", fail_message = "FAILED", verbose: bool = False) -> DeviceProcessor:
+def auto_init_devices(
+    timeout: float = 1.0, ok_message="OK", fail_message="FAILED", verbose: bool = False
+) -> DeviceProcessor:
     """Create a DeviceProcessor that connects devices, printing status for each.
 
     Parameters
@@ -450,7 +487,6 @@ def auto_init_devices(timeout: float = 1.0, ok_message = "OK", fail_message = "F
     DeviceProcessor
         A DeviceProcessor that connects devices and prints their connection status.
     """
-
     mock = is_running_in_ci()
     # highlight=False stops rich from coloring dot-runs as ellipses.
     console = Console(highlight=False)
@@ -478,9 +514,14 @@ def auto_init_devices(timeout: float = 1.0, ok_message = "OK", fail_message = "F
             dots = "." * (40 - len(name))
             # Escaped brackets stay uncolored; only the label text is styled.
             if name not in failed:
-                console.print(f"  {name} {dots} \\[[bold green]{ok_message.center(width)}[/bold green]]")
+                console.print(
+                    f"  {name} {dots} \\[[bold green]"
+                    f"{ok_message.center(width)}[/bold green]]"
+                )
                 continue
-            line = f"  {name} {dots} \\[[bold red]{fail_message.center(width)}[/bold red]]"
+            line = (
+                f"  {name} {dots} \\[[bold red]{fail_message.center(width)}[/bold red]]"
+            )
             connected, total = _count_connected_signals(device, e.sub_errors[name])
             if 0 < connected < total:
                 line += f" [dim]({connected}/{total} signals connected)[/dim]"
@@ -503,9 +544,9 @@ SPACE_PREFIX = "    "
 
 
 def _get_children(device: Device) -> list[tuple[str, Device]]:
-    """
+    """Return the (name, child) pairs of a device, sorted for display.
+
     Supplementary method for building the tree view of a device.
-    Return the (name, child) pairs of a device, sorted for display.
     """
     children = [
         (name, child) for name, child in device.children() if isinstance(child, Device)
@@ -517,9 +558,9 @@ def _get_children(device: Device) -> list[tuple[str, Device]]:
 
 
 def _make_tree_body(tree: list[str], device: Device, prefix=""):
-    """
+    """Create the tree body.
+
     Supplementary method for building the tree view of a device.
-    Create the tree body.
     """
     entries = _get_children(device)
     last_index = len(entries) - 1
@@ -547,10 +588,16 @@ def print_device_tree(device: Device, indent: int = 0) -> None:
     print("\n".join(x))
 
 
-def reset_scan_id(
-    new_scan_id: int = 0,
-    RE: RunEngine | None = None
-):
+def reset_scan_id(new_scan_id: int = 0, RE: RunEngine | None = None):
+    """Reset the RunEngine's scan ID.
+
+    Parameters
+    ----------
+    new_scan_id : int, optional
+        The value to set ``RE.md["scan_id"]`` to, by default 0.
+    RE : RunEngine | None, optional
+        The RunEngine to update. If None, it is taken from the IPython namespace.
+    """
     RE = ensure_available(RunEngine, RE=RE)
     RE.md["scan_id"] = new_scan_id
     yield from bps.null()

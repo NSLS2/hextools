@@ -1,10 +1,14 @@
-import pytest
-from pathlib import Path
-from typing import Any, Callable
+from collections.abc import Callable
 
+import pytest
+from ophyd_async.core import (
+    StaticPathProvider,
+    callback_on_mock_put,
+    init_devices,
+    set_mock_value,
+)
+from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFileIO
 from ophyd_async.epics.adkinetix import KinetixDetector
-from ophyd_async.epics.adcore import ADWriterFactory, ADBaseDataType, NDPluginFileIO
-from ophyd_async.core import init_devices, StaticPathProvider, set_mock_value, callback_on_mock_put
 
 
 @pytest.fixture
@@ -16,11 +20,12 @@ def kinetix_det_factory(
             ktx = KinetixDetector(
                 f"KTX{num}",
                 ADWriterFactory.tiff(static_path_provider)
-                if with_tiff else ADWriterFactory.hdf(static_path_provider),
+                if with_tiff
+                else ADWriterFactory.hdf(static_path_provider),
                 name=f"kinetix{num}",
             )
             file_plugin = ktx.get_plugin("tiff" if with_tiff else "hdf", NDPluginFileIO)
-        
+
         # what the descriptor needs to describe the image
         set_mock_value(ktx.driver.array_size_x, 3200)
         set_mock_value(ktx.driver.array_size_y, 3200)

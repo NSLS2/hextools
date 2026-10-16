@@ -5,8 +5,9 @@ Vendored from bluesky_widgets.qt.threading
 import inspect
 import time
 import weakref
+from collections.abc import Callable, Sequence
 from functools import wraps
-from typing import Any, Callable, Dict, Optional, Sequence, Set, Type, Union
+from typing import Any
 
 import toolz as tz
 from qtpy.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
@@ -40,9 +41,11 @@ class WorkerBase(QRunnable):
     """
 
     #: A set of Workers.  Add to set using :meth:`WorkerBase.start`
-    _worker_set: Set["WorkerBase"] = set()
+    _worker_set: set["WorkerBase"] = set()
 
-    def __init__(self, *args, SignalsClass: Type[QObject] = WorkerBaseSignals, **kwargs) -> None:
+    def __init__(
+        self, *args, SignalsClass: type[QObject] = WorkerBaseSignals, **kwargs
+    ) -> None:
         super().__init__()
         self._abort_requested = False
         self._running = False
@@ -146,7 +149,9 @@ class WorkerBase(QRunnable):
                             break
                         time.sleep(0.5)
         """
-        raise NotImplementedError(f'"{self.__class__.__name__}" failed to define work() method')
+        raise NotImplementedError(
+            f'"{self.__class__.__name__}" failed to define work() method'
+        )
 
     def start(self):
         """Start this worker in a thread and add it to the global threadpool.
@@ -251,7 +256,7 @@ class GeneratorWorker(WorkerBase):
         self,
         func: Callable,
         *args,
-        SignalsClass: Type[QObject] = GeneratorWorkerSignals,
+        SignalsClass: type[QObject] = GeneratorWorkerSignals,
         **kwargs,
     ):
         if not inspect.isgeneratorfunction(func):
@@ -401,7 +406,9 @@ def wait_for_workers_to_quit(msecs: int = None):
 
     msecs = msecs if msecs is not None else -1
     if not QThreadPool.globalInstance().waitForDone(msecs):
-        raise RuntimeError(f"Workers did not quit gracefully in the time allotted ({msecs} ms)")
+        raise RuntimeError(
+            f"Workers did not quit gracefully in the time allotted ({msecs} ms)"
+        )
 
 
 def active_thread_count() -> int:
@@ -417,9 +424,9 @@ def active_thread_count() -> int:
 def create_worker(
     func: Callable,
     *args,
-    _start_thread: Optional[bool] = None,
-    _connect: Optional[Dict[str, Union[Callable, Sequence[Callable]]]] = None,
-    _worker_class: Optional[Type[WorkerBase]] = None,
+    _start_thread: bool | None = None,
+    _connect: dict[str, Callable | Sequence[Callable]] | None = None,
+    _worker_class: type[WorkerBase] | None = None,
     _ignore_errors: bool = False,
     **kwargs,
 ) -> WorkerBase:
@@ -499,7 +506,10 @@ def create_worker(
             _val = val if isinstance(val, (tuple, list)) else [val]
             for v in _val:
                 if not callable(v):
-                    raise TypeError(f'"_connect[{key!r}]" must be a function or ' "sequence of functions")
+                    raise TypeError(
+                        f'"_connect[{key!r}]" must be a function or '
+                        "sequence of functions"
+                    )
                 getattr(worker, key).connect(v)
 
     # if the user has not provided a default connection for the "errored"
@@ -520,9 +530,9 @@ def create_worker(
 @tz.curry
 def thread_worker(
     function: Callable,
-    start_thread: Optional[bool] = None,
-    connect: Optional[Dict[str, Union[Callable, Sequence[Callable]]]] = None,
-    worker_class: Optional[Type[WorkerBase]] = None,
+    start_thread: bool | None = None,
+    connect: dict[str, Callable | Sequence[Callable]] | None = None,
+    worker_class: type[WorkerBase] | None = None,
     ignore_errors: bool = False,
 ) -> Callable:
     """Decorator that runs a function in a separate thread when called.

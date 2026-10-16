@@ -15,7 +15,7 @@ class names.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from enum import Enum
+from enum import StrEnum
 
 from qtpy.QtCore import Signal, Slot
 from qtpy.QtWidgets import (
@@ -31,7 +31,7 @@ from qtpy.QtWidgets import (
 _NO_SELECTION = "\u2014"  # em dash
 
 
-class DeviceType(str, Enum):
+class DeviceType(StrEnum):
     """Device categories that can be filtered on, matching Queue Server flags."""
 
     ANY = "any"
@@ -47,7 +47,9 @@ _TYPE_FLAG = {
 }
 
 
-def _matches(info: dict, device_type: DeviceType, classnames: frozenset[str] | None) -> bool:
+def _matches(
+    info: dict, device_type: DeviceType, classnames: frozenset[str] | None
+) -> bool:
     if classnames is not None and info.get("classname") not in classnames:
         return False
     if device_type is DeviceType.ANY:
@@ -262,7 +264,9 @@ class _DeviceSelectorBase(QWidget):
         self._device_names: list[str] = []
 
         self.signal_devices_changed.connect(self._refresh)
-        self.model.events.allowed_devices_changed.connect(self._on_allowed_devices_changed)
+        self.model.events.allowed_devices_changed.connect(
+            self._on_allowed_devices_changed
+        )
 
         self._refresh()
 
@@ -298,7 +302,9 @@ class _DeviceSelectorBase(QWidget):
 
     def closeEvent(self, event):
         try:
-            self.model.events.allowed_devices_changed.disconnect(self._on_allowed_devices_changed)
+            self.model.events.allowed_devices_changed.disconnect(
+                self._on_allowed_devices_changed
+            )
         except (ValueError, TypeError, RuntimeError):
             pass
         super().closeEvent(event)

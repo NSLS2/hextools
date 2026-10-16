@@ -1,4 +1,4 @@
-"""Collection of tiled specs used to denote the various types of datasets produced by bluesky scans at HEX beamline."""
+"""Tiled specs for the types of datasets produced by bluesky scans at HEX."""
 
 from __future__ import annotations
 
@@ -18,7 +18,9 @@ class SpecValidationError(ValueError):
 def _require_plan_name(run: BlueskyRunV3, *names: str) -> None:
     plan_name = run.start.get("plan_name")
     if plan_name not in names:
-        raise SpecValidationError(f"plan_name is {plan_name!r}, expected one of {list(names)}.")
+        raise SpecValidationError(
+            f"plan_name is {plan_name!r}, expected one of {list(names)}."
+        )
 
 
 def _require_start_keys(run: BlueskyRunV3, *keys: str) -> None:
@@ -28,10 +30,15 @@ def _require_start_keys(run: BlueskyRunV3, *keys: str) -> None:
 
 
 def _names(run: BlueskyRunV3, key: str, count: int | None = None) -> list[str]:
-    """Return the start document's list of names under ``key`` (``detectors``/``motors``)."""
+    """Return the start document's list of names under ``key``.
+
+    ``key`` is typically ``detectors`` or ``motors``.
+    """
     names: Any = run.start.get(key)
     if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
-        raise SpecValidationError(f"Start document '{key}' must be a list of names, got {names!r}.")
+        raise SpecValidationError(
+            f"Start document '{key}' must be a list of names, got {names!r}."
+        )
     if count is not None and len(names) != count:
         raise SpecValidationError(f"Expected {count} name(s) in '{key}', got {names}.")
     return names
@@ -48,7 +55,9 @@ def _require_stream(run: BlueskyRunV3, stream: str, *fields: str) -> None:
 def _require_optional_str(run: BlueskyRunV3, key: str) -> None:
     value = run.start.get(key)
     if value is not None and not isinstance(value, str):
-        raise SpecValidationError(f"Start document '{key}' must be a string, got {value!r}.")
+        raise SpecValidationError(
+            f"Start document '{key}' must be a string, got {value!r}."
+        )
 
 
 # Only detector datasets and motor readbacks are named dynamically: ``<det>`` is a
@@ -90,10 +99,16 @@ TOMO_DARK_FLAT_V1 = Spec("TomoDarkFlat", version="1")
 def validate_tomo_dark_flat(run: BlueskyRunV3, version: str | None = "1") -> None:
     """Raise :class:`SpecValidationError` if ``run`` does not match :data:`TOMO_DARK_FLAT_V1`."""
     _require_plan_name(run, "tomo_dark_flat")
-    _require_start_keys(run, "exposure_time", "num_dark_images", "num_flat_images", "x_offset")
+    _require_start_keys(
+        run, "exposure_time", "num_dark_images", "num_flat_images", "x_offset"
+    )
     _require_stream(run, "dark")
     # No ``detectors`` key here, so the dark stream defines the detectors.
-    dets = [field for field in run["dark"] if not field.startswith("ts_") and field != "seq_num"]
+    dets = [
+        field
+        for field in run["dark"]
+        if not field.startswith("ts_") and field != "seq_num"
+    ]
     if not dets:
         raise SpecValidationError("Stream 'dark' has no detector fields.")
     _require_stream(run, "flat", *dets)
@@ -123,7 +138,10 @@ TOMO_FLYSCAN_V1 = Spec("TomoFlyscan", version="1")
 
 
 def validate_tomo_flyscan(run: BlueskyRunV3, version: str | None = "1") -> None:
-    """Raise :class:`SpecValidationError` if ``run`` does not match :data:`TOMO_FLYSCAN_V1`."""
+    """Validate ``run`` against :data:`TOMO_FLYSCAN_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
     _require_plan_name(run, "tomo_flyscan")
     _require_start_keys(
         run,
@@ -157,7 +175,10 @@ TOMO_ALIGNMENT_SCAN_V1 = Spec("TomoAlignmentScan", version="1")
 
 
 def validate_tomo_alignment_scan(run: BlueskyRunV3, version: str | None = "1") -> None:
-    """Raise :class:`SpecValidationError` if ``run`` does not match :data:`TOMO_ALIGNMENT_SCAN_V1`."""
+    """Validate ``run`` against :data:`TOMO_ALIGNMENT_SCAN_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
     _require_plan_name(run, "tomography_alignment_scan")
     _require_start_keys(run, "description")
     _require_optional_str(run, "flat_scan_uid")
@@ -183,7 +204,10 @@ RADIOGRAPH_V1 = Spec("Radiograph", version="1")
 
 
 def validate_radiograph(run: BlueskyRunV3, version: str | None = "1") -> None:
-    """Raise :class:`SpecValidationError` if ``run`` does not match :data:`RADIOGRAPH_V1`."""
+    """Validate ``run`` against :data:`RADIOGRAPH_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
     _require_plan_name(run, "take_radiograph")
     _require_stream(run, "primary", *_names(run, "detectors"))
 
@@ -193,7 +217,8 @@ def validate_radiograph(run: BlueskyRunV3, version: str | None = "1") -> None:
 # outer position)
 #
 # Start document:
-#   plan_name: "edxd_count" | "edxd_scan" | "edxd_grid_scan" | "edxd_custom_pos_list_grid"
+#   plan_name: "edxd_count" | "edxd_scan" | "edxd_grid_scan"
+#              | "edxd_custom_pos_list_grid"
 #   description: str                 optional
 #   standard count/scan/grid_scan/list_scan metadata (0, 1 or 2 motors)
 #   outer_position: float            edxd_custom_pos_list_grid only
@@ -208,13 +233,20 @@ EDXD_SCAN_V1 = Spec("EdxdScan", version="1")
 
 
 def validate_edxd_scan(run: BlueskyRunV3, version: str | None = "1") -> None:
-    """Raise :class:`SpecValidationError` if ``run`` does not match :data:`EDXD_SCAN_V1`."""
-    _require_plan_name(run, "edxd_count", "edxd_scan", "edxd_grid_scan", "edxd_custom_pos_list_grid")
+    """Validate ``run`` against :data:`EDXD_SCAN_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
+    _require_plan_name(
+        run, "edxd_count", "edxd_scan", "edxd_grid_scan", "edxd_custom_pos_list_grid"
+    )
     dets = _names(run, "detectors")
     motors = _names(run, "motors") if "motors" in run.start else []
     if len(motors) > 2:
         raise SpecValidationError(f"Expected at most 2 motors, got {motors}.")
-    _require_stream(run, "primary", *dets, *(f"{det}-stats1-total" for det in dets), *motors)
+    _require_stream(
+        run, "primary", *dets, *(f"{det}-stats1-total" for det in dets), *motors
+    )
 
 
 # edxd_calib_scan
@@ -232,12 +264,17 @@ EDXD_CALIBRATION_V1 = Spec("EdxdCalibration", version="1")
 
 
 def validate_edxd_calibration(run: BlueskyRunV3, version: str | None = "1") -> None:
-    """Raise :class:`SpecValidationError` if ``run`` does not match :data:`EDXD_CALIBRATION_V1`."""
+    """Validate ``run`` against :data:`EDXD_CALIBRATION_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
     _require_plan_name(run, "edxd_calib_scan")
     _require_stream(run, "primary")
     # No ``detectors`` key here, so find detectors through their stats field.
     suffix = "-stats1-total"
-    dets = [field.removesuffix(suffix) for field in run["primary"] if field.endswith(suffix)]
+    dets = [
+        field.removesuffix(suffix) for field in run["primary"] if field.endswith(suffix)
+    ]
     if not dets:
         raise SpecValidationError(f"Stream 'primary' has no '<det>{suffix}' field.")
     _require_stream(run, "primary", *dets)
@@ -257,7 +294,10 @@ XRD_CALIBRATION_V1 = Spec("XrdCalibration", version="1")
 
 
 def validate_xrd_calibration(run: BlueskyRunV3, version: str | None = "1") -> None:
-    """Raise :class:`SpecValidationError` if ``run`` does not match :data:`XRD_CALIBRATION_V1`."""
+    """Validate ``run`` against :data:`XRD_CALIBRATION_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
     _require_plan_name(run, "xrd_calibration")
     _require_start_keys(run, "description")
     motors = _names(run, "motors", count=1)
@@ -278,11 +318,16 @@ ENERGY_AUTO_TUNE_V1 = Spec("EnergyAutoTune", version="1")
 
 
 def validate_energy_auto_tune(run: BlueskyRunV3, version: str | None = "1") -> None:
-    """Raise :class:`SpecValidationError` if ``run`` does not match :data:`ENERGY_AUTO_TUNE_V1`."""
+    """Validate ``run`` against :data:`ENERGY_AUTO_TUNE_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
     _require_plan_name(run, "energy_auto_tune")
     dets = _names(run, "detectors")
     motors = _names(run, "motors", count=1)
-    _require_stream(run, "primary", *dets, *(f"{det}-stats1-mean_value" for det in dets), *motors)
+    _require_stream(
+        run, "primary", *dets, *(f"{det}-stats1-mean_value" for det in dets), *motors
+    )
 
 
 _VALIDATORS: dict[str, Callable[[BlueskyRunV3, str | None], None]] = {

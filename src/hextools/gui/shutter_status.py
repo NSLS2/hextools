@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from bluesky import RunEngine
-from qtpy.QtCore import QTimer, Qt, Signal, Slot
+from qtpy.QtCore import Qt, QTimer, Signal, Slot
 from qtpy.QtWidgets import (
     QGridLayout,
     QGroupBox,
@@ -37,7 +37,13 @@ class _ShutterButton(QPushButton):
 
     _signal_state = Signal(bool)
 
-    def __init__(self, var_name: str, shutter: Shutter, loop: asyncio.AbstractEventLoop, parent=None):
+    def __init__(
+        self,
+        var_name: str,
+        shutter: Shutter,
+        loop: asyncio.AbstractEventLoop,
+        parent=None,
+    ):
         super().__init__(parent)
         self.var_name = var_name
         self.shutter = shutter
@@ -73,10 +79,12 @@ class _ShutterButton(QPushButton):
         # when the stylesheet is polished, so pin the size in the stylesheet too.
         inner = _BUTTON_SIZE - 2  # minus the 1px border on each side
         self.setStyleSheet(
-            "QPushButton { border-radius: 6px; border: 1px solid rgba(0, 0, 0, 60); padding: 0;"
+            "QPushButton { border-radius: 6px; border: 1px solid rgba(0, 0, 0, 60);"
+            " padding: 0;"
             f" min-width: {inner}px; max-width: {inner}px;"
             f" min-height: {inner}px; max-height: {inner}px;"
-            f" background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {top}, stop:1 {bottom}); }}"
+            " background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+            f" stop:0 {top}, stop:1 {bottom}); }}"
         )
 
     def unsubscribe(self):
@@ -120,7 +128,9 @@ class QtShutterStatus(QWidget):
             button = _ShutterButton(name, shutter, re.loop)
             button.clicked.connect(lambda *_, b=button: self._toggle(b))
             label = QLabel(name)
-            label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            label.setAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
             grid.addWidget(label, row, 0)
             grid.addWidget(button, row, 1)
             self._buttons.append(button)
@@ -134,7 +144,9 @@ class QtShutterStatus(QWidget):
     def _toggle(self, button: _ShutterButton):
         if self._re.state != "idle":
             QMessageBox.warning(
-                self, "RunEngine busy", "Cannot actuate a shutter while the RunEngine is busy."
+                self,
+                "RunEngine busy",
+                "Cannot actuate a shutter while the RunEngine is busy.",
             )
             return
         plan = ensure_shutter_closed if button.is_open else ensure_shutter_open

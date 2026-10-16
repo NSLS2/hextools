@@ -1,25 +1,21 @@
+"""Exporters for tomography data."""
 
-from collections.abc import Mapping
 import logging
-import os
 from pathlib import Path
 
-import numpy as np
-
-from bluesky_tiled_plugins import CatalogOfBlueskyRuns
-from tiled.structures.data_source import DataSource
-from tiled.utils import path_from_uri
 import h5py
-import xarray as xr
+from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
-from bluesky_tiled_plugins.clients.bluesky_event_stream import BlueskyEventStreamV3
-import json
 
-from hextools.exporters.utils import confirm_required_start_fields, create_baseline_dataset, run_metadata_to_json, find_hdf_datasets
+from hextools.exporters.utils import (
+    confirm_required_start_fields,
+    create_baseline_dataset,
+    find_hdf_datasets,
+    run_metadata_to_json,
+)
 from hextools.utils import ensure_available
 
 logger = logging.getLogger("hextools.exporters.tomography")
-
 
 
 def export_tomo_flyscan_to_h5(
@@ -36,24 +32,34 @@ def export_tomo_flyscan_to_h5(
         run = tomo_flyscan
 
     if not isinstance(run, BlueskyRunV3):
-        raise ValueError("Failed to resolve tomography flyscan to a BlueskyRunV3 instance")
+        raise ValueError(
+            "Failed to resolve tomography flyscan to a BlueskyRunV3 instance"
+        )
 
     run_start = run.start
     proposal, cycle, scan_id = confirm_required_start_fields(run_start)
-    logger.info(f"Exporting tomography scan {scan_id} (uid {run_start.get('uid')}) for proposal {proposal}, cycle {cycle}")
+    logger.info(
+        f"Exporting tomography scan {scan_id} (uid {run_start.get('uid')}) for proposal {proposal}, cycle {cycle}"
+    )
 
-    dark_flat_uid = dark_flat_id or run_start.get("last_dark_flat_uid") 
+    dark_flat_uid = dark_flat_id or run_start.get("last_dark_flat_uid")
 
     if dark_flat_uid is None:
-        logger.warning("No last_dark_flat_uid found in the run start document. Omitting dark/flat entries")
+        logger.warning(
+            "No last_dark_flat_uid found in the run start document. Omitting dark/flat entries"
+        )
         dark_flat_run = None
     else:
         logger.info(f"Using dark/flat run {dark_flat_uid}")
         dark_flat_run = tiled_client[dark_flat_uid]
         if not isinstance(dark_flat_run, BlueskyRunV3):
-            raise ValueError(f"Failed to resolve dark/flat run {dark_flat_uid} to a BlueskyRunV3 instance")
+            raise ValueError(
+                f"Failed to resolve dark/flat run {dark_flat_uid} to a BlueskyRunV3 instance"
+            )
 
-    scan_id_dir_path = Path(f"/nsls2/data/hex/proposals/{cycle}/{proposal}/tomography/metadata/scan_{scan_id:05}")
+    scan_id_dir_path = Path(
+        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/tomography/metadata/scan_{scan_id:05}"
+    )
     scan_id_dir_path.mkdir(parents=True, exist_ok=True)
     logger.debug(f"Export directory: {scan_id_dir_path}")
 
@@ -77,7 +83,10 @@ def export_tomo_flyscan_to_h5(
                 )
             for name in set(det_names) & found.keys():
                 relpath, dataset, _ = found[name]
-                links[stream_name if single_det else f"{stream_name}-{name}"] = (relpath, dataset)
+                links[stream_name if single_det else f"{stream_name}-{name}"] = (
+                    relpath,
+                    dataset,
+                )
 
     nxs_path = scan_id_dir_path / f"scan_{scan_id:05}.nxs"
     logger.info(f"Writing {nxs_path}")
@@ -95,7 +104,10 @@ def export_tomo_flyscan_to_h5(
     logger.info(f"Finished exporting tomography scan {scan_id} to {nxs_path}")
 
 
-def export_tomo_dark_flat_to_h5(tomo_dark_flat_scan: BlueskyRunV3 | str | int, tiled_client: CatalogOfBlueskyRuns | None):
+def export_tomo_dark_flat_to_h5(
+    tomo_dark_flat_scan: BlueskyRunV3 | str | int,
+    tiled_client: CatalogOfBlueskyRuns | None,
+):
 
     if isinstance(tomo_dark_flat_scan, (str, int)):
         tiled_client = ensure_available(CatalogOfBlueskyRuns, c=tiled_client)
@@ -113,7 +125,9 @@ def export_tomo_dark_flat_to_h5(tomo_dark_flat_scan: BlueskyRunV3 | str | int, t
 
     data_session, cycle, scan_id = confirm_required_start_fields(run_start)
 
-    scan_id_dir_path = Path(f"/nsls2/data/hex/proposals/{cycle}/{data_session}/tomography/metadata/scan_{scan_id:05}")
+    scan_id_dir_path = Path(
+        f"/nsls2/data/hex/proposals/{cycle}/{data_session}/tomography/metadata/scan_{scan_id:05}"
+    )
     scan_id_dir_path.mkdir(parents=True, exist_ok=True)
 
     links = {}
@@ -122,7 +136,10 @@ def export_tomo_dark_flat_to_h5(tomo_dark_flat_scan: BlueskyRunV3 | str | int, t
         for name in det_names:
             relpath, dataset, _ = found[name]
             single_det = len(det_names) == 1
-            links[stream_name if single_det else f"{stream_name}-{name}"] = (relpath, dataset)
+            links[stream_name if single_det else f"{stream_name}-{name}"] = (
+                relpath,
+                dataset,
+            )
 
     nxs_path = scan_id_dir_path / f"scan_{scan_id:05}.nxs"
     logger.info(f"Writing {nxs_path}")
@@ -137,4 +154,6 @@ def export_tomo_dark_flat_to_h5(tomo_dark_flat_scan: BlueskyRunV3 | str | int, t
 
     logger.info(f"Writing run metadata to {scan_id_dir_path}")
     run_metadata_to_json(run, scan_id, scan_id_dir_path)
-    logger.info(f"Finished exporting tomography dark/flat run {scan_id} to {scan_id_dir_path}")
+    logger.info(
+        f"Finished exporting tomography dark/flat run {scan_id} to {scan_id_dir_path}"
+    )

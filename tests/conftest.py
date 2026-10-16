@@ -3,7 +3,13 @@ import pprint
 import warnings
 from pathlib import Path
 
-from ophyd_async.core import StaticPathProvider, UUIDFilenameProvider, callback_on_mock_execute, init_devices, set_mock_value
+from ophyd_async.core import (
+    StaticPathProvider,
+    UUIDFilenameProvider,
+    callback_on_mock_execute,
+    init_devices,
+    set_mock_value,
+)
 
 from hextools.photon_delivery_system.shutter import Shutter, ShutterStatus
 
@@ -154,10 +160,12 @@ def shutter_factory() -> Callable[[str], Shutter]:
             shutter = Shutter(name, name=name)
         # the only two arcs Shutter.set awaits: a command put flips the status readback
         callback_on_mock_execute(
-            shutter.open_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN)
+            shutter.open_cmd,
+            lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN),
         )
         callback_on_mock_execute(
-            shutter.close_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED)
+            shutter.close_cmd,
+            lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED),
         )
         return shutter
 

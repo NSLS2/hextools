@@ -5,25 +5,27 @@ from enum import StrEnum
 from typing import cast
 
 import algotom.util.calibration as calib
-from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.ndimage as ndi
-from bluesky import plan_stubs as bps, plans as bp, preprocessors as bpp
+from bluesky import plan_stubs as bps
+from bluesky import plans as bp
+from bluesky import preprocessors as bpp
+from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 from ophyd_async.epics.adkinetix import KinetixDetector
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from skimage import measure, segmentation
 from skimage.measure._regionprops import RegionProperties
 
 from hextools.detectors import PhantomDetector, enable_preview_mode
-
 from hextools.motors import RotationMotor
 from hextools.photon_delivery_system import Shutter
-from hextools.photon_delivery_system.shutter import ShutterStatus, ensure_shutter_closed, ensure_shutter_open
-from hextools.utils import ensure_available
+from hextools.photon_delivery_system.shutter import (
+    ensure_shutter_closed,
+    ensure_shutter_open,
+)
 from hextools.specs import TOMO_ALIGNMENT_SCAN_V1
-
+from hextools.utils import ensure_available
 
 Image = np.ndarray[tuple[int, int], np.dtype[np.uint16] | np.dtype[np.uint8]]
 BinaryImage = np.ndarray[tuple[int, int], np.dtype[np.bool_]]
@@ -74,7 +76,9 @@ def ensure_run_is_valid(
                     f"Detector '{det_name}' not found in the stream '{stream_name}'."
                 )
         if requires_motor and motor_name not in data_stream:
-            raise KeyError(f"Motor '{motor_name}' not found in the stream '{stream_name}'.")
+            raise KeyError(
+                f"Motor '{motor_name}' not found in the stream '{stream_name}'."
+            )
 
     _check_stream(proj_stream, requires_motor=True)
     if ff_stream is not None:
@@ -180,7 +184,9 @@ def crop_and_flatfield_correction(
     for i, proj_img in enumerate(projection_data):
         bottom = proj_img.shape[2] - bottom_crop
         right = proj_img.shape[3] - right_crop
-        cropped = np.asarray(proj_img[0, 0, top_crop:bottom, left_crop:right], dtype=np.float64)
+        cropped = np.asarray(
+            proj_img[0, 0, top_crop:bottom, left_crop:right], dtype=np.float64
+        )
         if flatfield is not None:
             cropped = cropped / flatfield[top_crop:bottom, left_crop:right]
         # Denoise
@@ -314,11 +320,14 @@ class AlignmentResult:
     x_centers: Points
     y_centers: Points
     overlay: FloatImage
-    #: ``(major_axis, minor_axis, xc, yc)`` for an ellipse fit, ``(slope, intercept)`` for linear.
+    #: ``(major_axis, minor_axis, xc, yc)`` for an ellipse fit,
+    #: ``(slope, intercept)`` for linear.
     fit: tuple[float, ...]
 
 
-def ellipse_fit(x: Points, y: Points) -> tuple[float, float, tuple[float, float, float, float]]:
+def ellipse_fit(
+    x: Points, y: Points
+) -> tuple[float, float, tuple[float, float, float, float]]:
     """Fit the sphere centers to an ellipse.
 
     Returns the roll and (unsigned) tilt angles, in degrees, and the ellipse's
@@ -392,7 +401,9 @@ def _load_flatfield(
             return _mean_image(run["flat"].read()[det_name])
         flat_scan_uid = run.start.get("flat_scan_uid")
         if not isinstance(flat_scan_uid, str):
-            raise ValueError("No flat field available and 'flat_scan_uid' is not specified.")
+            raise ValueError(
+                "No flat field available and 'flat_scan_uid' is not specified."
+            )
 
         catalog = ensure_available(CatalogOfBlueskyRuns, c=tiled_client)
         found = catalog[flat_scan_uid]
@@ -407,14 +418,15 @@ def _load_flatfield(
 
 def plot_alignment(result: AlignmentResult, figsize: tuple[int, int] = (14, 7)) -> None:
     """Show the projection overlay, and the sphere centers with the fitted path.
+
     Parameters
     ----------
     result : AlignmentResult
-        The result of the alignment check containing overlay image, sphere centers, and fit.
+        The result of the alignment check containing overlay image, sphere centers,
+        and fit.
     figsize : tuple[int, int], optional
         The size of the figure to display, by default (14, 7)
     """
-    
     height, width = result.overlay.shape
     plt.figure(f"{result.detector}: projection overlay", figsize=figsize)
     plt.imshow(result.overlay, cmap="gray", extent=(0, width, 0, height))
@@ -425,7 +437,14 @@ def plot_alignment(result: AlignmentResult, figsize: tuple[int, int] = (14, 7)) 
     for i in range(len(x)):
         plt.plot(x[i], y[i], "o", markersize=10, color="cyan")
         plt.text(
-            x[i], y[i], str(i), fontsize=10, fontweight="bold", ha="center", va="center", color="red"
+            x[i],
+            y[i],
+            str(i),
+            fontsize=10,
+            fontweight="bold",
+            ha="center",
+            va="center",
+            color="red",
         )
     plt.title(
         f"{result.detector} - Roll : {result.roll_angle:2.4f}; "
@@ -491,16 +510,26 @@ def fetch_alignment_data(
         run = found
 
     det_names = run.start.get("detectors")
-    if not isinstance(det_names, list) or len(det_names) != 1 or not isinstance(det_names[0], str):
+    if (
+        not isinstance(det_names, list)
+        or len(det_names) != 1
+        or not isinstance(det_names[0], str)
+    ):
         raise ValueError(
-            f"Expected exactly one detector in the run's 'detectors' metadata, got {det_names}."
+            "Expected exactly one detector in the run's 'detectors' metadata, "
+            f"got {det_names}."
         )
     det_name = det_names[0]
 
     motor_names = run.start.get("motors")
-    if not isinstance(motor_names, list) or len(motor_names) != 1 or not isinstance(motor_names[0], str):
+    if (
+        not isinstance(motor_names, list)
+        or len(motor_names) != 1
+        or not isinstance(motor_names[0], str)
+    ):
         raise ValueError(
-            f"Expected exactly one motor in the run's 'motors' metadata, got {motor_names}."
+            "Expected exactly one motor in the run's 'motors' metadata, "
+            f"got {motor_names}."
         )
     motor_name = motor_names[0]
 
@@ -509,7 +538,7 @@ def fetch_alignment_data(
     projections: ImageDataset = np.asarray(run["primary"].read()[det_name])
     try:
         flatfield = _load_flatfield(run, det_name, flat_scan, tiled_client)
-    except Exception as e:
+    except Exception:
         flatfield = None
     return det_name, projections, flatfield
 
@@ -566,7 +595,7 @@ def check_alignment(
             f"There are {n_images_per_angle} images per angle from '{detector}'; "
             "expected 1."
         )
-    
+
     check_crop_values_valid(width, height, left_crop, right_crop, top_crop, bottom_crop)
 
     images, x, y = crop_and_flatfield_correction(
@@ -609,8 +638,9 @@ def check_alignment(
 
     return result
 
+
 def check_alignment_from_run(
-    run: BlueskyRunV3 | str | int, 
+    run: BlueskyRunV3 | str | int,
     tiled_client: CatalogOfBlueskyRuns | None = None,
     left_crop: int = 0,
     right_crop: int = 0,
@@ -620,7 +650,33 @@ def check_alignment_from_run(
     ratio: float = 1.0,
     show_plots: bool = True,
 ) -> AlignmentResult:
-    det_name, projections, flatfield = fetch_alignment_data(run, tiled_client=tiled_client)
+    """Fetch an alignment run's data and find the rotation axis roll and tilt.
+
+    Combines :func:`fetch_alignment_data` and :func:`check_alignment`.
+
+    Parameters
+    ----------
+    run : BlueskyRunV3 | str | int
+        The alignment run, or its uid/scan id.
+    tiled_client : CatalogOfBlueskyRuns, optional
+        Catalog to look runs up in. Defaults to ``c`` in the IPython namespace.
+    left_crop, right_crop, top_crop, bottom_crop : int, optional
+        Pixels to crop from each image border before finding the sphere.
+    method : TomoAlignMethod, optional
+        Fit to an ellipse (default) or a line.
+    ratio : float, optional
+        Scales the binarization threshold used to find the sphere.
+    show_plots : bool, optional
+        Whether to plot the projection overlay and the fitted sphere path.
+
+    Returns
+    -------
+    AlignmentResult
+        The fitted roll and tilt, with the data used to compute them.
+    """
+    det_name, projections, flatfield = fetch_alignment_data(
+        run, tiled_client=tiled_client
+    )
     return check_alignment(
         projections=projections,
         detector=det_name,
@@ -666,12 +722,19 @@ def tomo_alignment_scan(
     stop_angle : float, optional
         Final angle for the rotation stage, by default 360.0.
     """
-
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
 
-    @bpp.reset_positions_decorator([det.driver.num_images, det.driver.acquire_period, det.driver.acquire_time, rot_motor, rot_motor.velocity])
+    @bpp.reset_positions_decorator(
+        [
+            det.driver.num_images,
+            det.driver.acquire_period,
+            det.driver.acquire_time,
+            rot_motor,
+            rot_motor.velocity,
+        ]
+    )
     def _body():
 
         yield from ensure_shutter_open(fe_shutter)
@@ -680,11 +743,16 @@ def tomo_alignment_scan(
         # Set the rotation stage to the maximum velocity before starting the scan
         max_velocity = yield from bps.rd(rot_motor.max_velocity)
         yield from bps.mv(
-            rot_motor.velocity, max_velocity,
-            rot_motor, init_angle,
-            det.driver.acquire_time, exposure_time,
-            det.driver.acquire_period, exposure_time + 0.002,
-            det.driver.num_images, 1
+            rot_motor.velocity,
+            max_velocity,
+            rot_motor,
+            init_angle,
+            det.driver.acquire_time,
+            exposure_time,
+            det.driver.acquire_period,
+            exposure_time + 0.002,
+            det.driver.num_images,
+            1,
         )
 
         _md = {
@@ -693,11 +761,13 @@ def tomo_alignment_scan(
             "tiled_specs": [TOMO_ALIGNMENT_SCAN_V1],
         }
 
-        yield from bp.scan([det], rot_motor, init_angle, stop_angle, num_projections, md=_md)
+        yield from bp.scan(
+            [det], rot_motor, init_angle, stop_angle, num_projections, md=_md
+        )
 
     def _cleanup():
         yield from ensure_shutter_closed(photon_shutter)
         if isinstance(det, KinetixDetector):
             yield from enable_preview_mode(det)
 
-    return (bpp.finalize_wrapper(_body(), _cleanup()))
+    return bpp.finalize_wrapper(_body(), _cleanup())

@@ -1,25 +1,32 @@
+"""Export EDXD runs from Tiled to HDF5 and JSON files."""
 
-from collections.abc import Mapping
 from pathlib import Path
 
-import numpy as np
-
-from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 import h5py
-import xarray as xr
+from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
-import json
 
-from hextools.utils import ensure_available
 from hextools.exporters.utils import confirm_required_start_fields
+from hextools.utils import ensure_available
 
-from .utils import _json_default, run_metadata_to_json
+from .utils import run_metadata_to_json
+
 
 def export_edxd_run_to_h5(
     edxd_scan: BlueskyRunV3 | str | int,
-    tiled_client: CatalogOfBlueskyRuns | None = None
+    tiled_client: CatalogOfBlueskyRuns | None = None,
 ):
+    """Export an EDXD run's data to a NeXus/HDF5 file and its metadata to JSON.
 
+    Files are written to the proposal's ``edxd/metadata/scan_<scan_id>`` directory.
+
+    Parameters
+    ----------
+    edxd_scan : BlueskyRunV3 | str | int
+        The run to export, or its uid/scan id to look up in ``tiled_client``.
+    tiled_client : CatalogOfBlueskyRuns | None, optional
+        The catalog to look up the run in. If None, will pull from global namespace.
+    """
     # TODO: add validation to check that it is in fact an EDXD run
     if isinstance(edxd_scan, (str, int)):
         if tiled_client is None:
@@ -35,7 +42,9 @@ def export_edxd_run_to_h5(
     baseline_data = run["baseline"].read()
     proposal, cycle, scan_id = confirm_required_start_fields(run.start)
 
-    scan_id_dir_path = Path(f"/nsls2/data/hex/proposals/{cycle}/{proposal}/edxd/metadata/scan_{scan_id:05}")
+    scan_id_dir_path = Path(
+        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/edxd/metadata/scan_{scan_id:05}"
+    )
     if not scan_id_dir_path.exists():
         scan_id_dir_path.mkdir(parents=True, exist_ok=True)
 

@@ -1,3 +1,5 @@
+"""Device settings and plans for storing and applying them."""
+
 from hextools.settings.plans import (
     SavedDeviceSettings,
     apply_device_settings,

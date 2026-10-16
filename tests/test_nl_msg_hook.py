@@ -20,7 +20,13 @@ AUTO_GROUP_2 = "0f1e2d3c-4b5a-4968-8776-655443322110"
 
 def _msg(command, obj=None, args=(), kwargs=None, time=None):
     """A serialized message, as produced by ``msg_to_json_safe_dict``."""
-    msg = {"command": command, "obj": obj, "args": list(args), "kwargs": kwargs or {}, "run": None}
+    msg = {
+        "command": command,
+        "obj": obj,
+        "args": list(args),
+        "kwargs": kwargs or {},
+        "run": None,
+    }
     if time is not None:
         msg["time"] = time
     return msg
@@ -42,22 +48,37 @@ def _msg(command, obj=None, args=(), kwargs=None, time=None):
         (_msg("read", "det"), "Reading the current value of 'det'."),
         (_msg("read"), "Reading the current value of the device."),
         (_msg("wait"), "Waiting for pending operations to complete."),
-        (_msg("wait", kwargs={"group": "align"}), "Waiting for group 'align' to finish."),
+        (
+            _msg("wait", kwargs={"group": "align"}),
+            "Waiting for group 'align' to finish.",
+        ),
         (_msg("sleep", args=[0.5]), "Pausing for 0.5 seconds."),
         (_msg("sleep"), "Pausing briefly."),
         (_msg("checkpoint"), "Marking a checkpoint (a safe point to pause or resume)."),
-        (_msg("create", kwargs={"name": "primary"}), "Beginning a new data reading for stream 'primary'."),
+        (
+            _msg("create", kwargs={"name": "primary"}),
+            "Beginning a new data reading for stream 'primary'.",
+        ),
         (_msg("save"), "Saving the collected readings as a data point."),
         (
             _msg("open_run", kwargs={"plan_name": "scan", "scan_id": 3}),
             "Starting a new run (plan 'scan', scan id 3).",
         ),
         (_msg("open_run"), "Starting a new run."),
-        (_msg("close_run", kwargs={"exit_status": "success"}), "Closing the run (success)."),
+        (
+            _msg("close_run", kwargs={"exit_status": "success"}),
+            "Closing the run (success).",
+        ),
         (_msg("stage", "det"), "Staging 'det' for data collection."),
-        (_msg("configure", "det", kwargs={"exposure": 0.1}), "Configuring 'det' with exposure=0.1."),
+        (
+            _msg("configure", "det", kwargs={"exposure": 0.1}),
+            "Configuring 'det' with exposure=0.1.",
+        ),
         (_msg("kickoff", "flyer"), "Kicking off flyscan with 'flyer'."),
-        (_msg("prepare", "det", [{"number": 5}]), "Preparing 'det' for the next step with number=5."),
+        (
+            _msg("prepare", "det", [{"number": 5}]),
+            "Preparing 'det' for the next step with number=5.",
+        ),
         (_msg("null"), "Doing nothing (no-op)."),
     ],
 )
@@ -66,7 +87,10 @@ def test_describe_message(msg, expected):
 
 
 def test_describe_message_unknown_command_falls_back():
-    assert describe_message(_msg("frobnicate_thing", "dev")) == "Performing 'frobnicate thing' on 'dev'."
+    assert (
+        describe_message(_msg("frobnicate_thing", "dev"))
+        == "Performing 'frobnicate thing' on 'dev'."
+    )
     assert describe_message(_msg(None)) == "Performing 'an operation'."
 
 
@@ -74,7 +98,10 @@ def test_describe_message_unknown_command_falls_back():
     ("obj", "expected"),
     [
         ('Motor(name="f-slits-top")', "Setting Motor 'f-slits-top' to 0.1."),
-        ("EpicsMotor(prefix='XF:27ID', name='m1', read_attrs=['user_readback'])", "Setting EpicsMotor 'm1' to 0.1."),
+        (
+            "EpicsMotor(prefix='XF:27ID', name='m1', read_attrs=['user_readback'])",
+            "Setting EpicsMotor 'm1' to 0.1.",
+        ),
         ("Thing(prefix='X')", "Setting 'Thing(prefix='X')' to 0.1."),
     ],
 )
@@ -92,7 +119,7 @@ def test_device_reprs_are_shortened_in_collapsed_lines():
         ]
     )
     assert lines == [
-        "Moving Motor 'f-slits-top' to 0.1 and waiting for it to arrive, as part of group 'g'.",
+        "Moving Motor 'f-slits-top' to 0.1 and waiting for it to arrive, as part of group 'g'.",  # noqa: E501
         "Reading the current values of Slits 'f-slits' and KinetixDetector 'kinetix1'.",
     ]
 
@@ -110,7 +137,9 @@ def test_describe_message_with_timestamp():
 
 
 def test_describe_message_timestamp_placeholder_without_time():
-    assert describe_message(_msg("save"), show_timestamps=True).startswith("[--:--:--] ")
+    assert describe_message(_msg("save"), show_timestamps=True).startswith(
+        "[--:--:--] "
+    )
 
 
 # ----------------------------------------------------------------------------------
@@ -166,7 +195,9 @@ def test_set_then_wait_collapses_into_move():
             _msg("wait", kwargs={"group": "g"}),
         ]
     )
-    assert lines == ["Moving 'm1' to 1 and 'm2' to 2.5 and waiting for them to arrive, as part of group 'g'."]
+    assert lines == [
+        "Moving 'm1' to 1 and 'm2' to 2.5 and waiting for them to arrive, as part of group 'g'."  # noqa: E501
+    ]
 
 
 def test_trigger_then_wait_collapses_into_trigger():
@@ -178,7 +209,7 @@ def test_trigger_then_wait_collapses_into_trigger():
         ]
     )
     assert lines == [
-        "Triggering 'det1' and 'det2' and waiting for them to complete, as part of group 'trigger'."
+        "Triggering 'det1' and 'det2' and waiting for them to complete, as part of group 'trigger'."  # noqa: E501
     ]
 
 
@@ -199,7 +230,12 @@ def test_mixed_group_lists_each_action_then_the_wait():
 
 def test_consecutive_reads_are_batched():
     lines = narrate_stream(
-        [_msg("read", "det1"), _msg("read", "det2"), _msg("read", "motor"), _msg("save")]
+        [
+            _msg("read", "det1"),
+            _msg("read", "det2"),
+            _msg("read", "motor"),
+            _msg("save"),
+        ]
     )
     assert lines == [
         "Reading the current values of 'det1', 'det2', and 'motor'.",
@@ -249,7 +285,9 @@ def test_group_without_wait_is_described_plainly_when_interrupted():
 
 
 def test_unfinished_buffers_are_flushed_at_end_of_stream():
-    assert narrate_stream([_msg("read", "det")]) == ["Reading the current value of 'det'."]
+    assert narrate_stream([_msg("read", "det")]) == [
+        "Reading the current value of 'det'."
+    ]
     assert narrate_stream([_msg("set", "m1", [1], {"group": "g"})]) == [
         "Setting 'm1' to 1, as part of group 'g'."
     ]
@@ -293,7 +331,8 @@ def test_due_flushes_idle_batches_and_groups():
 def test_stream_timestamps_use_first_message_of_collapsed_line():
     t0 = datetime(2026, 1, 2, 3, 4, 5).timestamp()
     lines = narrate_stream(
-        [_msg("read", "det1", time=t0), _msg("read", "det2", time=t0 + 1)], show_timestamps=True
+        [_msg("read", "det1", time=t0), _msg("read", "det2", time=t0 + 1)],
+        show_timestamps=True,
     )
     assert lines == ["[03:04:05.000] Reading the current values of 'det1' and 'det2'."]
 
@@ -328,7 +367,9 @@ def test_hook_serializes_raw_msgs_and_emits_lines():
     hook(Msg("set", "motor", 1, group="g"))
     assert emitted == []
     hook(Msg("wait", None, group="g"))
-    assert emitted == ["Moving 'motor' to 1 and waiting for it to arrive, as part of group 'g'."]
+    assert emitted == [
+        "Moving 'motor' to 1 and waiting for it to arrive, as part of group 'g'."
+    ]
 
 
 def test_hook_accepts_pre_serialized_messages():
@@ -425,7 +466,9 @@ def test_hook_ignores_broken_listeners():
     hook.add_listener(broken)
     hook.add_listener(heard.append)
     hook(_msg("checkpoint"))
-    assert emitted == heard == ["Marking a checkpoint (a safe point to pause or resume)."]
+    assert (
+        emitted == heard == ["Marking a checkpoint (a safe point to pause or resume)."]
+    )
 
 
 def test_hook_narrates_plan_run_by_run_engine(RE):

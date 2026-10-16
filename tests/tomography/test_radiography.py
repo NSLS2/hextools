@@ -1,40 +1,23 @@
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 import pytest
 from bluesky import Msg, RunEngine
-from bluesky import plan_stubs as bps
 from ophyd_async.core import (
     Device,
     StaticPathProvider,
-    UUIDFilenameProvider,
-    callback_on_mock_execute,
     callback_on_mock_put,
     get_mock_put,
     init_devices,
     set_mock_value,
 )
-from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFileIO
+from ophyd_async.epics.adcore import NDPluginFileIO
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.epics.core import epics_signal_rw
 from ophyd_async.fastcs.panda import DatasetTable, HDFPanda, PandaHdf5DatasetType
 
 from hextools.photon_delivery_system import Shutter, ShutterStatus
 from hextools.tomography.radiography import FRAME_PERIOD_MARGIN, take_radiograph
-
-# --- shutters: same shape as tests/tomography/test_alignment.py ---------------
-
-
-
-
-
-# --- detector: Kinetix with an HDF writer, minimum causal chain ---------------
-
-
-
-
-# --- one row of the happy path, to prove the arcs before the table exists -----
 
 
 async def test_take_radiograph_single_row(
@@ -88,14 +71,17 @@ async def test_take_radiograph_single_row(
     assert start["plan_args"]["delay"] == wait
 
     # bp.count sleeps only for what is left of the delay after each acquisition,
-    # so how many delay sleeps happen depends on timing; longer ones are shutter settling
+    # so how many delay sleeps happen depends on timing; longer ones are
+    # shutter settling
     delay_sleeps = [m for m in messages_by_type.get("sleep", []) if m.args[0] <= wait]
     assert len(delay_sleeps) <= num_acquisitions - 1
     assert all(m.args[0] > 0 for m in delay_sleeps)
 
     assert await ktx.driver.acquire_time.get_value() == exposure_time
     assert await ktx.driver.num_images.get_value() == num_images
-    assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED  # finalizer closed it
+    assert (
+        await photon_shutter.status.get_value() == ShutterStatus.CLOSED
+    )  # finalizer closed it
 
     assert await ktx.driver.acquire_period.get_value() == pytest.approx(
         exposure_time + FRAME_PERIOD_MARGIN

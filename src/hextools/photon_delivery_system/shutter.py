@@ -2,10 +2,11 @@
 
 import asyncio
 import random
-from typing import Callable, Hashable
+from collections.abc import Callable, Hashable
 
+from bluesky import plan_stubs as bps
+from bluesky.protocols import Reading, Subscribable
 from ophyd_async.core import (
-    DEFAULT_TIMEOUT,
     AsyncMovable,
     AsyncStatus,
     DeviceMock,
@@ -15,8 +16,6 @@ from ophyd_async.core import (
     set_mock_value,
     wait_for_value,
 )
-from bluesky.protocols import Reading, Subscribable
-from bluesky import plan_stubs as bps
 from ophyd_async.epics.core import (
     EpicsDevice,
     epics_signal_r,
@@ -25,7 +24,10 @@ from ophyd_async.epics.core import (
 
 DEFAULT_SHUTTER_TIMEOUT = 10
 
+
 class ShutterStatus(StrictEnum):
+    """Shutter position status reported by EPICS."""
+
     OPEN = "Open"
     CLOSED = "Not Open"
 
@@ -90,17 +92,21 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
         AsyncStatus
             An object representing the status of the set operation.
         """
-
         if value:
             cmd_sig = self.open_cmd
         else:
             cmd_sig = self.close_cmd
 
         await cmd_sig.execute()
-        await wait_for_value(self.status, ShutterStatus.OPEN if value else ShutterStatus.CLOSED, timeout=DEFAULT_SHUTTER_TIMEOUT)
+        await wait_for_value(
+            self.status,
+            ShutterStatus.OPEN if value else ShutterStatus.CLOSED,
+            timeout=DEFAULT_SHUTTER_TIMEOUT,
+        )
 
-
-    def subscribe_reading(self, function: Callable[[dict[str, Reading[bool]]], None]) -> None:
+    def subscribe_reading(
+        self, function: Callable[[dict[str, Reading[bool]]], None]
+    ) -> None:
         """Subscribe to changes in the shutter status.
 
         Parameters
@@ -111,20 +117,17 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
 
         def _translate(readings: dict[str, Reading[ShutterStatus]]) -> None:
             """Translate readings from ShutterStatus to bool."""
-
-            function(
-                {
-                    self.name: {
-                        **reading,
-                        "value": reading["value"] == ShutterStatus.OPEN,
-                    }
-                    for reading in readings.values()
+            # The status signal emits a single reading; re-key it under the shutter.
+            translated: dict[str, Reading[bool]] = {}
+            for reading in readings.values():
+                translated[self.name] = {
+                    **reading,
+                    "value": reading["value"] == ShutterStatus.OPEN,
                 }
-            )
+            function(translated)
 
         self._sub_translators[function] = _translate
         self.status.subscribe_reading(_translate)
-
 
     def clear_sub(self, function: Callable[[dict[str, Reading[bool]]], None]) -> None:
         """Remove a subscription previously passed to `subscribe_reading`.
@@ -134,7 +137,6 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
         function : Callable[[dict[str, Reading[bool]]], None]
             The callback to remove.
         """
-
         translator = self._sub_translators.pop(function)
         self.status.clear_sub(translator)
 
@@ -155,13 +157,13 @@ def ensure_shutter_state(
     desired_state : bool
         the state of the shutter (True for open, False for closed)
     allow_actuation : bool, default False
-        whether to allow the plan to actuate the shutter if it is not in the desired state
+        whether to allow the plan to actuate the shutter if it is not in the
+        desired state
     group : Hashable | None, optional
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
         whether to wait for the shutter to reach the desired state after actuation
     """
-
     shutters = shutter if isinstance(shutter, list) else [shutter]
 
     shutter_statuses = {}
@@ -180,9 +182,9 @@ def ensure_shutter_state(
     if wait and actuated:
         yield from bps.wait(group=group, timeout=DEFAULT_SHUTTER_TIMEOUT)
 
-        # It seems that the shutter status in EPICS is not reliable enough to consider the
-        # shutter fully opened/closed.
-        yield from bps.sleep(4)
+        # It seems that the shutter status in EPICS is not reliable enough to
+        # consider the shutter fully opened/closed.
+        # yield from bps.sleep(4)
 
 
 def ensure_shutter_open(
@@ -198,13 +200,13 @@ def ensure_shutter_open(
     shutter : Shutter | list[Shutter]
         shutter(s) to guarantee the state of.
     allow_actuation : bool, default False
-        whether to allow the plan to actuate the shutter if it is not in the desired state
+        whether to allow the plan to actuate the shutter if it is not in the
+        desired state
     group : Hashable | None, optional
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
         whether to wait for the shutter to reach the desired state after actuation
     """
-
     yield from ensure_shutter_state(
         shutter, True, allow_actuation=allow_actuation, wait=wait, group=group
     )
@@ -223,13 +225,13 @@ def ensure_shutter_closed(
     shutter : Shutter | list[Shutter]
         shutter(s) to guarantee the state of.
     allow_actuation : bool, default True
-        whether to allow the plan to actuate the shutter if it is not in the desired state
+        whether to allow the plan to actuate the shutter if it is not in the
+        desired state
     group : Hashable | None, optional
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
             whether to wait for the shutter to reach the desired state after actuation
     """
-
     yield from ensure_shutter_state(
         shutter, False, allow_actuation=allow_actuation, wait=wait, group=group
     )

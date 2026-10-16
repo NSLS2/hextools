@@ -1,7 +1,6 @@
 """Double crystal Laue monochromator (DCLM) device and energy change plan."""
 
-import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from functools import partial
 from typing import Final
 
@@ -21,10 +20,10 @@ from ophyd_async.core import (
     StandardReadable,
     StrictEnum,
     WatchableAsyncStatus,
-    WatcherUpdate,
     derived_signal_r,
+    forward_watcher_updates,
 )
-from ophyd_async.core import StandardReadableFormat as Format, forward_watcher_updates
+from ophyd_async.core import StandardReadableFormat as Format
 from ophyd_async.epics.adcore import NDStatsIO
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.epics.core import EpicsDevice
@@ -33,7 +32,7 @@ from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from hextools.detectors.utils import enable_preview_mode
 
 from ..utils import ensure_available
-from .shutter import Shutter, ensure_shutter_open, ensure_shutter_closed
+from .shutter import Shutter, ensure_shutter_closed, ensure_shutter_open
 
 
 class BeamMode(StrictEnum):
@@ -54,9 +53,11 @@ def _figure_factory() -> Callable[[str], Figure]:
 
 
 class _PeakStatsPlot(QtAwareCallback):
-    """Plot a PeakStats' results when its run stops, on the Qt thread if there is one."""
+    """Plot a PeakStats' results when its run stops, on the Qt thread if any."""
 
-    def __init__(self, peak_stats: PeakStats, title: str, fig_factory: Callable[[str], Figure]):
+    def __init__(
+        self, peak_stats: PeakStats, title: str, fig_factory: Callable[[str], Figure]
+    ):
         super().__init__()
         self._peak_stats = peak_stats
         self._title = title
@@ -205,7 +206,6 @@ def change_beam_mode(
         The DCLM instance to control. If None, the function will attempt to
         retrieve it from the IPython namespace.
     """
-
     dclm = ensure_available(DCLM, dclm=dclm)
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     current_mode = yield from bps.rd(dclm.beam_mode)
@@ -259,18 +259,22 @@ def change_energy(
         Otherwise, motors are moved without feedback.
     exposure_time : float, optional
         Exposure time for the fluorescence screen camera during auto-tuning.
+
     Raises
     ------
     RuntimeError
         If the monochromator is not in monochromatic mode.
     """
-
     # If not provided
     dclm = ensure_available(DCLM, monochromator=dclm)
     if auto_tune:
         fs_window_cam = ensure_available(VimbaDetector, fs_window_cam=fs_window_cam)
 
-    @bpp.reset_positions_decorator([fs_window_cam.driver.acquire_time, fs_window_cam.driver.acquire_period] if fs_window_cam is not None else [])
+    @bpp.reset_positions_decorator(
+        [fs_window_cam.driver.acquire_time, fs_window_cam.driver.acquire_period]
+        if fs_window_cam is not None
+        else []
+    )
     def _body():
         mode = yield from bps.rd(dclm.beam_mode)
         if mode != BeamMode.MONOCHROMATIC:
@@ -342,8 +346,7 @@ def change_energy(
             )
             if ps.cen is None:  # type: ignore
                 raise RuntimeError(
-                    f"No peak found in {scan_name} scan. "
-                    "Check the fluorescence screen."
+                    f"No peak found in {scan_name} scan. Check the fluorescence screen."
                 )
             return float(ps.cen)  # type: ignore
 
@@ -352,7 +355,9 @@ def change_energy(
         )
         yield from bps.mv(dclm.xtal2_pitch, coarse_center)
 
-        fine_center = yield from energy_auto_tune("fine", fine_angle_range, fine_num_steps)
+        fine_center = yield from energy_auto_tune(
+            "fine", fine_angle_range, fine_num_steps
+        )
 
         # To minimize issues with backlash, always approach the final position
         # from below.
@@ -365,7 +370,9 @@ def change_energy(
         if fs_window_cam is not None:
             yield from enable_preview_mode(fs_window_cam)
 
-    yield from (finalize_wrapper(
-        _body(),
-        _cleanup(),
-    ))
+    yield from (
+        finalize_wrapper(
+            _body(),
+            _cleanup(),
+        )
+    )

@@ -252,7 +252,9 @@ QTableCornerButton::section {{ background-color: {TEAL}; border: none; }}
 QMenuBar {{ background-color: {TEAL}; color: {ON_ACCENT}; padding: 2px; }}
 QMenuBar::item {{ background: transparent; padding: 5px 12px; border-radius: 4px; }}
 QMenuBar::item:selected {{ background: {TEAL_HOVER}; }}
-QMenu {{ background-color: {SURFACE}; border: 1px solid {BORDER_STRONG}; padding: 4px; }}
+QMenu {{
+    background-color: {SURFACE}; border: 1px solid {BORDER_STRONG}; padding: 4px;
+}}
 QMenu::item {{ padding: 5px 24px 5px 12px; border-radius: 4px; }}
 QMenu::item:selected {{ background-color: {CERULEAN}; color: {ON_ACCENT}; }}
 QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 8px; }}
