@@ -10,11 +10,11 @@ logger = logging.getLogger("hextools")
 
 
 class StartDocAwareFilenameProvider(TimestampFilenameProvider):
-    """Prefix filenames with the current run's plan name.
+    """Prefix filenames with prefix depending on the current run's plan name.
 
-    Plans listed in ``plan_file_prefixes`` instead use one prefix per file each
-    detector writes during the run, in order (e.g. ``dark`` then ``flat``).
-    Subscribe :meth:`doc_callback` to the RunEngine.
+    Special handling is provided for the ``tomo_dark_flat`` plan, where the first
+    file is prefixed with ``dark`` and the second with ``flat``. Other plans use
+    a default prefix based on the plan name.
     """
 
     def __init__(

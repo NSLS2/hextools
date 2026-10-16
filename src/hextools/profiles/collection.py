@@ -43,6 +43,9 @@ from hextools.motors import (
 from hextools.photon_delivery_system import *
 from hextools.suspenders import SuspendFloorUnlessOpsMode
 from hextools.tomography import *
+from hextools.tomography import (
+    LastDarkFlatUIDTracker,
+)
 from hextools.utils import (
     ProposalIDPrompt,
     StartDocAwareFilenameProvider,

@@ -13,6 +13,7 @@ from ophyd_async.epics.adcore import (
     PluginSignalDataLogic,
 )
 from ophyd_async.epics.advimba import VimbaDetector
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 from hextools.photon_delivery_system.dclm import DCLM, BeamMode, change_energy
 
@@ -21,6 +22,12 @@ from hextools.photon_delivery_system.dclm import DCLM, BeamMode, change_energy
 def dclm() -> DCLM:
     with init_devices(mock=True, child_name_separator="_"):
         dclm = DCLM("TEST:{")
+
+    # Make DCLM motors very fast for tests
+    for _, child in dclm.children():
+        if isinstance(child, AsyncEpicsMotor):
+            set_mock_value(child.velocity, 10000)
+            set_mock_value(child.acceleration_time, 0.0001)
     return dclm
 
 
@@ -107,7 +114,7 @@ async def test_change_energy_with_auto_tune(RE: RunEngine, dclm: DCLM):
 
     fs_camera = _make_fs_camera()
     driver = fs_camera.driver
-    stats1 = fs_camera.get_plugin_by_name("stats1", NDStatsIO)
+    stats1 = fs_camera.get_plugin("stats1", NDStatsIO)
 
     # Simulate a Gaussian peak: read motor position when acquire fires.
     async def on_acquire(value, **_):

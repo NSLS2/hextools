@@ -412,6 +412,8 @@ class QtPlanWidget(QWidget):
 
     def _add_enum_field(self, form, name, enum_cls, param, required):
         combo = QComboBox()
+        if not required and param.default is None:
+            combo.addItem(_NO_SELECTION, None)
         for member in enum_cls:
             combo.addItem(str(member.value), member.value)
         if not required and param.default is not None:

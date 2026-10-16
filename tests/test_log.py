@@ -13,9 +13,9 @@ from bluesky.utils import (
 )
 
 from hextools.log import (
-    LEVEL_COLORS,
-    LOGGER_NAME,
-    ColorFormatter,
+    _LEVEL_COLORS,
+    _LOGGER_NAME,
+    _ColorFormatter,
     configure_logger,
     log_plan_exceptions,
     log_state_changes,
@@ -37,14 +37,14 @@ def _record(level: int, msg: str = "hello") -> logging.LogRecord:
     return logging.LogRecord("x", level, __file__, 1, msg, None, None)
 
 
-@pytest.mark.parametrize("level", sorted(LEVEL_COLORS))
+@pytest.mark.parametrize("level", sorted(_LEVEL_COLORS))
 def test_color_formatter_colors_level_name(level):
-    text = ColorFormatter(fmt="%(levelname)s %(message)s").format(_record(level))
-    assert text == f"{LEVEL_COLORS[level]}{logging.getLevelName(level)}\033[0m hello"
+    text = _ColorFormatter(fmt="%(levelname)s %(message)s").format(_record(level))
+    assert text == f"{_LEVEL_COLORS[level]}{logging.getLevelName(level)}\033[0m hello"
 
 
 def test_color_formatter_can_disable_color():
-    text = ColorFormatter(fmt="%(levelname)s %(message)s", color=False).format(
+    text = _ColorFormatter(fmt="%(levelname)s %(message)s", color=False).format(
         _record(logging.ERROR)
     )
     assert text == "ERROR hello"
@@ -52,17 +52,17 @@ def test_color_formatter_can_disable_color():
 
 def test_color_formatter_does_not_mutate_record():
     record = _record(logging.WARNING)
-    ColorFormatter().format(record)
+    _ColorFormatter().format(record)
     assert record.levelname == "WARNING"
 
 
 def test_color_formatter_leaves_custom_levels_uncolored():
-    text = ColorFormatter(fmt="%(levelname)s").format(_record(25))
+    text = _ColorFormatter(fmt="%(levelname)s").format(_record(25))
     assert "\033[" not in text
 
 
 def test_default_logger_name():
-    assert LOGGER_NAME == "hextools"
+    assert _LOGGER_NAME == "hextools"
 
 
 def test_configure_logger_logs_at_level(logger_name):
@@ -90,13 +90,13 @@ def test_configure_logger_colors_only_terminals_by_default(logger_name):
 
     tty = Terminal()
     configure_logger(logger_name, stream=tty).error("colored")
-    assert LEVEL_COLORS[logging.ERROR] in tty.getvalue()
+    assert _LEVEL_COLORS[logging.ERROR] in tty.getvalue()
 
 
 def test_configure_logger_color_can_be_forced(logger_name):
     stream = io.StringIO()
     configure_logger(logger_name, stream=stream, color=True).info("x")
-    assert LEVEL_COLORS[logging.INFO] in stream.getvalue()
+    assert _LEVEL_COLORS[logging.INFO] in stream.getvalue()
 
 
 def test_configure_logger_replaces_its_own_handler_only(logger_name):

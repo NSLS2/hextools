@@ -1,25 +1,15 @@
 """Export EDXD runs from Tiled to HDF5 and JSON files."""
 
 import json
-from collections.abc import Mapping
 from pathlib import Path
 
 import h5py
-import numpy as np
 from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 
 from hextools.utils import ensure_available
 
-
-def _json_default(obj):
-    if isinstance(obj, Mapping):
-        return dict(obj)
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    if isinstance(obj, np.generic):
-        return obj.item()
-    return str(obj)
+from .utils import _json_default
 
 
 def export_edxd_run_to_h5(

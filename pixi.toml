@@ -6,8 +6,6 @@ platforms = ["linux-64"]
 python = ">=3.11,<3.14"
 algotom = ">=1.7.0,<2"
 ipython = ">=9.16.1,<10"
-tiled-client = ">=0.2.14,<0.3"
-bluesky-tiled-plugins = ">=2.0.9,<3"
 rich = ">=15.0.0,<16"
 pyyaml = ">=6.0.3,<7"
 numpy = ">=2.4.6,<3"
@@ -17,6 +15,7 @@ scikit-image = ">=0.26.0,<0.27"
 h5netcdf = ">=1.8.1,<2"
 nexpy = ">=2.1.0,<3"
 # nslsii = ">=0.11.9,<0.12"
+bluesky-tiled-plugins = ">=2.0.9,<3"
 
 [pypi-dependencies]
 hextools = { path = ".", editable = true }
@@ -77,13 +76,12 @@ myst-parser = ">=5.1.0,<6"
 inflection = ">=0.5.1,<0.6"
 pytest-timeout = ">=2.4.0,<3"
 tiled-server = ">=0.2.14,<0.3"
-# SQLAlchemy 2.1 no longer pulls in greenlet, which tiled-server's async catalog needs.
-greenlet = "*"
 python-build = ">=1.2.2,<2"
 pyside6 = ">=6.11.1,<7"
 yamale = ">=6.1.0,<7"
 hdf5plugin = ">=6.0.0,<8"
 h5py = ">=3.16.0,<4"
+greenlet = ">=3.5.6,<4"
 
 # Runs the profile in mock mode; mock mode needs dev-only packages (uvicorn via
 # tiled-server). Sets its own env because task env does not propagate through

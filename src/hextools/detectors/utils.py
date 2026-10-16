@@ -1,8 +1,16 @@
 """Detector utility functions for HEX beamline."""
 
+import logging
+from collections.abc import Sequence
+
 import bluesky.plan_stubs as bps
 from ophyd_async.core import OnOff
-from ophyd_async.epics.adcore import ADImageMode, NDPluginBaseIO
+from ophyd_async.epics.adcore import (
+    ADImageMode,
+    AreaDetector,
+    NDPluginBaseIO,
+    NDProcessIO,
+)
 from ophyd_async.epics.adkinetix import (
     KinetixDetector,
     KinetixReadoutMode,
@@ -13,6 +21,8 @@ from ophyd_async.epics.advimba import (
     VimbaExposeOutMode,
     VimbaTriggerSource,
 )
+
+logger = logging.getLogger("hextools")
 
 _KINETIX_MAX_SENSOR_SIZE = 3200
 _KINETIX_VALID_BINNING = {1, 2, 4}
@@ -197,9 +207,8 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
         yield from bps.abs_set(cam.driver.acquire, False, wait=True)
 
     if hasattr(cam, "proc"):
-        proc_plugin = cam.proc
-        if isinstance(proc_plugin, NDPluginBaseIO):
-            yield from bps.mv(proc_plugin.enable_callbacks, False)
+        proc_plugin = cam.get_plugin("proc", NDProcessIO)
+        yield from bps.mv(proc_plugin.enable_callbacks, False)
 
     yield from bps.mv(cam.driver.image_mode, ADImageMode.CONTINUOUS)
     if isinstance(cam, KinetixDetector):
@@ -218,3 +227,27 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
     # Since this is a busy record, wait=True will block till
     # the acquisition completes
     yield from bps.abs_set(cam.driver.acquire, True, wait=False)
+
+
+def set_plugin_queue_sizes(
+    dets: AreaDetector | Sequence[AreaDetector], queue_size: int
+):
+    """Set the queue size of all plugins known to ophyd to a given value.
+
+    Parameters
+    ----------
+    dets : AreaDetector | Sequence[AreaDetector]
+        The detector or list of detectors whose plugin queue sizes are to be set.
+    queue_size : int
+        The desired queue size for all plugins.
+    """
+    sigs = []
+    if isinstance(dets, AreaDetector):
+        dets = [dets]
+
+    for det in dets:
+        for _, child in det.children():
+            if isinstance(child, NDPluginBaseIO):
+                sigs.extend([child.queue_size, queue_size])
+
+    yield from bps.mv(*sigs)

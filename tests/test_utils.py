@@ -72,10 +72,10 @@ async def test_auto_init_devices_context_manager_printout(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Initializing devices" in out
     assert "good_motor" in out
-    assert "[  OK  ]" in out
+    assert "[   OK   ]" in out
     # The device that failed to connect is reported as disconnected.
     assert "bad_motor" in out
-    assert "[  DC  ]" in out
+    assert "[ FAILED ]" in out
 
 
 async def test_merge_async_iterables_yields_all_items():
@@ -199,7 +199,7 @@ def mock_namespace(monkeypatch):
 @pytest.mark.parametrize("kwargs", [{}, {"my_var": 42, "other_var": 99.5}])
 def test_ensure_available_only_takes_one_var(mock_namespace, kwargs):
     with pytest.raises(
-        ValueError, match="Can only check availability of a single device at a time."
+        ValueError, match="Can only check availability of a single object at a time."
     ):
         ensure_available(int, **kwargs)
 

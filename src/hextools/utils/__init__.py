@@ -520,8 +520,7 @@ def auto_init_devices(
                 )
                 continue
             line = (
-                f"  {name} {dots} \\[[bold yellow]"
-                f"{fail_message.center(width)}[/bold yellow]]"
+                f"  {name} {dots} \\[[bold red]{fail_message.center(width)}[/bold red]]"
             )
             connected, total = _count_connected_signals(device, e.sub_errors[name])
             if 0 < connected < total:

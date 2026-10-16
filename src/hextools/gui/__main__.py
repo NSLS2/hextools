@@ -92,6 +92,11 @@ from hextools.motors import (
 )
 from hextools.photon_delivery_system import DCLM, Shutter, Slits, change_energy
 from hextools.photon_delivery_system.dclm import change_beam_mode
+from hextools.settings import (
+    apply_device_settings,
+    store_device_settings,
+    store_device_settings_snapshot,
+)
 from hextools.specs import ALL_SPECS
 from hextools.tomography.alignment import tomo_alignment_scan
 from hextools.tomography.flyscans import (
@@ -385,6 +390,15 @@ class QtBeamlineView(QWidget):
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
         plan_tabs.addTab(QtPlanWidget(re_client, reset_scan_id), "Reset Scan ID")
+        plan_tabs.addTab(
+            QtPlanWidget(re_client, store_device_settings_snapshot), "Settings Snapshot"
+        )
+        plan_tabs.addTab(
+            QtPlanWidget(re_client, store_device_settings), "Store Settings"
+        )
+        plan_tabs.addTab(
+            QtPlanWidget(re_client, apply_device_settings), "Apply Settings"
+        )
 
         side = QVBoxLayout()
         side.addWidget(plan_tabs, stretch=1)

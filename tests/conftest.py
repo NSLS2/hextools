@@ -3,6 +3,16 @@ import pprint
 import warnings
 from pathlib import Path
 
+from ophyd_async.core import (
+    StaticPathProvider,
+    UUIDFilenameProvider,
+    callback_on_mock_execute,
+    init_devices,
+    set_mock_value,
+)
+
+from hextools.photon_delivery_system.shutter import Shutter, ShutterStatus
+
 # Pre-import websockets modules that trigger DeprecationWarnings so they are
 # cached in sys.modules before uvicorn's server thread imports them.
 with warnings.catch_warnings():
@@ -12,7 +22,7 @@ with warnings.catch_warnings():
     except (ImportError, Exception):
         pass
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 
 import pytest
 from bluesky._vendor.super_state_machine.errors import TransitionError  # noqa: PLC2701
@@ -141,3 +151,32 @@ def tiled_client(tmp_path: Path) -> Generator[tuple[Path, Container], None, None
     yield tmp_path / "data", client
     client.context.close()
     server.close()
+
+
+@pytest.fixture
+def shutter_factory() -> Callable[[str], Shutter]:
+    def _factory(name: str) -> Shutter:
+        with init_devices(mock=True):
+            shutter = Shutter(name, name=name)
+        # the only two arcs Shutter.set awaits: a command put flips the status readback
+        callback_on_mock_execute(
+            shutter.open_cmd,
+            lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN),
+        )
+        callback_on_mock_execute(
+            shutter.close_cmd,
+            lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED),
+        )
+        return shutter
+
+    return _factory
+
+
+@pytest.fixture
+def two_shutters(shutter_factory: Callable[[str], Shutter]) -> tuple[Shutter, Shutter]:
+    return shutter_factory("front_end_shutter"), shutter_factory("photon_shutter")
+
+
+@pytest.fixture
+def static_path_provider(tmp_path: Path) -> StaticPathProvider:
+    return StaticPathProvider(UUIDFilenameProvider(), tmp_path)
