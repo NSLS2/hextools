@@ -80,6 +80,8 @@ pyside6 = ">=6.11.1,<7"
 yamale = ">=6.1.0,<7"
 hdf5plugin = ">=6.0.0,<8"
 h5py = ">=3.16.0,<4"
+sqlalchemy = ">=2.1.4,<3"
+greenlet = ">=3.5.6,<4"
 
 # Runs the profile in mock mode; lives here because mock mode needs dev-only
 # packages (uvicorn via tiled-server). Sets its own env because task env does not

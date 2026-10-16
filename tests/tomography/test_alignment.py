@@ -353,6 +353,9 @@ def motors() -> tuple[RotationMotor, AsyncEpicsMotor]:
     with init_devices(mock=True):
         rotation_motor = RotationMotor("ROT")
         sample_stage_x = AsyncEpicsMotor("X")
+    for motor in (rotation_motor, sample_stage_x):
+        set_mock_value(motor.velocity, 10000)
+        set_mock_value(motor.acceleration_time, 0.0001)
     return rotation_motor, sample_stage_x
 
 
@@ -360,39 +363,6 @@ def motors() -> tuple[RotationMotor, AsyncEpicsMotor]:
 def static_path_provider(tmp_path: Path) -> StaticPathProvider:
     return StaticPathProvider(UUIDFilenameProvider(), tmp_path)
 
-
-@pytest.fixture
-def kinetix_det_factory(
-    static_path_provider: StaticPathProvider,
-) -> Callable[[int], KinetixDetector]:
-    def _factory(num: int) -> KinetixDetector:
-        with init_devices(mock=True):
-            ktx = KinetixDetector(
-                f"KTX{num}",
-                ADWriterFactory.tiff(static_path_provider),
-                name=f"kinetix{num}",
-            )
-            tiff_plugin = ktx.get_plugin_by_name("tiff", NDPluginFileIO)
-
-        set_mock_value(ktx.driver.array_size_x, 3200)
-        set_mock_value(ktx.driver.array_size_y, 3200)
-        set_mock_value(ktx.driver.data_type, ADBaseDataType.UINT16)
-
-        async def _mock_increment_num_captured(_):
-            current_num_cap = await tiff_plugin.num_captured.get_value()
-            set_mock_value(tiff_plugin.num_captured, current_num_cap + 1)
-
-        callback_on_mock_put(
-            tiff_plugin.capture, lambda _: set_mock_value(tiff_plugin.num_captured, 0)
-        )
-        callback_on_mock_put(ktx.driver.acquire, _mock_increment_num_captured)
-        callback_on_mock_put(
-            tiff_plugin.file_path,
-            lambda _: set_mock_value(tiff_plugin.file_path_exists, True),
-        )
-        return ktx
-
-    return _factory
 
 
 async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
@@ -460,8 +430,7 @@ async def test_tomo_alignment_scan(
         docs.setdefault(name, []).append(doc)
 
     messages: list[Msg] = []
-    # RunEngine declares msg_hook as None, so Pylance rejects assigning a callable.
-    RE.msg_hook = messages.append  # pyright: ignore[reportAttributeAccessIssue]
+    RE.msg_hook = messages.append  # type: ignore
 
     runs: RunEngineResult = RE(
         tomo_alignment_scan(

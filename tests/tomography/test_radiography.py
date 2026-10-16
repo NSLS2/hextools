@@ -26,74 +26,12 @@ from hextools.tomography.radiography import FRAME_PERIOD_MARGIN, take_radiograph
 # --- shutters: same shape as tests/tomography/test_alignment.py ---------------
 
 
-@pytest.fixture
-def shutter_factory() -> Callable[[str], Shutter]:
-    def _factory(name: str) -> Shutter:
-        with init_devices(mock=True):
-            shutter = Shutter(name, name=name)
-        # the only two arcs Shutter.set awaits: a command put flips the status readback
-        callback_on_mock_execute(
-            shutter.open_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN)
-        )
-        callback_on_mock_execute(
-            shutter.close_cmd, lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED)
-        )
-        return shutter
 
-    return _factory
-
-
-@pytest.fixture
-def two_shutters(shutter_factory: Callable[[str], Shutter]) -> tuple[Shutter, Shutter]:
-    return shutter_factory("front_end_shutter"), shutter_factory("photon_shutter")
 
 
 # --- detector: Kinetix with an HDF writer, minimum causal chain ---------------
 
 
-@pytest.fixture
-def static_path_provider(tmp_path: Path) -> StaticPathProvider:
-    return StaticPathProvider(UUIDFilenameProvider(), tmp_path)
-
-
-@pytest.fixture
-def kinetix_hdf_factory(
-    static_path_provider: StaticPathProvider,
-) -> Callable[[int], KinetixDetector]:
-    def _factory(num: int) -> KinetixDetector:
-        with init_devices(mock=True):
-            ktx = KinetixDetector(
-                f"KTX{num}",
-                ADWriterFactory.hdf(static_path_provider),
-                name=f"kinetix{num}",
-            )
-            hdf = ktx.get_plugin_by_name("hdf", NDPluginFileIO)
-
-        # what the descriptor needs to describe the image
-        set_mock_value(ktx.driver.array_size_x, 3200)
-        set_mock_value(ktx.driver.array_size_y, 3200)
-        set_mock_value(ktx.driver.data_type, ADBaseDataType.UINT16)
-
-        async def _one_burst_arrives(_):
-            # internal trigger: one acquire produces a whole burst of num_images frames;
-            # with an external trigger the frames come only from PandA pulses
-            if await ktx.driver.trigger_mode.get_value() != KinetixTriggerMode.INTERNAL:
-                return
-            n = await ktx.driver.num_images.get_value()
-            got = await hdf.num_captured.get_value()
-            set_mock_value(hdf.num_captured, got + n)
-
-        # prepare: setting the directory must make the IOC report it exists
-        callback_on_mock_put(
-            hdf.file_path, lambda _: set_mock_value(hdf.file_path_exists, True)
-        )
-        # prepare: starting capture resets the frame counter
-        callback_on_mock_put(hdf.capture, lambda _: set_mock_value(hdf.num_captured, 0))
-        # trigger: the writer waits on num_captured reaching the expected count
-        callback_on_mock_put(ktx.driver.acquire, _one_burst_arrives)
-        return ktx
-
-    return _factory
 
 
 # --- one row of the happy path, to prove the arcs before the table exists -----
@@ -101,7 +39,7 @@ def kinetix_hdf_factory(
 
 async def test_take_radiograph_single_row(
     RE: RunEngine,
-    kinetix_hdf_factory: Callable[[int], KinetixDetector],
+    kinetix_det_factory: Callable[[int], KinetixDetector],
     two_shutters: tuple[Shutter, Shutter],
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -111,8 +49,7 @@ async def test_take_radiograph_single_row(
 
     fe_shutter, photon_shutter = two_shutters
     set_mock_value(fe_shutter.status, ShutterStatus.OPEN)
-    ktx = kinetix_hdf_factory(1)
-    RE(bps.mv(fe_shutter, True))  # precondition: front end already open
+    ktx = kinetix_det_factory(1)
 
     docs: dict[str, list[dict[str, Any]]] = {}
 
@@ -208,7 +145,7 @@ def panda_pacing(static_path_provider: StaticPathProvider):
                 return
             n = await panda.pulse[1].pulses.get_value()
             for cam in cameras:
-                hdf = cam.get_plugin_by_name("hdf", NDPluginFileIO)
+                hdf = cam.get_plugin("hdf", NDPluginFileIO)
                 set_mock_value(hdf.num_captured, await hdf.num_captured.get_value() + n)
             captured = await panda.data.num_captured.get_value()
             set_mock_value(panda.data.num_captured, captured + n)
@@ -221,13 +158,13 @@ def panda_pacing(static_path_provider: StaticPathProvider):
 
 async def test_external_trigger_radiograph_is_paced_by_the_panda(
     RE: RunEngine,
-    kinetix_hdf_factory: Callable[[int], KinetixDetector],
+    kinetix_det_factory: Callable[[int], KinetixDetector],
     panda_pacing,
     two_shutters: tuple[Shutter, Shutter],
 ):
     exposure_time, acquire_period, num_images, num_iterations = 0.1, 0.2, 19, 2
     fe_shutter, photon_shutter = two_shutters
-    ktx = kinetix_hdf_factory(1)
+    ktx = kinetix_det_factory(1)
     panda = panda_pacing([ktx])
 
     docs: dict[str, list[dict[str, Any]]] = {}
@@ -270,7 +207,7 @@ async def test_external_trigger_radiograph_is_paced_by_the_panda(
 
 def test_external_trigger_without_a_panda_fails_before_arming(
     RE: RunEngine,
-    kinetix_hdf_factory: Callable[[int], KinetixDetector],
+    kinetix_det_factory: Callable[[int], KinetixDetector],
     two_shutters: tuple[Shutter, Shutter],
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -278,7 +215,7 @@ def test_external_trigger_without_a_panda_fails_before_arming(
     # the profile sets this, so trigger() re-arms with the camera's own (external) state
     monkeypatch.setenv("OPHYD_ASYNC_PRESERVE_DETECTOR_STATE", "YES")
     fe_shutter, photon_shutter = two_shutters
-    ktx = kinetix_hdf_factory(1)
+    ktx = kinetix_det_factory(1)
     with pytest.raises(ValueError, match="panda"):
         RE(
             take_radiograph(

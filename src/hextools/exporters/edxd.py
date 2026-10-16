@@ -12,16 +12,7 @@ import json
 
 from hextools.utils import ensure_available
 
-
-def _json_default(obj):
-    if isinstance(obj, Mapping):
-        return dict(obj)
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    if isinstance(obj, np.generic):
-        return obj.item()
-    return str(obj)
-
+from .utils import _json_default
 
 def export_edxd_run_to_h5(
     edxd_scan: BlueskyRunV3 | str | int,

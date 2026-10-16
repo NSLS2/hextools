@@ -311,7 +311,7 @@ def change_energy(
         if fs_window_cam is None or not auto_tune:
             return
 
-        fs_stats = fs_window_cam.get_plugin_by_name(fs_stats_plugin_name, NDStatsIO)
+        fs_stats = fs_window_cam.get_plugin(fs_stats_plugin_name, NDStatsIO)
         if fs_stats is None:
             raise RuntimeError(
                 "Fluorescence screen camera does not have a "

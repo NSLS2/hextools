@@ -480,7 +480,7 @@ def auto_init_devices(timeout: float = 1.0, ok_message = "OK", fail_message = "F
             if name not in failed:
                 console.print(f"  {name} {dots} \\[[bold green]{ok_message.center(width)}[/bold green]]")
                 continue
-            line = f"  {name} {dots} \\[[bold yellow]{fail_message.center(width)}[/bold yellow]]"
+            line = f"  {name} {dots} \\[[bold red]{fail_message.center(width)}[/bold red]]"
             connected, total = _count_connected_signals(device, e.sub_errors[name])
             if 0 < connected < total:
                 line += f" [dim]({connected}/{total} signals connected)[/dim]"

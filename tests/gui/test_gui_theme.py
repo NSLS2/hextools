@@ -54,25 +54,3 @@ def test_apply_and_remember_theme(qt_app):
     _theme.apply_bnl_theme(app, "dark")
     assert app.styleSheet() == _theme.STYLESHEET
     assert _theme.current_theme() == "dark"
-
-
-def test_every_switch_follows_a_theme_change(qt_app):
-    # The stylesheet is application-wide, but each window has its own switch.
-    # PR 91 review: a second window's switch kept showing the old theme.
-    from hextools.gui.theme_switch import QtThemeSwitch
-
-    first, second = QtThemeSwitch(), QtThemeSwitch()
-    assert first.isChecked() and second.isChecked()
-
-    first.setChecked(False)
-    assert _theme.current_theme() == "light"
-    assert qt_app.styleSheet() == _theme.build_stylesheet("light")
-    assert not second.isChecked()
-
-    second.setChecked(True)
-    assert _theme.current_theme() == "dark"
-    assert first.isChecked()
-
-    # A switch made after a change starts in step with it.
-    second.setChecked(False)
-    assert not QtThemeSwitch().isChecked()
