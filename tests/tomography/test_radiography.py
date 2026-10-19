@@ -61,21 +61,15 @@ async def test_take_radiograph_single_row(
         cache_docs,  # type: ignore
     )
 
-    for kind in ("start", "descriptor", "stream_resource", "stop"):
-        assert len(docs[kind]) == 1
-    assert len(docs["event"]) == num_acquisitions
+    # Each acquisition is its own run, so each opens its own file
+    for kind in ("start", "descriptor", "stream_resource", "stop", "event"):
+        assert len(docs[kind]) == num_acquisitions
     assert len(docs["stream_datum"]) == num_acquisitions
+    assert all(start["plan_name"] == "take_radiograph" for start in docs["start"])
 
-    start = docs["start"][0]
-    assert start["plan_name"] == "take_radiograph"
-    assert start["plan_args"]["delay"] == wait
-
-    # bp.count sleeps only for what is left of the delay after each acquisition,
-    # so how many delay sleeps happen depends on timing; longer ones are
-    # shutter settling
-    delay_sleeps = [m for m in messages_by_type.get("sleep", []) if m.args[0] <= wait]
-    assert len(delay_sleeps) <= num_acquisitions - 1
-    assert all(m.args[0] > 0 for m in delay_sleeps)
+    # the gap between runs; longer sleeps are shutter settling
+    delay_sleeps = [m for m in messages_by_type.get("sleep", []) if m.args[0] == wait]
+    assert len(delay_sleeps) == num_acquisitions - 1
 
     assert await ktx.driver.acquire_time.get_value() == exposure_time
     assert await ktx.driver.num_images.get_value() == num_images

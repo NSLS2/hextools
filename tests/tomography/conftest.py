@@ -8,7 +8,7 @@ from ophyd_async.core import (
     set_mock_value,
 )
 from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFileIO
-from ophyd_async.epics.adkinetix import KinetixDetector
+from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 
 
 @pytest.fixture
@@ -32,8 +32,13 @@ def kinetix_det_factory(
         set_mock_value(ktx.driver.data_type, ADBaseDataType.UINT16)
 
         async def _mock_increment_num_captured(_):
+            # One Acquire writes num_images frames, as the real camera does; in an
+            # external trigger mode it waits for edges instead.
+            if await ktx.driver.trigger_mode.get_value() != KinetixTriggerMode.INTERNAL:
+                return
             current_num_cap = await file_plugin.num_captured.get_value()
-            set_mock_value(file_plugin.num_captured, current_num_cap + 1)
+            frames = max(1, await ktx.driver.num_images.get_value())
+            set_mock_value(file_plugin.num_captured, current_num_cap + frames)
 
         callback_on_mock_put(
             file_plugin.capture, lambda _: set_mock_value(file_plugin.num_captured, 0)
