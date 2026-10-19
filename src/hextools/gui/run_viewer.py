@@ -249,8 +249,25 @@ def _fetch_array(stream: Any, info: DatasetInfo) -> tuple[DatasetInfo, Any]:
 
 def _read_frame(
     array: Any, key: tuple[int | slice, ...]
-) -> tuple[Any, tuple[int | slice, ...], np.ndarray]:
-    return array, key, np.asarray(array[key])
+) -> tuple[Any, tuple[int | slice, ...], np.ndarray | None, Exception | None]:
+    # A failure is returned with its request, so a stale one can be told apart.
+    try:
+        return array, key, np.asarray(array[key]), None
+    except Exception as error:
+        return array, key, None, error
+
+
+def _summarise(
+    token: Any, data: np.ndarray
+) -> tuple[Any, Any, tuple[np.ndarray, np.ndarray], dict[str, str]]:
+    """Histogram, percentile density and statistics of ``data``, off the GUI thread."""
+    values = _finite(data)
+    histogram = np.histogram(values, bins=256) if values.size else None
+    stats = {"Shape": str(data.shape), "Type": str(data.dtype)}
+    stats.update(
+        {name: f"{value:.6g}" for name, value in image_statistics(data).items()}
+    )
+    return token, histogram, percentile_density(data), stats
 
 
 def _read_columns(
@@ -291,6 +308,10 @@ class QtRunViewer(QWidget):
         self._other_axes: dict[int, QSpinBox] = {}
         self._frame_worker: Any = None
         self._frame_pending = False
+        self._reset_view = True
+        self._analysis_token: Any = None
+        self._analysis_worker: Any = None
+        self._analysis_pending: tuple[Any, np.ndarray] | None = None
 
         self._status = QLabel("Loading run…")
 
@@ -502,6 +523,7 @@ class QtRunViewer(QWidget):
             widget.setEnabled(False)
         self._set_held_axes([])
         self._image = None
+        self._reset_view = True
         self._image_item.clear()
         self._profile_curve.clear()
         self._line_curve.clear()
@@ -531,6 +553,7 @@ class QtRunViewer(QWidget):
             return
         self._array = array
         self._image = None
+        self._reset_view = True
         self._views.setCurrentIndex(0)
         axes = slice_axes(info.shape)
         self._slice_axis.blockSignals(True)
@@ -546,6 +569,7 @@ class QtRunViewer(QWidget):
         shape = None if self._dataset is None else self._dataset.shape
         length = 1 if axis is None or shape is None else shape[axis]
         self._image = None
+        self._reset_view = True
         self._set_held_axes([] if shape is None else held_axes(shape, axis))
         for widget in (self._slider, self._index):
             widget.blockSignals(True)
@@ -588,14 +612,27 @@ class QtRunViewer(QWidget):
             self._request_frame()
 
     def _show_image(
-        self, result: tuple[Any, tuple[int | slice, ...], np.ndarray]
+        self,
+        result: tuple[
+            Any, tuple[int | slice, ...], np.ndarray | None, Exception | None
+        ],
     ) -> None:
-        array, key, image = result
+        array, key, image, error = result
         info = self._dataset
         # Matching the array alone let a frame the slider had moved past through.
         if array is not self._array or key != self._current_frame_key() or info is None:
             return
-        first = self._image is None
+        if error is not None or image is None:
+            self._image = None
+            self._image_item.clear()
+            self._profile_curve.clear()
+            self._clear_analysis()
+            self._status.setText(
+                f"Error reading {info.stream}/{info.key} at {self._index.value()}: "
+                f"{type(error).__name__}: {error}"
+            )
+            return
+        first, self._reset_view = self._reset_view, False
         self._image = image
         self._image_item.setImage(image, autoLevels=False)
         if first:
@@ -604,7 +641,7 @@ class QtRunViewer(QWidget):
             vertical = self._profile_direction.currentIndex() == 1
             self._profile_line.setValue(image.shape[1 if vertical else 0] // 2)
         self._update_profile()
-        self._update_analysis(image)
+        self._update_analysis(image, (id(array), key))
         self._status.setText(
             f"{info.stream}/{info.key}: image {image.shape}, {image.dtype}"
         )
@@ -634,24 +671,45 @@ class QtRunViewer(QWidget):
         self._profile_curve.setData(np.asarray(profile, dtype=float))
         self._profile_plot.setTitle(f"{'Column' if vertical else 'Row'} {position}")
 
-    def _update_analysis(self, data: np.ndarray) -> None:
-        values = _finite(data)
-        if values.size:
-            counts, edges = np.histogram(values, bins=256)
-            self._histogram_curve.setData(edges, counts)
-        else:
-            self._histogram_curve.setData([], [])
-        self._density_curve.setData(*percentile_density(data))
-        stats = {"Shape": str(data.shape), "Type": str(data.dtype)}
-        stats.update(
-            {name: f"{value:.6g}" for name, value in image_statistics(data).items()}
+    def _update_analysis(self, data: np.ndarray, token: Any) -> None:
+        """Summarise ``data`` in the background; only the latest request waits."""
+        self._analysis_token = token
+        if self._analysis_worker is not None:
+            self._analysis_pending = (token, data)
+            return
+        self._analysis_worker = self._start(
+            _summarise,
+            token,
+            data,
+            returned=self._apply_analysis,
+            finished=self._on_analysis_finished,
         )
+
+    def _on_analysis_finished(self) -> None:
+        self._analysis_worker = None
+        pending, self._analysis_pending = self._analysis_pending, None
+        if pending is not None and pending[0] == self._analysis_token:
+            self._update_analysis(pending[1], pending[0])
+
+    def _apply_analysis(
+        self, result: tuple[Any, Any, tuple[np.ndarray, np.ndarray], dict[str, str]]
+    ) -> None:
+        token, histogram, density, stats = result
+        if token != self._analysis_token:
+            return
+        if histogram is None:
+            self._histogram_curve.setData([], [])
+        else:
+            counts, edges = histogram
+            self._histogram_curve.setData(edges, counts)
+        self._density_curve.setData(*density)
         self._stats_table.setRowCount(len(stats))
         for row, (name, value) in enumerate(stats.items()):
             self._stats_table.setItem(row, 0, QTableWidgetItem(name))
             self._stats_table.setItem(row, 1, QTableWidgetItem(value))
 
     def _clear_analysis(self) -> None:
+        self._analysis_token = None
         self._histogram_curve.setData([], [])
         self._density_curve.setData([], [])
         self._stats_table.setRowCount(0)
@@ -727,7 +785,7 @@ class QtRunViewer(QWidget):
         else:
             self._line_curve.setData(x, y)
         self._line_plot.autoRange()
-        self._update_analysis(y)
+        self._update_analysis(y, (info.stream, info.key))
         if x is not None or x_key == _INDEX:
             self._status.setText(f"{info.stream}/{info.key}: {y.size} value(s)")
 

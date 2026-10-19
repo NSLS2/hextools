@@ -244,7 +244,7 @@ def test_viewer_slices_a_stack_read_from_tiled():
     _select(viewer, "kinetix-det1_image")
     _wait_for(lambda: viewer._image is not None)
     np.testing.assert_array_equal(viewer._image, PROJECTIONS[0, 0])
-    assert viewer._stats_table.rowCount() > 2
+    _wait_for(lambda: viewer._stats_table.rowCount() > 2)
 
     viewer._index.setValue(2)
     _wait_for(lambda: viewer._image is not None and viewer._image[0, 0] == 40)
@@ -476,4 +476,75 @@ def test_viewer_reads_each_column_once():
         QApplication.processEvents()
     assert sorted(stream.lookups) == ["angle", "time"]
     np.testing.assert_array_equal(viewer._line_curve.getData()[1], [10.0, 11.0, 12.0])
+    viewer.close()
+
+
+class FailingFrameArray(FakeArray):
+    """An array whose read of one frame fails, as a Tiled 502 would."""
+
+    def __init__(self, data, bad_index):
+        super().__init__(data)
+        self.bad_index = bad_index
+
+    def __getitem__(self, key):
+        if key[0] == self.bad_index:
+            raise RuntimeError("502 Bad Gateway")
+        return super().__getitem__(key)
+
+
+# PR 96 review: a failed frame read changed only the status, leaving the
+# previous frame and its statistics on screen under the new index.
+def test_viewer_clears_the_image_when_a_frame_read_fails():
+    QApplication.instance() or QApplication([])
+    run = _tomo_run()
+    run["primary"].arrays["kinetix-det1_image"] = FailingFrameArray(PROJECTIONS, 2)
+    viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
+    _wait_for(lambda: viewer._datasets)
+    _select(viewer, "kinetix-det1_image")
+    _wait_for(lambda: viewer._image is not None and viewer._stats_table.rowCount())
+
+    viewer._index.setValue(2)
+    _wait_for(lambda: "502" in viewer._status.text())
+    assert viewer._image is None
+    assert viewer._image_item.image is None
+    assert viewer._stats_table.rowCount() == 0
+    viewer.close()
+
+
+# PR 96 review: statistics of a full Kinetix frame took ~0.9 s on the GUI
+# thread (measured 2026-10-19), freezing the window while scrolling a stack.
+def test_viewer_computes_frame_statistics_off_the_gui_thread(monkeypatch):
+    import hextools.gui.run_viewer as run_viewer
+
+    QApplication.instance() or QApplication([])
+    threads = []
+    statistics = run_viewer.image_statistics
+
+    def spy(data):
+        threads.append(threading.current_thread() is threading.main_thread())
+        return statistics(data)
+
+    monkeypatch.setattr(run_viewer, "image_statistics", spy)
+    viewer = QtRunViewer(FakeClient({"abc": _tomo_run()}), "abc")
+    _wait_for(lambda: viewer._datasets)
+    _select(viewer, "kinetix-det1_image")
+    _wait_for(lambda: viewer._stats_table.rowCount() > 2)
+    assert threads and not any(threads)
+    viewer.close()
+
+
+# PR 96 review: after plotting against time, the X axis kept its "s" unit when
+# switched back to the index, and pyqtgraph went on scaling it as seconds.
+def test_viewer_clears_the_time_unit_when_x_changes():
+    QApplication.instance() or QApplication([])
+    viewer = QtRunViewer(FakeClient({"abc": _tomo_run()}), "abc")
+    _wait_for(lambda: viewer._datasets)
+    _select(viewer, "angle")
+    _wait_for(lambda: viewer._line_curve.getData()[1] is not None)
+    viewer._x_key.setCurrentText("time")
+    _wait_for(lambda: viewer._line_plot.getAxis("bottom").labelUnits == "s")
+
+    viewer._x_key.setCurrentText("Index")
+    _wait_for(lambda: viewer._line_plot.getAxis("bottom").labelText == "Index")
+    assert viewer._line_plot.getAxis("bottom").labelUnits == ""
     viewer.close()
