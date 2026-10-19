@@ -276,8 +276,14 @@ def test_log_state_changes_logs_transitions_and_chains_existing_hook(
         RE(plan())
     RE.resume()
     messages = [(r.levelno, r.getMessage().split(".")[0]) for r in handler.records]
-    assert messages[0] == (logging.INFO, "RunEngine changed from idle to running")
-    assert (logging.WARNING, "RunEngine changed from pausing to paused") in messages
-    assert messages[-1] == (logging.INFO, "RunEngine changed from running to idle")
+    assert messages[0] == (logging.INFO, "Run engine transitioned from idle to running")
+    assert (
+        logging.WARNING,
+        "Run engine transitioned from pausing to paused",
+    ) in messages
+    assert messages[-1] == (
+        logging.INFO,
+        "Run engine transitioned from running to idle",
+    )
     assert len(messages) == len(states)
     assert "paused" in states and states[-1] == "idle"
