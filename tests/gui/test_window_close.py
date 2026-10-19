@@ -97,3 +97,23 @@ def test_interpreter_exit_tears_down_an_open_window(RE, tmp_path, request, monke
         exit_hook()
 
     _assert_torn_down(RE, before, marker)
+
+
+# PR 97 review: a closed window's hooks sit inside a newer window's chain when the
+# older window closes first; they must stop calling into the deleted window.
+@pytest.mark.parametrize("first", ["older", "newer"])
+def test_closing_windows_that_share_a_run_engine(RE, first):
+    QApplication.instance() or QApplication([])
+    InteractiveShell.instance()
+    before = _hooks(RE)
+    older = QtDataAcquisitionWindow(re_client=RE)
+    newer = QtDataAcquisitionWindow(re_client=RE)
+
+    for window in [older, newer] if first == "older" else [newer, older]:
+        window._qt_window.close()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        QCoreApplication.processEvents()
+        RE(count([det], 1))
+        assert RE.state == "idle"
+
+    assert _hooks(RE) == before

@@ -41,6 +41,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from hextools.gui._hook_chain import install_hook, uninstall_hook
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_sources import _walk_namespace
 from hextools.gui.log_watcher import LogWatcher, level_color
@@ -272,43 +273,23 @@ class PlanMonitor(QObject):
         self._namespace = namespace if namespace is not None else {}
         self._current: PlanRecord | None = None
 
-        previous_msg_hook = re.msg_hook
-        self._previous_msg_hook = previous_msg_hook
         self._msg_hook = None
-        if previous_msg_hook is not narrator:
-
-            def msg_hook(msg):
-                if previous_msg_hook is not None:
-                    previous_msg_hook(msg)
-                narrator(msg)
-
-            re.msg_hook = self._msg_hook = msg_hook
-
-        previous_state_hook = re.state_hook
-        self._previous_state_hook = previous_state_hook
-
-        def state_hook(new_state, old_state):
-            self._on_state(str(new_state), str(old_state))
-            if previous_state_hook is not None:
-                previous_state_hook(new_state, old_state)
-
-        re.state_hook = self._state_hook = state_hook
+        if re.msg_hook is not narrator:
+            self._msg_hook = install_hook(re, "msg_hook", narrator)
+        self._state_hook = install_hook(
+            re, "state_hook", lambda new, old: self._on_state(str(new), str(old))
+        )
         self._tokens = [
             re.subscribe(self._on_start, "start"),
             re.subscribe(self._on_document),
         ]
 
     def detach(self) -> None:
-        """Take this monitor's hooks and subscriptions off the RunEngine.
-
-        A hook is restored only while it is still the active one, so a hook
-        installed after this monitor is left in place.
-        """
+        """Take this monitor's hooks and subscriptions off the RunEngine."""
         re = self._re
-        if self._msg_hook is not None and re.msg_hook is self._msg_hook:
-            re.msg_hook = self._previous_msg_hook
-        if re.state_hook is self._state_hook:
-            re.state_hook = self._previous_state_hook
+        if self._msg_hook is not None:
+            uninstall_hook(re, "msg_hook", self._msg_hook)
+        uninstall_hook(re, "state_hook", self._state_hook)
         for token in self._tokens:
             re.unsubscribe(token)
         self._tokens = []

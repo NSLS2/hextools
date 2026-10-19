@@ -65,6 +65,7 @@ from hextools.edxd import (
     edxd_grid_scan,
     edxd_scan,
 )
+from hextools.gui._hook_chain import install_hook, uninstall_hook
 from hextools.gui._theme import apply_bnl_theme, saved_theme
 from hextools.gui.auto_exporter_view import QtAutoExporterView
 from hextools.gui.available_devices import QtAvailableDevices
@@ -705,20 +706,13 @@ class QtDataAcquisitionWindow:
     def _install_state_hook(self, re: RunEngine):
         self._state_signal = _StateSignal(self._qt_window)
         self._state_signal.changed.connect(self._update_re_state)
-        previous_hook = re.state_hook
-
         # Called from the RunEngine's event-loop thread.
-        def state_hook(new_state, old_state):
-            self._state_signal.changed.emit()
-            if previous_hook is not None:
-                previous_hook(new_state, old_state)
-
-        re.state_hook = state_hook
-        self._state_hook, self._previous_state_hook = state_hook, previous_hook
+        self._state_hook = install_hook(
+            re, "state_hook", lambda *_: self._state_signal.changed.emit()
+        )
 
     def _uninstall_state_hook(self, re: RunEngine):
-        if re.state_hook is self._state_hook:
-            re.state_hook = self._previous_state_hook
+        uninstall_hook(re, "state_hook", self._state_hook)
 
     def _update_re_state(self):
         self._re_state_label.setText(self._re_state_text())
