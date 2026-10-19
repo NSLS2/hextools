@@ -119,28 +119,50 @@ def _long_axes(shape: tuple[int, ...]) -> list[int]:
 
 
 def slice_axes(shape: tuple[int, ...]) -> list[int]:
-    """Axes a stack can be sliced along: the last three longer than one, if three."""
+    """Axes a stack can be sliced along: all axes longer than one, if three or more."""
     long_axes = _long_axes(shape)
-    return long_axes[-3:] if len(long_axes) >= 3 else []
+    return long_axes if len(long_axes) >= 3 else []
 
 
-def frame_key(
-    shape: tuple[int, ...], slice_axis: int | None = None, index: int = 0
-) -> tuple[int | slice, ...]:
-    """Index that reads one 2D image out of an array of ``shape``.
+def shown_axes(shape: tuple[int, ...], slice_axis: int | None = None) -> list[int]:
+    """Return the two axes shown as the image when slicing along ``slice_axis``.
 
-    The image is ``index`` along ``slice_axis`` (one of :func:`slice_axes`), or the
-    whole array when only two axes are longer than one. Any other axis is read at 0.
+    Slicing a stack axis shows the last two (the detector image). Slicing an image
+    axis shows the first stack axis against the other image axis: a sinogram.
     """
     long_axes = _long_axes(shape)
     if len(long_axes) < 2:
         raise ValueError(f"Shape {shape} has fewer than two axes longer than one")
-    if slice_axis is None:
-        shown = long_axes[-2:]
-    else:
-        if slice_axis not in slice_axes(shape):
-            raise ValueError(f"Cannot slice shape {shape} along axis {slice_axis}")
-        shown = [axis for axis in long_axes[-3:] if axis != slice_axis]
+    stack, image = long_axes[:-2], long_axes[-2:]
+    if slice_axis is None or slice_axis in stack:
+        return image
+    if slice_axis in image and stack:
+        return [stack[0], next(axis for axis in image if axis != slice_axis)]
+    raise ValueError(f"Cannot slice shape {shape} along axis {slice_axis}")
+
+
+def held_axes(shape: tuple[int, ...], slice_axis: int | None = None) -> list[int]:
+    """Axes longer than one, neither sliced nor shown; each is held at an index."""
+    shown = shown_axes(shape, slice_axis)
+    return [
+        axis for axis in _long_axes(shape) if axis != slice_axis and axis not in shown
+    ]
+
+
+def frame_key(
+    shape: tuple[int, ...],
+    slice_axis: int | None = None,
+    index: int = 0,
+    held: dict[int, int] | None = None,
+) -> tuple[int | slice, ...]:
+    """Index that reads one 2D image out of an array of ``shape``.
+
+    The image is ``index`` along ``slice_axis`` (one of :func:`slice_axes`), or the
+    whole array when only two axes are longer than one. Each of :func:`held_axes`
+    is read at its index in ``held`` (default 0); axes of length one at 0.
+    """
+    shown = shown_axes(shape, slice_axis)
+    held = held or {}
     key: list[int | slice] = []
     for axis in range(len(shape)):
         if axis == slice_axis:
@@ -148,7 +170,7 @@ def frame_key(
         elif axis in shown:
             key.append(slice(None))
         else:
-            key.append(0)
+            key.append(held.get(axis, 0))
     return tuple(key)
 
 
@@ -233,8 +255,15 @@ def _read_frame(
 
 def _read_columns(
     stream: Any, stream_name: str, keys: list[str]
-) -> dict[tuple[str, str], np.ndarray]:
-    return {(stream_name, key): np.asarray(stream[key].read()).ravel() for key in keys}
+) -> tuple[str, list[str], dict[tuple[str, str], np.ndarray], Exception | None]:
+    # A failure is returned, not raised, so the caller can release these keys.
+    try:
+        columns = {
+            (stream_name, key): np.asarray(stream[key].read()).ravel() for key in keys
+        }
+    except Exception as error:
+        return stream_name, keys, {}, error
+    return stream_name, keys, columns, None
 
 
 class QtRunViewer(QWidget):
@@ -258,6 +287,8 @@ class QtRunViewer(QWidget):
         self._array: Any = None
         self._image: np.ndarray | None = None
         self._columns: dict[tuple[str, str], np.ndarray] = {}
+        self._columns_loading: set[tuple[str, str]] = set()
+        self._other_axes: dict[int, QSpinBox] = {}
         self._frame_worker: Any = None
         self._frame_pending = False
 
@@ -349,6 +380,8 @@ class QtRunViewer(QWidget):
         controls.addWidget(self._slice_axis)
         controls.addWidget(self._slider, stretch=1)
         controls.addWidget(self._index)
+        self._held_bar = QHBoxLayout()
+        controls.addLayout(self._held_bar)
         controls.addWidget(QLabel("Profile:"))
         controls.addWidget(self._profile_direction)
         controls.addWidget(self._zoom_box)
@@ -451,12 +484,44 @@ class QtRunViewer(QWidget):
             return
         self._dataset = info
         self._array = None
+        self._reset_for_selection()
         self._status.setText(f"Loading {info.stream}/{info.key}…")
         if info.is_image:
             stream = self._streams[info.stream]
             self._start(_fetch_array, stream, info, returned=self._on_array_ready)
         else:
             self._show_plot_page(info)
+
+    def _reset_for_selection(self) -> None:
+        """Clear the previous dataset's display and disable its controls."""
+        self._slice_axis.blockSignals(True)
+        self._slice_axis.clear()
+        self._slice_axis.blockSignals(False)
+        self._slice_axis.setEnabled(False)
+        for widget in (self._slider, self._index):
+            widget.setEnabled(False)
+        self._set_held_axes([])
+        self._image = None
+        self._image_item.clear()
+        self._profile_curve.clear()
+        self._line_curve.clear()
+        self._clear_analysis()
+
+    def _set_held_axes(self, axes: list[int]) -> None:
+        while self._held_bar.count():
+            item = self._held_bar.takeAt(0)
+            widget = None if item is None else item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._other_axes = {}
+        shape = None if self._dataset is None else self._dataset.shape
+        for axis in axes:
+            spin = QSpinBox()
+            spin.setRange(0, (shape[axis] if shape else 1) - 1)
+            spin.valueChanged.connect(self._request_frame)
+            self._held_bar.addWidget(QLabel(f"Axis {axis}:"))
+            self._held_bar.addWidget(spin)
+            self._other_axes[axis] = spin
 
     # Images
 
@@ -481,6 +546,7 @@ class QtRunViewer(QWidget):
         shape = None if self._dataset is None else self._dataset.shape
         length = 1 if axis is None or shape is None else shape[axis]
         self._image = None
+        self._set_held_axes([] if shape is None else held_axes(shape, axis))
         for widget in (self._slider, self._index):
             widget.blockSignals(True)
             widget.setRange(0, length - 1)
@@ -493,7 +559,10 @@ class QtRunViewer(QWidget):
         if self._array is None or self._dataset is None or self._dataset.shape is None:
             return None
         return frame_key(
-            self._dataset.shape, self._slice_axis.currentData(), self._index.value()
+            self._dataset.shape,
+            self._slice_axis.currentData(),
+            self._index.value(),
+            {axis: spin.value() for axis, spin in self._other_axes.items()},
         )
 
     def _request_frame(self, _value: int = 0) -> None:
@@ -614,15 +683,20 @@ class QtRunViewer(QWidget):
         if x_key and x_key != _INDEX:
             keys.append(x_key)
         missing = [key for key in keys if (info.stream, key) not in self._columns]
-        if missing:
+        to_read = [
+            key for key in missing if (info.stream, key) not in self._columns_loading
+        ]
+        if to_read:
+            self._columns_loading.update((info.stream, key) for key in to_read)
             stream = self._streams[info.stream]
             self._start(
                 _read_columns,
                 stream,
                 info.stream,
-                missing,
+                to_read,
                 returned=self._on_columns_read,
             )
+        if missing:
             return
         y = _numeric(self._columns[(info.stream, info.key)])
         if y is None:
@@ -657,6 +731,27 @@ class QtRunViewer(QWidget):
         if x is not None or x_key == _INDEX:
             self._status.setText(f"{info.stream}/{info.key}: {y.size} value(s)")
 
-    def _on_columns_read(self, columns: dict[tuple[str, str], np.ndarray]) -> None:
+    def _on_columns_read(
+        self,
+        result: tuple[
+            str, list[str], dict[tuple[str, str], np.ndarray], Exception | None
+        ],
+    ) -> None:
+        stream_name, keys, columns, error = result
+        self._columns_loading.difference_update((stream_name, key) for key in keys)
         self._columns.update(columns)
-        self._plot_1d()
+        info = self._dataset
+        if info is None or info.is_image or info.stream != stream_name:
+            return
+        x_key = self._x_key.currentText()
+        needed = [info.key] + ([x_key] if x_key and x_key != _INDEX else [])
+        if error is not None:
+            # Not replotted: that would start the failed read again.
+            if set(needed) & set(keys):
+                self._status.setText(
+                    f"Error reading {stream_name}/{', '.join(keys)}: "
+                    f"{type(error).__name__}: {error}"
+                )
+            return
+        if all((info.stream, key) in self._columns for key in needed):
+            self._plot_1d()

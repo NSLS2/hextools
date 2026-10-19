@@ -39,6 +39,8 @@ class FakeArray:
         return self.data[key]
 
     def read(self):
+        if isinstance(self.data, Exception):
+            raise self.data
         return self.data
 
 
@@ -60,6 +62,10 @@ class FakeStream:
             **columns,
         }
         self.arrays = {key: FakeArray(value) for key, value in arrays.items()}
+        # Lookups wait while the gate is closed, as a slow Tiled would.
+        self.gate = threading.Event()
+        self.gate.set()
+        self.lookups = []
 
     def get_contents(self):
         contents = {
@@ -86,6 +92,8 @@ class FakeStream:
         return contents
 
     def __getitem__(self, key):
+        self.gate.wait(5)
+        self.lookups.append(key)
         if key in self.arrays:
             return self.arrays[key]
         return FakeArray(self._columns[key])
@@ -368,4 +376,104 @@ def test_viewer_refuses_to_plot_text_values(axis):
         # Plotted against the index instead.
         np.testing.assert_array_equal(viewer._line_curve.getData()[0], [0, 1, 2])
         np.testing.assert_array_equal(viewer._line_curve.getData()[1], ANGLES)
+    viewer.close()
+
+
+# (events, frames per event, rows, columns): averaging takes several frames per event.
+AVERAGED = np.arange(3 * 2 * 4 * 5, dtype="uint16").reshape(3, 2, 4, 5)
+
+
+def test_frame_key_reaches_every_axis_of_an_averaged_stack():
+    shape = AVERAGED.shape
+    assert slice_axes(shape) == [0, 1, 2, 3]
+    assert frame_key(shape, 0, 2, {1: 1}) == (2, 1, slice(None), slice(None))
+    # A sinogram runs across events, with the frame within each event held.
+    assert frame_key(shape, 2, 3, {1: 1}) == (slice(None), 1, 3, slice(None))
+
+
+def _averaged_run():
+    run = _tomo_run()
+    run["primary"].arrays["kinetix-det1_image"] = FakeArray(AVERAGED)
+    run["primary"].arrays["roi"] = FakeArray(np.ones((4, 5)))
+    return run
+
+
+# PR 96 review: with several frames per event, only the first event's frames
+# could be reached; the event axis was always read at 0.
+def test_viewer_navigates_events_and_frames_of_an_averaged_stack():
+    QApplication.instance() or QApplication([])
+    viewer = QtRunViewer(FakeClient({"abc": _averaged_run()}), "abc")
+    _wait_for(lambda: viewer._datasets)
+    _select(viewer, "kinetix-det1_image")
+    _wait_for(lambda: viewer._image is not None)
+    assert list(viewer._other_axes) == [1]
+    viewer._other_axes[1].setValue(1)
+    viewer._index.setValue(2)
+    _wait_for(
+        lambda: (
+            viewer._image is not None and viewer._image[0, 0] == AVERAGED[2, 1, 0, 0]
+        )
+    )
+    viewer.close()
+
+
+# PR 96 review: the previous stack's slice-axis choices stayed live while the
+# next dataset loaded, and picking axis 2 for a 2D array raised IndexError.
+def test_viewer_disables_slicing_while_the_next_dataset_loads(monkeypatch):
+    QApplication.instance() or QApplication([])
+    errors = []
+    monkeypatch.setattr("sys.excepthook", lambda *exc: errors.append(exc[1]))
+    run = _averaged_run()
+    viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
+    _wait_for(lambda: viewer._datasets)
+    _select(viewer, "kinetix-det1_image")
+    _wait_for(lambda: viewer._image is not None and viewer._frame_worker is None)
+
+    run["primary"].gate.clear()
+    _select(viewer, "roi")
+    assert not viewer._slice_axis.isEnabled()
+    viewer._slice_axis.setCurrentIndex(2)
+    run["primary"].gate.set()
+    _wait_for(lambda: viewer._image is not None and viewer._image.shape == (4, 5))
+    assert errors == []
+    viewer.close()
+
+
+# PR 96 review: a failed read left the previous dataset's curve and statistics
+# on screen under the new dataset's name.
+def test_viewer_clears_the_old_plot_when_a_read_fails():
+    QApplication.instance() or QApplication([])
+    run = _tomo_run()
+    run["primary"]._columns["broken"] = RuntimeError("502 Bad Gateway")
+    viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
+    _wait_for(lambda: viewer._datasets)
+    _select(viewer, "angle")
+    _wait_for(lambda: viewer._line_curve.getData()[1] is not None)
+
+    _select(viewer, "broken")
+    _wait_for(lambda: "502" in viewer._status.text())
+    assert viewer._line_curve.getData()[1] is None
+    assert viewer._stats_table.rowCount() == 0
+    viewer.close()
+
+
+# PR 96 review: each finished column read replotted the current selection, and
+# started a second read of a column already being read.
+def test_viewer_reads_each_column_once():
+    QApplication.instance() or QApplication([])
+    run = _tomo_run()
+    stream = run["primary"]
+    viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
+    _wait_for(lambda: viewer._datasets)
+
+    stream.gate.clear()
+    _select(viewer, "angle")
+    _select(viewer, "time")
+    stream.gate.set()
+    _wait_for(lambda: viewer._line_curve.getData()[1] is not None)
+    _wait_for(lambda: len(stream.lookups) >= 2)
+    for _ in range(20):
+        QApplication.processEvents()
+    assert sorted(stream.lookups) == ["angle", "time"]
+    np.testing.assert_array_equal(viewer._line_curve.getData()[1], [10.0, 11.0, 12.0])
     viewer.close()
