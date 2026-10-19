@@ -344,7 +344,7 @@ def saved_theme() -> str:
     from qtpy.QtCore import QSettings
 
     value = QSettings("NSLS2", "hextools-gui").value(_SETTINGS_KEY, DEFAULT_THEME)
-    return value if value in THEMES else DEFAULT_THEME
+    return value if value in THEMES else DEFAULT_THEME  # ty: ignore[invalid-return-type]
 
 
 def save_theme(theme: str) -> None:
@@ -363,5 +363,5 @@ def apply_bnl_theme(app=None, theme: str = DEFAULT_THEME):
 
         app = QApplication.instance()
     if app is not None:
-        app.setStyleSheet(stylesheet)
+        app.setStyleSheet(stylesheet)  # ty: ignore[unresolved-attribute]
         _current_theme = theme

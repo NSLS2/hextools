@@ -29,7 +29,7 @@ try:
 
     _DEVICE_BASES.append(_AsyncDevice)
 except ImportError:  # pragma: no cover
-    _AsyncDevice = None  # type: ignore[assignment,misc]
+    _AsyncDevice = None  # type: ignore[assignment,misc]  # ty: ignore[invalid-assignment]
 try:
     from ophyd import Device as _OphydDevice
 
@@ -125,9 +125,9 @@ class QtAvailableDevices(QWidget):
 
         self._signal_refresh.connect(self._refresh)
         if self._is_qserver:
-            events = self._re_client.events  # type: ignore[union-attr]
-            events.allowed_devices_changed.connect(self._on_model_changed)
-            events.allowed_plans_changed.connect(self._on_model_changed)
+            events = self._re_client.events  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            events.allowed_devices_changed.connect(self._on_model_changed)  # ty: ignore[unresolved-attribute]
+            events.allowed_plans_changed.connect(self._on_model_changed)  # ty: ignore[unresolved-attribute]
         else:
             # Polling also picks up devices created or deleted at the IPython prompt.
             self._timer = QTimer(self)
@@ -197,10 +197,10 @@ class QtAvailableDevices(QWidget):
 
     def closeEvent(self, event):
         if self._is_qserver:
-            events = self._re_client.events  # type: ignore[union-attr]
+            events = self._re_client.events  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
             for emitter in (
-                events.allowed_devices_changed,
-                events.allowed_plans_changed,
+                events.allowed_devices_changed,  # ty: ignore[unresolved-attribute]
+                events.allowed_plans_changed,  # ty: ignore[unresolved-attribute]
             ):
                 try:
                     emitter.disconnect(self._on_model_changed)

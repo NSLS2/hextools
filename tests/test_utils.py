@@ -110,7 +110,7 @@ def test_proposal_id_prompt_tokens():
     fake_re = SimpleNamespace(md={"data_session": "pass-42"})
     fake_shell = SimpleNamespace(execution_count=7)
 
-    tokens = ProposalIDPrompt(fake_re, fake_shell).in_prompt_tokens()  # type: ignore[invalid-argument-type]
+    tokens = ProposalIDPrompt(fake_re, fake_shell).in_prompt_tokens()  # type: ignore[invalid-argument-type]  # ty: ignore[invalid-argument-type]
 
     text = "".join(value for _, value in tokens)
     assert "pass-42" in text
@@ -121,7 +121,7 @@ def test_proposal_id_prompt_defaults_when_missing():
     fake_re = SimpleNamespace(md={})
     fake_shell = SimpleNamespace(execution_count=1)
 
-    prompt = ProposalIDPrompt(fake_re, fake_shell)  # type: ignore[invalid-argument-type]
+    prompt = ProposalIDPrompt(fake_re, fake_shell)  # type: ignore[invalid-argument-type]  # ty: ignore[invalid-argument-type]
     text = "".join(value for _, value in prompt.in_prompt_tokens())
     assert "N/A" in text
 

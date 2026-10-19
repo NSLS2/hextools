@@ -46,7 +46,7 @@ def gui_qt(app_name):
         global _our_app_name
         _our_app_name = app_name
     else:
-        app._existed = True
+        app._existed = True  # ty: ignore[invalid-assignment]
     app.aboutToQuit.connect(wait_for_workers_to_quit)
     yield app
     # if the application already existed before this function was called,

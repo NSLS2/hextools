@@ -356,7 +356,7 @@ def set_max_thread_count(num: int):
     QThreadPool.globalInstance().setMaxThreadCount(num)
 
 
-def wait_for_workers_to_quit(msecs: int = None):
+def wait_for_workers_to_quit(msecs: int = None):  # ty: ignore[invalid-parameter-default]
     """Ask all workers to quit, and wait up to `msec` for quit.
 
     Attempts to clean up all running workers by calling ``worker.quit()``
