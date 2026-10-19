@@ -163,7 +163,7 @@ def log_state_changes(
         new, old = str(new_state), str(old_state)
         if new == "paused":
             log.warning(
-                f"Run engine transitioned from {old} to {new}." \
+                f"Run engine transitioned from {old} to {new}. "
                 "Resume, stop, abort, or halt the RunEngine to continue.",
             )
         elif new == "panicked":

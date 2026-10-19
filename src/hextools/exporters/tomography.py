@@ -39,15 +39,15 @@ def export_tomo_flyscan_to_h5(
     run_start = run.start
     proposal, cycle, scan_id = confirm_required_start_fields(run_start)
     logger.info(
-        f"Exporting tomography scan {scan_id} (uid {run_start.get('uid')})" \
-        " for proposal {proposal}, cycle {cycle}"
+        f"Exporting tomography scan {scan_id} (uid {run_start.get('uid')})"
+        f" for proposal {proposal}, cycle {cycle}"
     )
 
     dark_flat_uid = dark_flat_id or run_start.get("last_dark_flat_uid")
 
     if dark_flat_uid is None:
         logger.warning(
-            "No last_dark_flat_uid found in the run start document.",
+            "No last_dark_flat_uid found in the run start document. "
             "Omitting dark/flat entries"
         )
         dark_flat_run = None
@@ -82,8 +82,8 @@ def export_tomo_flyscan_to_h5(
             missing = set(det_names) - found.keys()
             if missing:
                 logger.warning(
-                    f"Dark/flat run {dark_flat_uid} has no {stream_name} data for",
-                    sorted(missing)
+                    f"Dark/flat run {dark_flat_uid} has no {stream_name} data for "
+                    f"{sorted(missing)}"
                 )
             for name in set(det_names) & found.keys():
                 relpath, dataset, _ = found[name]

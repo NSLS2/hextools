@@ -169,6 +169,8 @@ lint.select = [
     "SLF",     # self - https://docs.astral.sh/ruff/settings/#lintflake8-self
     "PLC2701", # private import - https://docs.astral.sh/ruff/rules/import-private-name/
     "LOG015",  # root logger call - https://docs.astral.sh/ruff/rules/root-logger-call/
+    "PLE1205", # too many logging args - https://docs.astral.sh/ruff/rules/logging-too-many-args/
+    "PLE1206", # too few logging args - https://docs.astral.sh/ruff/rules/logging-too-few-args/
     "S101",    # assert - https://docs.astral.sh/ruff/rules/assert/
     "D",       # docstring - https://docs.astral.sh/ruff/rules/#pydocstyle-d
 ]
