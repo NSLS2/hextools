@@ -123,6 +123,10 @@ class QtAutoExporterView(QWidget):
             self._process.kill()
             self._process.waitForFinished(1000)
 
+    def closeEvent(self, event):
+        self.stop()
+        super().closeEvent(event)
+
     @Slot()
     def _on_started(self) -> None:
         self._status.setText(f"Running (pid {self._process.processId()})")

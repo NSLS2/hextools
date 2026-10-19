@@ -8,6 +8,7 @@ from bluesky_widgets.models.run_engine_client import RunEngineClient
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
+from ._hook_chain import live_hook, uninstall_hook
 from ._threading import FunctionWorker
 
 
@@ -147,16 +148,20 @@ class _WaitingHookDispatcher:
 
     def __init__(self, monitor: "QtReWaitingHookMonitor", previous_hook=None):
         self._monitor = monitor
-        self._previous_hook = previous_hook
+        self.previous = previous_hook
+        self.detached = False
         self._names: dict[int, str] = {}  # id(status) -> device name
 
     def __call__(self, status_objects):
         # Pass through to any pre-existing hook first.
-        if self._previous_hook is not None:
+        previous = live_hook(self.previous)
+        if previous is not None:
             try:
-                self._previous_hook(status_objects)
+                previous(status_objects)
             except Exception:
                 pass
+        if self.detached:
+            return
 
         if status_objects is None:
             self._names.clear()
@@ -176,6 +181,8 @@ class _WaitingHookDispatcher:
                 pass
 
     def _on_watch(self, status, *, name=None, **kwargs):
+        if self.detached:
+            return
         if name is None:
             name = self._names.get(id(status))
         else:
@@ -186,6 +193,8 @@ class _WaitingHookDispatcher:
         self._monitor.signal_progress_update.emit(msg)
 
     def _on_finished(self, status=None, *args, **kwargs):
+        if self.detached:
+            return
         name = self._names.get(id(status)) if status is not None else None
         if name is None and status is not None:
             name = getattr(getattr(status, "device", None), "name", None)
@@ -215,7 +224,6 @@ class QtReWaitingHookMonitor(QWidget):
 
         self._re_client = re_client
         self._hook: _WaitingHookDispatcher | None = None
-        self._previous_hook = None
         self._thread = None
 
         # Maps device name -> _ReDeviceProgressBar
@@ -272,17 +280,16 @@ class QtReWaitingHookMonitor(QWidget):
 
     def _install_waiting_hook(self):
         run_engine = self._re_client
-        self._previous_hook = getattr(run_engine, "waiting_hook", None)
-        self._hook = _WaitingHookDispatcher(self, self._previous_hook)
+        self._hook = _WaitingHookDispatcher(
+            self, getattr(run_engine, "waiting_hook", None)
+        )
         run_engine.waiting_hook = self._hook
 
     def _uninstall_waiting_hook(self):
         run_engine = self._re_client
         if isinstance(run_engine, RunEngineClient) or self._hook is None:
             return
-        # Only restore if our hook is still the active one.
-        if getattr(run_engine, "waiting_hook", None) is self._hook:
-            run_engine.waiting_hook = self._previous_hook
+        uninstall_hook(run_engine, "waiting_hook", self._hook)
         self._hook = None
 
     # -- Shared display logic --------------------------------------------------
