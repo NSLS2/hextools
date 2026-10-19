@@ -168,11 +168,18 @@ async def test_external_trigger_radiograph_is_paced_by_the_panda(
         cache_docs,  # type: ignore
     )
 
-    assert docs["stop"][0]["exit_status"] == "success"
-    assert {d["data_key"] for d in docs["stream_resource"]} == {"kinetix1", "Angle"}
-    # one stream_datum per device per burst
-    assert len(docs["stream_datum"]) == 2 * num_iterations
-    assert await ktx.driver.trigger_mode.get_value() != KinetixTriggerMode.INTERNAL
+    # Each burst is its own run. The PandA paces the camera but is not recorded,
+    # so no Angle (dropped in ecd0b0d; may be revisited).
+    assert len(docs["start"]) == num_iterations
+    assert all(stop["exit_status"] == "success" for stop in docs["stop"])
+    assert {d["data_key"] for d in docs["stream_resource"]} == {"kinetix1"}
+    assert len(docs["stream_datum"]) == num_iterations
+    # armed for external edges during the bursts; cleanup returns it to preview
+    modes = [
+        call.args[0] for call in get_mock_put(ktx.driver.trigger_mode).call_args_list
+    ]
+    assert any(mode != KinetixTriggerMode.INTERNAL for mode in modes)
+    assert await ktx.driver.trigger_mode.get_value() == KinetixTriggerMode.INTERNAL
 
     pulse = panda.pulse[1]
     assert await pulse.pulses.get_value() == num_images
