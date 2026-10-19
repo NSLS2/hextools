@@ -170,7 +170,7 @@ class QtOrganizeQueueWidgets(QSplitter):
         super().__init__(*args, **kwargs)
         self.model = model
 
-        self.setOrientation(Qt.Vertical)
+        self.setOrientation(Qt.Orientation.Vertical)
 
         self._frame_1 = QFrame(self)
         self._frame_2 = QFrame(self)

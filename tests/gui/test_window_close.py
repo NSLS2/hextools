@@ -12,7 +12,7 @@ pytest.importorskip("bluesky_widgets")
 import pyqtgraph as pg  # noqa: E402
 from bluesky.plans import count  # noqa: E402
 from IPython.core.interactiveshell import InteractiveShell  # noqa: E402
-from ophyd.sim import det  # noqa: E402
+from ophyd.sim import det  # noqa: E402  # type: ignore
 from qtpy.QtCore import QCoreApplication, QEvent, QProcess  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
@@ -45,7 +45,7 @@ def _open_window(RE, tmp_path, request):
         "time.sleep(60)\n"
     )
     start = exporter._process.start
-    exporter._process.start = lambda *_: start(sys.executable, ["-c", child])
+    exporter._process.start = lambda *_: start(sys.executable, ["-c", child])  # type: ignore
     exporter.start()
     assert exporter._process.waitForReadyRead(10000)
     assert exporter._process.state() == QProcess.ProcessState.Running

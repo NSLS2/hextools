@@ -100,7 +100,7 @@ class QtWeatherWidget(QWidget):
             self._temp_label,
             self._condition_label,
         ):
-            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
         form = QFormLayout()
         form.setContentsMargins(8, 6, 8, 6)

@@ -31,12 +31,12 @@ from enum import Enum
 try:
     from ophyd import Device
 except ImportError:
-    Device = None
+    Device = None  # type: ignore
 
 try:
     from ophyd_async.core import Device as AsyncDevice
 except ImportError:
-    AsyncDevice = None
+    AsyncDevice = None  # type: ignore
 
 import docstring_parser
 import IPython
@@ -315,7 +315,9 @@ class QtPlanWidget(QWidget):
 
         self._status_label = QLabel("")
         self._status_label.setWordWrap(True)
-        self._status_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._status_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         vbox.addWidget(self._status_label)
 
         group_box.setLayout(vbox)
@@ -402,7 +404,7 @@ class QtPlanWidget(QWidget):
                 widget.setValidator(QIntValidator(widget))
             elif kind is float:
                 validator = QDoubleValidator(widget)
-                validator.setNotation(QDoubleValidator.StandardNotation)
+                validator.setNotation(QDoubleValidator.Notation.StandardNotation)
                 widget.setValidator(validator)
             if not required and param.default is not None:
                 widget.setText(str(param.default))
@@ -432,7 +434,7 @@ class QtPlanWidget(QWidget):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.addWidget(selector)
         box.setLayout(layout)
-        box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         vbox.addWidget(box)
         self._device_fields.append(
             {
@@ -515,9 +517,9 @@ class QtPlanWidget(QWidget):
 
         for name, kind, widget, required in self._scalar_fields:
             if kind is bool:
-                kwargs[name] = widget.isChecked()
+                kwargs[name] = widget.isChecked()  # type: ignore
                 continue
-            text = widget.text().strip()
+            text = widget.text().strip()  # type: ignore
             if not text:
                 if required:
                     raise ValueError(f"'{name}' is required")
@@ -530,7 +532,7 @@ class QtPlanWidget(QWidget):
                 raise ValueError(f"'{name}' is not a valid {kind.__name__}") from ex
 
         for name, kind, widget, required in self._scalar_list_fields:
-            text = widget.text().strip()
+            text = widget.text().strip()  # type: ignore
             elems = [e.strip() for e in text.split(",") if e.strip()]
             if not elems:
                 if required:

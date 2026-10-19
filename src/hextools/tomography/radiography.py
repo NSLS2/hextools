@@ -81,7 +81,7 @@ def take_radiograph(
         if any(isinstance(det, ContAcqDetector) for det in detectors):
             raise ValueError("External triggering is not supported for ContAcqDetector")
         panda = ensure_available(HDFPanda, panda=panda)
-        bits = panda.bits  # type: ignore[attr-defined]  # discovered from the IOC
+        bits = panda.bits  # type: ignore  # discovered from the IOC
         pulse = panda.pulse[1]
 
     if acquire_period <= exposure_time:

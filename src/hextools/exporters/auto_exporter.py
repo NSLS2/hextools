@@ -77,12 +77,12 @@ def auto_export_run(
 
     failed = []
     for exporter in exporters:
-        logger.info(f"Running {exporter.__name__} for run {uid}")
+        logger.info(f"Running {exporter.__name__} for run {uid}")  # type: ignore
         try:
             exporter(run, tiled_client=catalog)
         except Exception:
-            logger.exception(f"{exporter.__name__} failed for run {uid}")
-            failed.append(exporter.__name__)
+            logger.exception(f"{exporter.__name__} failed for run {uid}")  # type: ignore
+            failed.append(exporter.__name__)  # type: ignore
 
     if csv_path is not None:
         _record_run(Path(csv_path), run, succeeded=not failed)

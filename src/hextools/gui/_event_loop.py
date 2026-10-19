@@ -35,7 +35,7 @@ def gui_qt(app_name):
         # automatically determine monitor DPI.
         # Note: this MUST be set before the QApplication is instantiated
         if qtpy.QT5:
-            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+            QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling)
         elif qtpy.QT6:
             QApplication.setHighDpiScaleFactorRoundingPolicy(
                 Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
@@ -46,7 +46,7 @@ def gui_qt(app_name):
         global _our_app_name
         _our_app_name = app_name
     else:
-        app._existed = True
+        app._existed = True  # type: ignore
     app.aboutToQuit.connect(wait_for_workers_to_quit)
     yield app
     # if the application already existed before this function was called,

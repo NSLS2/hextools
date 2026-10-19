@@ -359,7 +359,7 @@ def tomo_flyscan(
 
         try:
             yield from _fly_stub(
-                all_devices,
+                all_devices,  # type: ignore
                 collect_flush_period=max(1, exposure_time + overhead),
                 stream_name="primary",
             )

@@ -34,12 +34,12 @@ try:  # ophyd_async devices (used throughout hextools).
     _BASES: list[type] = [_AsyncDevice]
     _SIGNAL_BASES.append(_AsyncSignal)
 except Exception:  # pragma: no cover - optional dependency layout
-    _AsyncDevice = _DeviceVector = None  # type: ignore[assignment,misc]
+    _AsyncDevice = _DeviceVector = None  # type: ignore
     _BASES = []
 try:
     from ophyd_async.core import DeviceMap as _DeviceMap
 except Exception:  # pragma: no cover - older ophyd_async
-    _DeviceMap = None  # type: ignore[assignment,misc]
+    _DeviceMap = None  # type: ignore
 try:  # classic ophyd devices, if present.
     from ophyd.ophydobj import OphydObject as _OphydObject
     from ophyd.signal import Signal as _OphydSignal
