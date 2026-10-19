@@ -50,6 +50,7 @@ gui = [
     "tiled[client]",
     "bluesky-tiled-plugins",
     "matplotlib",
+    "pyqtgraph",
     "qtpy",
     "pyside6",
     "pexpect",
