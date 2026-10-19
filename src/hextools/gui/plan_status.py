@@ -273,6 +273,8 @@ class PlanMonitor(QObject):
         self._current: PlanRecord | None = None
 
         previous_msg_hook = re.msg_hook
+        self._previous_msg_hook = previous_msg_hook
+        self._msg_hook = None
         if previous_msg_hook is not narrator:
 
             def msg_hook(msg):
@@ -280,18 +282,36 @@ class PlanMonitor(QObject):
                     previous_msg_hook(msg)
                 narrator(msg)
 
-            re.msg_hook = msg_hook
+            re.msg_hook = self._msg_hook = msg_hook
 
         previous_state_hook = re.state_hook
+        self._previous_state_hook = previous_state_hook
 
         def state_hook(new_state, old_state):
             self._on_state(str(new_state), str(old_state))
             if previous_state_hook is not None:
                 previous_state_hook(new_state, old_state)
 
-        re.state_hook = state_hook
-        self._start_token = re.subscribe(self._on_start, "start")
-        self._document_token = re.subscribe(self._on_document)
+        re.state_hook = self._state_hook = state_hook
+        self._tokens = [
+            re.subscribe(self._on_start, "start"),
+            re.subscribe(self._on_document),
+        ]
+
+    def detach(self) -> None:
+        """Take this monitor's hooks and subscriptions off the RunEngine.
+
+        A hook is restored only while it is still the active one, so a hook
+        installed after this monitor is left in place.
+        """
+        re = self._re
+        if self._msg_hook is not None and re.msg_hook is self._msg_hook:
+            re.msg_hook = self._previous_msg_hook
+        if re.state_hook is self._state_hook:
+            re.state_hook = self._previous_state_hook
+        for token in self._tokens:
+            re.unsubscribe(token)
+        self._tokens = []
 
     @property
     def namespace(self) -> Mapping[str, Any]:

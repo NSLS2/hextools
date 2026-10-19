@@ -14,6 +14,7 @@ plans in-process via ``RE(plan(...))``.
 from __future__ import annotations
 
 import argparse
+import atexit
 import os
 import time as ttime
 from pathlib import Path
@@ -38,6 +39,7 @@ from bluesky_widgets.qt.run_engine_client import (
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
+from qtpy import shiboken
 from qtpy.QtCore import QObject, Qt, QTimer, Signal
 from qtpy.QtWidgets import (
     QApplication,
@@ -494,9 +496,26 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
 
         self.setLayout(vbox)
 
+    def closeEvent(self, event):
+        if self._plan_monitor is not None:
+            self._plan_monitor.detach()
+        super().closeEvent(event)
+
 
 class _StateSignal(QObject):
     changed = Signal()
+
+
+class _MainWindow(QMainWindow):
+    """A ``QMainWindow`` that calls ``on_close`` before Qt deletes its children."""
+
+    def __init__(self, on_close):
+        super().__init__()
+        self._on_close = on_close
+
+    def closeEvent(self, event):
+        self._on_close()
+        super().closeEvent(event)
 
 
 class QtDataAcquisitionWindow:
@@ -526,7 +545,8 @@ class QtDataAcquisitionWindow:
     def __init__(self, re_client: RunEngineClient | RunEngine, *, show: bool = True):
         self.qt_widget = QtTabbedTechniqueSelector(re_client)
 
-        self._qt_window = QMainWindow()
+        self._torn_down = False
+        self._qt_window = _MainWindow(on_close=self._teardown)
         self._qt_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self._qt_window.setWindowTitle("HEX Data Acquisition")
         self._qt_window.setUnifiedTitleAndToolBarOnMac(True)
@@ -567,8 +587,28 @@ class QtDataAcquisitionWindow:
         # self.qt_widget.viewer.events.title.connect(self._title_changed)
         # self.qt_widget.viewer.events.palette.connect(self._update_palette)
 
+        # In IPython the session can end with the window still open.
+        atexit.register(self._close_at_exit)
+
         if show:
             self.show()
+
+    def _close_at_exit(self):
+        self._qt_window.close()
+
+    def _teardown(self):
+        """Undo what the GUI attached outside itself: RunEngine hooks, child process."""
+        if self._torn_down:
+            return
+        self._torn_down = True
+        atexit.unregister(self._close_at_exit)
+        if isinstance(self._re_client, RunEngine):
+            self._uninstall_state_hook(self._re_client)
+        # WA_DeleteOnClose deletes the children without sending them closeEvent.
+        for widget in self._qt_window.findChildren(QWidget):
+            # Closing one widget can delete others (pyqtgraph deletes its viewport).
+            if shiboken.isValid(widget):
+                widget.close()
 
     def _build_menus(self):
         menu_bar = self._qt_window.menuBar()
@@ -674,6 +714,11 @@ class QtDataAcquisitionWindow:
                 previous_hook(new_state, old_state)
 
         re.state_hook = state_hook
+        self._state_hook, self._previous_state_hook = state_hook, previous_hook
+
+    def _uninstall_state_hook(self, re: RunEngine):
+        if re.state_hook is self._state_hook:
+            re.state_hook = self._previous_state_hook
 
     def _update_re_state(self):
         self._re_state_label.setText(self._re_state_text())
