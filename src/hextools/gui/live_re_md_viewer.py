@@ -93,7 +93,7 @@ class QtReMetadataMonitor(QWidget):
         form.setVerticalSpacing(6)
         for i, key in enumerate(self._keys):
             label = QLabel(_PLACEHOLDER)
-            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             self._labels[key] = label
             form.addRow(f"{self._key_labels[i]}:", label)
 

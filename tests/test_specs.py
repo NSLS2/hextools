@@ -146,7 +146,9 @@ CASES: list[tuple[Spec, Callable[..., None], Callable[[], FakeRun]]] = [
 CASE_IDS = [spec.name for spec, _, _ in CASES]
 
 
-def _mutated(make: Callable[[], FakeRun], mutate: Callable[[FakeRun], None]) -> FakeRun:
+def _mutated(
+    make: Callable[[], FakeRun], mutate: Callable[[FakeRun], object]
+) -> FakeRun:
     run = make()
     run.start = copy.deepcopy(run.start)
     run.streams = copy.deepcopy(run.streams)

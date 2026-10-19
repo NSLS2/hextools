@@ -35,7 +35,7 @@ def gui_qt(app_name):
         # automatically determine monitor DPI.
         # Note: this MUST be set before the QApplication is instantiated
         if qtpy.QT5:
-            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+            QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling)
         elif qtpy.QT6:
             QApplication.setHighDpiScaleFactorRoundingPolicy(
                 Qt.HighDpiScaleFactorRoundingPolicy.PassThrough

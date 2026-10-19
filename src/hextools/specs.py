@@ -2,20 +2,32 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Mapping
+from typing import Any, Protocol
 
 from tiled.structures.core import Spec
 
-if TYPE_CHECKING:
-    from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
+
+class RunLike(Protocol):
+    """What the validators read from a run, e.g. a ``BlueskyRunV3``."""
+
+    @property
+    def start(self) -> Mapping[str, Any]: ...
+
+    def __contains__(self, key: str, /) -> bool:
+        """Return whether the run has a stream named ``key``."""
+        ...
+
+    def __getitem__(self, key: str, /) -> Any:
+        """Return the stream named ``key``."""
+        ...
 
 
 class SpecValidationError(ValueError):
     """A run does not match the spec it is validated against."""
 
 
-def _require_plan_name(run: BlueskyRunV3, *names: str) -> None:
+def _require_plan_name(run: RunLike, *names: str) -> None:
     plan_name = run.start.get("plan_name")
     if plan_name not in names:
         raise SpecValidationError(
@@ -23,13 +35,13 @@ def _require_plan_name(run: BlueskyRunV3, *names: str) -> None:
         )
 
 
-def _require_start_keys(run: BlueskyRunV3, *keys: str) -> None:
+def _require_start_keys(run: RunLike, *keys: str) -> None:
     missing = [key for key in keys if key not in run.start]
     if missing:
         raise SpecValidationError(f"Start document is missing {missing}.")
 
 
-def _names(run: BlueskyRunV3, key: str, count: int | None = None) -> list[str]:
+def _names(run: RunLike, key: str, count: int | None = None) -> list[str]:
     """Return the start document's list of names under ``key``.
 
     ``key`` is typically ``detectors`` or ``motors``.
@@ -44,7 +56,7 @@ def _names(run: BlueskyRunV3, key: str, count: int | None = None) -> list[str]:
     return names
 
 
-def _require_stream(run: BlueskyRunV3, stream: str, *fields: str) -> None:
+def _require_stream(run: RunLike, stream: str, *fields: str) -> None:
     if stream not in run:
         raise SpecValidationError(f"Run has no '{stream}' stream.")
     missing = [field for field in fields if field not in run[stream]]
@@ -52,7 +64,7 @@ def _require_stream(run: BlueskyRunV3, stream: str, *fields: str) -> None:
         raise SpecValidationError(f"Stream '{stream}' is missing {missing}.")
 
 
-def _require_optional_str(run: BlueskyRunV3, key: str) -> None:
+def _require_optional_str(run: RunLike, key: str) -> None:
     value = run.start.get(key)
     if value is not None and not isinstance(value, str):
         raise SpecValidationError(
@@ -96,7 +108,7 @@ def _require_optional_str(run: BlueskyRunV3, key: str) -> None:
 TOMO_DARK_FLAT_V1 = Spec("TomoDarkFlat", version="1")
 
 
-def validate_tomo_dark_flat(run: BlueskyRunV3, version: str | None = "1") -> None:
+def validate_tomo_dark_flat(run: RunLike, version: str | None = "1") -> None:
     """Check that the run matches the TOMO_DARK_FLAT_V1 specification."""
     _require_plan_name(run, "tomo_dark_flat")
     _require_start_keys(
@@ -137,7 +149,7 @@ def validate_tomo_dark_flat(run: BlueskyRunV3, version: str | None = "1") -> Non
 TOMO_FLYSCAN_V1 = Spec("TomoFlyscan", version="1")
 
 
-def validate_tomo_flyscan(run: BlueskyRunV3, version: str | None = "1") -> None:
+def validate_tomo_flyscan(run: RunLike, version: str | None = "1") -> None:
     """Validate ``run`` against :data:`TOMO_FLYSCAN_V1`.
 
     Raise :class:`SpecValidationError` if it does not match.
@@ -174,7 +186,7 @@ def validate_tomo_flyscan(run: BlueskyRunV3, version: str | None = "1") -> None:
 TOMO_ALIGNMENT_SCAN_V1 = Spec("TomoAlignmentScan", version="1")
 
 
-def validate_tomo_alignment_scan(run: BlueskyRunV3, version: str | None = "1") -> None:
+def validate_tomo_alignment_scan(run: RunLike, version: str | None = "1") -> None:
     """Validate ``run`` against :data:`TOMO_ALIGNMENT_SCAN_V1`.
 
     Raise :class:`SpecValidationError` if it does not match.
@@ -203,7 +215,7 @@ def validate_tomo_alignment_scan(run: BlueskyRunV3, version: str | None = "1") -
 RADIOGRAPH_V1 = Spec("Radiograph", version="1")
 
 
-def validate_radiograph(run: BlueskyRunV3, version: str | None = "1") -> None:
+def validate_radiograph(run: RunLike, version: str | None = "1") -> None:
     """Validate ``run`` against :data:`RADIOGRAPH_V1`.
 
     Raise :class:`SpecValidationError` if it does not match.
@@ -233,7 +245,7 @@ def validate_radiograph(run: BlueskyRunV3, version: str | None = "1") -> None:
 EDXD_SCAN_V1 = Spec("EdxdScan", version="1")
 
 
-def validate_edxd_scan(run: BlueskyRunV3, version: str | None = "1") -> None:
+def validate_edxd_scan(run: RunLike, version: str | None = "1") -> None:
     """Validate ``run`` against :data:`EDXD_SCAN_V1`.
 
     Raise :class:`SpecValidationError` if it does not match.
@@ -264,7 +276,7 @@ def validate_edxd_scan(run: BlueskyRunV3, version: str | None = "1") -> None:
 EDXD_CALIBRATION_V1 = Spec("EdxdCalibration", version="1")
 
 
-def validate_edxd_calibration(run: BlueskyRunV3, version: str | None = "1") -> None:
+def validate_edxd_calibration(run: RunLike, version: str | None = "1") -> None:
     """Validate ``run`` against :data:`EDXD_CALIBRATION_V1`.
 
     Raise :class:`SpecValidationError` if it does not match.
@@ -294,7 +306,7 @@ def validate_edxd_calibration(run: BlueskyRunV3, version: str | None = "1") -> N
 XRD_CALIBRATION_V1 = Spec("XrdCalibration", version="1")
 
 
-def validate_xrd_calibration(run: BlueskyRunV3, version: str | None = "1") -> None:
+def validate_xrd_calibration(run: RunLike, version: str | None = "1") -> None:
     """Validate ``run`` against :data:`XRD_CALIBRATION_V1`.
 
     Raise :class:`SpecValidationError` if it does not match.
@@ -318,7 +330,7 @@ def validate_xrd_calibration(run: BlueskyRunV3, version: str | None = "1") -> No
 ENERGY_AUTO_TUNE_V1 = Spec("EnergyAutoTune", version="1")
 
 
-def validate_energy_auto_tune(run: BlueskyRunV3, version: str | None = "1") -> None:
+def validate_energy_auto_tune(run: RunLike, version: str | None = "1") -> None:
     """Validate ``run`` against :data:`ENERGY_AUTO_TUNE_V1`.
 
     Raise :class:`SpecValidationError` if it does not match.
@@ -331,7 +343,7 @@ def validate_energy_auto_tune(run: BlueskyRunV3, version: str | None = "1") -> N
     )
 
 
-_VALIDATORS: dict[str, Callable[[BlueskyRunV3, str | None], None]] = {
+_VALIDATORS: dict[str, Callable[[RunLike, str | None], None]] = {
     spec.name: validator
     for spec, validator in [
         (TOMO_DARK_FLAT_V1, validate_tomo_dark_flat),
@@ -358,7 +370,7 @@ ALL_SPECS: list[Spec] = [
 ]
 
 
-def validate_run(run: BlueskyRunV3, spec: Spec) -> None:
+def validate_run(run: RunLike, spec: Spec) -> None:
     """Validate ``run`` against ``spec``.
 
     Raises

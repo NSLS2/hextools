@@ -315,7 +315,9 @@ class QtPlanWidget(QWidget):
 
         self._status_label = QLabel("")
         self._status_label.setWordWrap(True)
-        self._status_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._status_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
         vbox.addWidget(self._status_label)
 
         group_box.setLayout(vbox)
@@ -402,7 +404,7 @@ class QtPlanWidget(QWidget):
                 widget.setValidator(QIntValidator(widget))
             elif kind is float:
                 validator = QDoubleValidator(widget)
-                validator.setNotation(QDoubleValidator.StandardNotation)
+                validator.setNotation(QDoubleValidator.Notation.StandardNotation)
                 widget.setValidator(validator)
             if not required and param.default is not None:
                 widget.setText(str(param.default))
@@ -432,7 +434,7 @@ class QtPlanWidget(QWidget):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.addWidget(selector)
         box.setLayout(layout)
-        box.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         vbox.addWidget(box)
         self._device_fields.append(
             {
