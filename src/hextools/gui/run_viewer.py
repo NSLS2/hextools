@@ -673,6 +673,8 @@ class QtRunViewer(QWidget):
 
     def _update_analysis(self, data: np.ndarray, token: Any) -> None:
         """Summarise ``data`` in the background; only the latest request waits."""
+        if token != self._analysis_token:
+            self._clear_analysis()
         self._analysis_token = token
         if self._analysis_worker is not None:
             self._analysis_pending = (token, data)

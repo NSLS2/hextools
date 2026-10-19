@@ -13,6 +13,7 @@ from qtpy.QtCore import QElapsedTimer  # noqa: E402
 from qtpy.QtWidgets import QApplication, QTreeWidgetItem  # noqa: E402
 from tiled.structures.core import Spec  # noqa: E402
 
+from hextools.gui import run_viewer  # noqa: E402
 from hextools.gui.run_viewer import (  # noqa: E402
     DatasetInfo,
     QtRunViewer,
@@ -348,6 +349,38 @@ def test_viewer_resets_contrast_for_the_new_axis_not_a_stale_frame(monkeypatch):
     sinogram = PROJECTIONS[:, 0, 0, :]
     np.testing.assert_array_equal(viewer._image, sinogram)
     assert tuple(viewer._image_item.getLevels()) == pytest.approx(auto_levels(sinogram))
+    viewer.close()
+
+
+def _empty(curve):
+    _x, y = curve.getData()
+    return y is None or len(y) == 0
+
+
+# PR 96 review: while a new frame was summarised, the previous frame's statistics,
+# histogram and density stayed on screen, describing a different image.
+def test_viewer_clears_analysis_while_the_new_frame_is_summarised(monkeypatch):
+    viewer, _array, _shown = _open_gated_image(monkeypatch)
+    _wait_for(
+        lambda: viewer._stats_table.rowCount() > 2 and viewer._analysis_worker is None
+    )
+    gate = threading.Event()
+    summarise = run_viewer._summarise
+
+    def slow_summarise(token, data):
+        gate.wait(5)
+        return summarise(token, data)
+
+    monkeypatch.setattr(run_viewer, "_summarise", slow_summarise)
+    viewer._index.setValue(1)
+    _wait_for(lambda: viewer._analysis_worker is not None)
+
+    assert viewer._stats_table.rowCount() == 0
+    assert _empty(viewer._histogram_curve)
+    assert _empty(viewer._density_curve)
+
+    gate.set()
+    _wait_for(lambda: viewer._stats_table.rowCount() > 2)
     viewer.close()
 
 
