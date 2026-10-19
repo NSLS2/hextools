@@ -93,7 +93,7 @@ class QtReMetadataMonitor(QWidget):
         form.setVerticalSpacing(6)
         for i, key in enumerate(self._keys):
             label = QLabel(_PLACEHOLDER)
-            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             self._labels[key] = label
             form.addRow(f"{self._key_labels[i]}:", label)
 
@@ -121,7 +121,8 @@ class QtReMetadataMonitor(QWidget):
         """Return the current RE metadata dict, or an empty dict on failure."""
         if isinstance(self._re, RunEngineClient):
             try:
-                response = self._re._client.re_metadata()  # noqa: SLF001
+                # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
+                response = self._re._client.re_metadata()  # noqa: SLF001  # type: ignore
             except Exception:
                 return {}
             if not response.get("success", False):
@@ -206,7 +207,8 @@ class QtProposalInfo(QtReMetadataMonitor):
         if isinstance(self._re, RunEngine):
             return switch_proposal(proposal, username, password, md=self._re.md)
         client = self._re._client  # noqa: SLF001
-        response = client.re_metadata()
+        # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
+        response = client.re_metadata()  # type: ignore
         if not response.get("success", False):
             raise RuntimeError(
                 response.get("msg") or "Couldn't read the RunEngine metadata."
@@ -273,7 +275,7 @@ class QtChangeProposalDialog(QDialog):
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
         self._proposal.setMinimumContentsLength(10)
-        self._proposal.lineEdit().setPlaceholderText("Loading proposals\u2026")
+        self._proposal.lineEdit().setPlaceholderText("Loading proposals\u2026")  # type: ignore
         self._proposal.currentTextChanged.connect(self._on_proposal_changed)
         self._proposal.activated.connect(self._on_activated)
         self._commissioning = QCheckBox("Commissioning")
@@ -332,7 +334,7 @@ class QtChangeProposalDialog(QDialog):
         self._list_worker = None
         self._lists = proposals
         self._populate()
-        self._proposal.lineEdit().setPlaceholderText("Select or type a proposal number")
+        self._proposal.lineEdit().setPlaceholderText("Select or type a proposal number")  # type: ignore
 
     def _populate(self):
         """Fill the dropdown with commissioning or user proposals, per the toggle."""
@@ -360,7 +362,7 @@ class QtChangeProposalDialog(QDialog):
 
     def _on_proposals_errored(self, error: Exception):
         self._list_worker = None
-        self._proposal.lineEdit().setPlaceholderText(
+        self._proposal.lineEdit().setPlaceholderText(  # type: ignore
             "Couldn't load proposals; type a number"
         )
 
@@ -397,11 +399,11 @@ class QtChangeProposalDialog(QDialog):
     def _fit_height(self):
         """Grow the dialog so a wrapped or multi-line title isn't cut off."""
         layout = self.layout()
-        layout.activate()
-        if layout.hasHeightForWidth():
-            height = layout.totalHeightForWidth(self.width())
+        layout.activate()  # type: ignore
+        if layout.hasHeightForWidth():  # type: ignore
+            height = layout.totalHeightForWidth(self.width())  # type: ignore
         else:
-            height = layout.totalSizeHint().height()
+            height = layout.totalSizeHint().height()  # type: ignore
         if height > self.height():
             self.resize(self.width(), height)
 

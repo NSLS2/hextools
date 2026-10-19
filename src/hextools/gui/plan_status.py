@@ -120,7 +120,7 @@ class PlanRecord:
     def to_json(self) -> dict[str, Any]:
         func = None
         if self.func is not None:
-            func = f"{self.func.__module__}:{self.func.__qualname__}"
+            func = f"{self.func.__module__}:{self.func.__qualname__}"  # type: ignore
         return {
             "name": self.name,
             "arguments": self.arguments,
@@ -684,7 +684,7 @@ class QtPlanProgressView(QWidget):
         while self._plots_layout.count():
             item = self._plots_layout.takeAt(0)
             if item is not None and item.widget() is not None:
-                item.widget().deleteLater()
+                item.widget().deleteLater()  # type: ignore
         self._plots.hide()
 
 
@@ -947,7 +947,7 @@ class QtPlanHistory(QWidget):
         namespace = self._monitor.namespace
         existing = namespace.get(record.name)
         if existing is None:
-            namespace[record.name] = record.func  # type: ignore[index]
+            namespace[record.name] = record.func  # type: ignore
         elif existing is not record.func:
             QMessageBox.warning(
                 self,

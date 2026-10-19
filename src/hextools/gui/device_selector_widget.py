@@ -104,7 +104,7 @@ class DynamicDeviceSelector(QWidget):
         self._rows_layout.setSpacing(4)
         self.setLayout(self._rows_layout)
 
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         self._add_row()
         self._refresh()
