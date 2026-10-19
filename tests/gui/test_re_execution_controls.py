@@ -11,7 +11,7 @@ import matplotlib  # noqa: E402
 from bluesky import RunEngine  # noqa: E402
 from bluesky import plan_stubs as bps  # noqa: E402
 from IPython.core.interactiveshell import InteractiveShell  # noqa: E402
-from ophyd.sim import det, motor  # noqa: E402  # ty: ignore[unresolved-import]
+from ophyd.sim import det, motor  # noqa: E402  # type: ignore
 from qtpy.QtCore import QTimer  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
@@ -65,7 +65,7 @@ def test_resume_button_resumes_a_paused_plan(given):
     QTimer.singleShot(800, resume)
     QTimer.singleShot(5000, app.quit)
     app.exec()
-    controls._timer.stop()  # ty: ignore[unresolved-attribute]
+    controls._timer.stop()  # type: ignore
 
     assert seen == ["paused"]
     assert RE.state == "idle", f"plan did not resume: state={RE.state}"
@@ -88,7 +88,7 @@ def test_double_click_on_resume_resumes_once():
         resumes.append(RE.state)
         return real_resume()
 
-    RE.resume = counting_resume  # ty: ignore[invalid-assignment]
+    RE.resume = counting_resume  # type: ignore
     enabled_after_click = []
 
     def double_click():
@@ -107,7 +107,7 @@ def test_double_click_on_resume_resumes_once():
     QTimer.singleShot(800, double_click)
     QTimer.singleShot(5000, app.quit)
     app.exec()
-    controls._timer.stop()  # ty: ignore[unresolved-attribute]
+    controls._timer.stop()  # type: ignore
 
     assert resumes == ["paused"], f"resume() called {len(resumes)} times: {resumes}"
     assert enabled_after_click == [False]

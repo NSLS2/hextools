@@ -31,12 +31,12 @@ from enum import Enum
 try:
     from ophyd import Device
 except ImportError:
-    Device = None  # ty: ignore[invalid-assignment]
+    Device = None  # type: ignore
 
 try:
     from ophyd_async.core import Device as AsyncDevice
 except ImportError:
-    AsyncDevice = None  # ty: ignore[invalid-assignment]
+    AsyncDevice = None  # type: ignore
 
 import docstring_parser
 import IPython
@@ -517,9 +517,9 @@ class QtPlanWidget(QWidget):
 
         for name, kind, widget, required in self._scalar_fields:
             if kind is bool:
-                kwargs[name] = widget.isChecked()  # ty: ignore[unresolved-attribute]
+                kwargs[name] = widget.isChecked()  # type: ignore
                 continue
-            text = widget.text().strip()  # ty: ignore[unresolved-attribute]
+            text = widget.text().strip()  # type: ignore
             if not text:
                 if required:
                     raise ValueError(f"'{name}' is required")
@@ -532,7 +532,7 @@ class QtPlanWidget(QWidget):
                 raise ValueError(f"'{name}' is not a valid {kind.__name__}") from ex
 
         for name, kind, widget, required in self._scalar_list_fields:
-            text = widget.text().strip()  # ty: ignore[unresolved-attribute]
+            text = widget.text().strip()  # type: ignore
             elems = [e.strip() for e in text.split(",") if e.strip()]
             if not elems:
                 if required:

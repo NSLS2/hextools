@@ -480,7 +480,7 @@ class StreamNarrator:
                 if name not in seen:
                     seen.add(name)
                     names.append(name)
-            core = _BATCH_PHRASES[self._batch_cmd](names)  # ty: ignore[invalid-argument-type]
+            core = _BATCH_PHRASES[self._batch_cmd](names)  # type: ignore
             if self._batch_cmd == "prepare":
                 params = _fmt_prepare_value(self._batch_value)
                 if params:

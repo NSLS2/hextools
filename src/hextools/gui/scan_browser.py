@@ -191,11 +191,11 @@ class QtScanBrowser(QWidget):
         spec = self._specs[self._spec_combo.currentIndex()]
         since_date = self._since.date().toPython()
         until_date = self._until.date().toPython()
-        if since_date > until_date:  # ty: ignore[unsupported-operator]
+        if since_date > until_date:  # type: ignore
             self._status.setText("'From' must not be after 'To'.")
             return
-        since = datetime.combine(since_date, time.min).timestamp()  # ty: ignore[invalid-argument-type]
-        until = datetime.combine(until_date + timedelta(days=1), time.min).timestamp()  # ty: ignore[unsupported-operator]
+        since = datetime.combine(since_date, time.min).timestamp()  # type: ignore
+        until = datetime.combine(until_date + timedelta(days=1), time.min).timestamp()  # type: ignore
         data_session = self._re.md.get("data_session")
 
         self._search_button.setEnabled(False)
@@ -249,7 +249,7 @@ class QtScanBrowser(QWidget):
         while self._callback_bar.count():
             item = self._callback_bar.takeAt(0)
             if item is not None and item.widget() is not None:
-                item.widget().deleteLater()  # ty: ignore[unresolved-attribute]
+                item.widget().deleteLater()  # type: ignore
         self._metadata.clear()
 
         run = self._selected_run()
@@ -265,7 +265,7 @@ class QtScanBrowser(QWidget):
         self._callback_bar.addStretch()
         fill_metadata_tree(self._metadata.invisibleRootItem(), run.metadata)
         for i in range(self._metadata.topLevelItemCount()):
-            self._metadata.topLevelItem(i).setExpanded(True)  # ty: ignore[unresolved-attribute]
+            self._metadata.topLevelItem(i).setExpanded(True)  # type: ignore
 
     def _on_context_menu(self, pos: QPoint) -> None:
         row = self._table.rowAt(pos.y())
@@ -279,7 +279,7 @@ class QtScanBrowser(QWidget):
             menu.addAction(
                 label, lambda cb=callback, uid=run.uid: self._invoke(cb, uid)
             )
-        menu.exec(self._table.viewport().mapToGlobal(pos))  # ty: ignore[invalid-argument-type]
+        menu.exec(self._table.viewport().mapToGlobal(pos))  # type: ignore
 
     def _on_double_click(self, row: int, _column: int) -> None:
         self._invoke(self.open_viewer, self._runs[row].uid)

@@ -247,7 +247,7 @@ class QtReWaitingHookMonitor(QWidget):
 
         if isinstance(self._re_client, RunEngineClient):
             # Not in released bluesky-widgets (0.0.18); needs a newer release.
-            self._re_client.start_re_progress_monitoring()  # ty: ignore[unresolved-attribute]
+            self._re_client.start_re_progress_monitoring()  # type: ignore
             self._start_thread()
         else:
             self._install_waiting_hook()
@@ -256,7 +256,7 @@ class QtReWaitingHookMonitor(QWidget):
 
     def _start_thread(self):
         # Not in released bluesky-widgets (0.0.18); needs a newer release.
-        self._thread = FunctionWorker(self._re_client.re_progress_monitoring_thread)  # ty: ignore[unresolved-attribute]
+        self._thread = FunctionWorker(self._re_client.re_progress_monitoring_thread)  # type: ignore
         if self._thread.returned is None:
             raise RuntimeError(
                 "Failed to connect to the returned signal of the thread."
@@ -285,7 +285,7 @@ class QtReWaitingHookMonitor(QWidget):
         self._hook = _WaitingHookDispatcher(
             self, getattr(run_engine, "waiting_hook", None)
         )
-        run_engine.waiting_hook = self._hook  # ty: ignore[invalid-assignment]
+        run_engine.waiting_hook = self._hook  # type: ignore
 
     def _uninstall_waiting_hook(self):
         run_engine = self._re_client
@@ -336,7 +336,7 @@ class QtReWaitingHookMonitor(QWidget):
         try:
             if isinstance(self._re_client, RunEngineClient):
                 # Not in released bluesky-widgets (0.0.18); needs a newer release.
-                self._re_client.stop_re_progress_monitoring()  # ty: ignore[unresolved-attribute]
+                self._re_client.stop_re_progress_monitoring()  # type: ignore
             else:
                 self._uninstall_waiting_hook()
         except Exception:
