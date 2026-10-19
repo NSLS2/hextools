@@ -49,8 +49,8 @@ class StartDocAwareFilenameProvider(TimestampFilenameProvider):
                 prefix = "flat"
             else:
                 logger.warning(
-                    f"Unexpected file index for tomo_dark_flat plan: {file_index}",
-                    "Should be 0 or 1.",
+                    f"Unexpected file index for tomo_dark_flat plan: {file_index}. "
+                    "Should be 0 or 1."
                 )
                 prefix = plan_name + "_" + str(file_index)
 

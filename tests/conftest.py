@@ -117,6 +117,15 @@ def RE(request: FixtureRequest) -> RunEngine:
     )
     fail_count = request.session.testsfailed
 
+    async def _settle_in_flight_tasks():
+        # A plan may end with a deliberate wait=False put (e.g. enable_preview_mode
+        # starting Acquire); give it a moment to finish before checking for leaks.
+        # On Python 3.11 asyncio.wait_for wraps it in an extra task, so it often
+        # outlives the RE call. Anything still pending afterwards is a real leak.
+        pending = asyncio.all_tasks() - {asyncio.current_task()}
+        if pending:
+            await asyncio.wait(pending, timeout=1.0)
+
     def clean_event_loop():
         if RE.state not in ("idle", "panicked"):
             try:
@@ -124,6 +133,8 @@ def RE(request: FixtureRequest) -> RunEngine:
             except TransitionError:
                 pass
 
+        if loop.is_running():
+            asyncio.run_coroutine_threadsafe(_settle_in_flight_tasks(), loop).result()
         loop.call_soon_threadsafe(loop.stop)
         RE._th.join()
 

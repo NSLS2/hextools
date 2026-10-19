@@ -61,21 +61,15 @@ async def test_take_radiograph_single_row(
         cache_docs,  # type: ignore
     )
 
-    for kind in ("start", "descriptor", "stream_resource", "stop"):
-        assert len(docs[kind]) == 1
-    assert len(docs["event"]) == num_acquisitions
+    # Each acquisition is its own run, so each opens its own file
+    for kind in ("start", "descriptor", "stream_resource", "stop", "event"):
+        assert len(docs[kind]) == num_acquisitions
     assert len(docs["stream_datum"]) == num_acquisitions
+    assert all(start["plan_name"] == "take_radiograph" for start in docs["start"])
 
-    start = docs["start"][0]
-    assert start["plan_name"] == "take_radiograph"
-    assert start["plan_args"]["delay"] == wait
-
-    # bp.count sleeps only for what is left of the delay after each acquisition,
-    # so how many delay sleeps happen depends on timing; longer ones are
-    # shutter settling
-    delay_sleeps = [m for m in messages_by_type.get("sleep", []) if m.args[0] <= wait]
-    assert len(delay_sleeps) <= num_acquisitions - 1
-    assert all(m.args[0] > 0 for m in delay_sleeps)
+    # the gap between runs; longer sleeps are shutter settling
+    delay_sleeps = [m for m in messages_by_type.get("sleep", []) if m.args[0] == wait]
+    assert len(delay_sleeps) == num_acquisitions - 1
 
     assert await ktx.driver.acquire_time.get_value() == exposure_time
     assert await ktx.driver.num_images.get_value() == num_images
@@ -174,11 +168,18 @@ async def test_external_trigger_radiograph_is_paced_by_the_panda(
         cache_docs,  # type: ignore
     )
 
-    assert docs["stop"][0]["exit_status"] == "success"
-    assert {d["data_key"] for d in docs["stream_resource"]} == {"kinetix1", "Angle"}
-    # one stream_datum per device per burst
-    assert len(docs["stream_datum"]) == 2 * num_iterations
-    assert await ktx.driver.trigger_mode.get_value() != KinetixTriggerMode.INTERNAL
+    # Each burst is its own run. The PandA paces the camera but is not recorded,
+    # so no Angle (dropped in ecd0b0d; may be revisited).
+    assert len(docs["start"]) == num_iterations
+    assert all(stop["exit_status"] == "success" for stop in docs["stop"])
+    assert {d["data_key"] for d in docs["stream_resource"]} == {"kinetix1"}
+    assert len(docs["stream_datum"]) == num_iterations
+    # armed for external edges during the bursts; cleanup returns it to preview
+    modes = [
+        call.args[0] for call in get_mock_put(ktx.driver.trigger_mode).call_args_list
+    ]
+    assert any(mode != KinetixTriggerMode.INTERNAL for mode in modes)
+    assert await ktx.driver.trigger_mode.get_value() == KinetixTriggerMode.INTERNAL
 
     pulse = panda.pulse[1]
     assert await pulse.pulses.get_value() == num_images

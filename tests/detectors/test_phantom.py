@@ -253,7 +253,7 @@ async def test_arm_logic_wait_for_idle_timeout(
     with pytest.raises(
         TimeoutError,
         # match="Timeout waiting for download to complete! Target number of downloaded frames: 11",  # noqa: E501
-        match="Download counter stopped incrementing and cine was not marked as saved!",
+        match="Download counter stopped incrementing and cine was not saved!",
     ):
         await phantom_arm_logic.wait_for_idle()
 
@@ -358,7 +358,7 @@ async def test_detector_full_stack(
     set_mock_value(phantom.driver.download_end_frame, 5)
     set_mock_value(phantom.driver.total_frame_count, 20)
     set_mock_value(phantom.driver.selected_cine, 1)
-    proc = phantom.get_plugin_by_name("proc", NDProcessIO)
+    proc = phantom.get_plugin("proc", NDProcessIO)
     set_mock_value(proc.num_filter, 1)  # the IOC's default; a mock starts at 0
 
     def _on_acquire(value, **kwargs):

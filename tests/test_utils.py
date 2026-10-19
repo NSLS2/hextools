@@ -70,7 +70,7 @@ async def test_auto_init_devices_context_manager_printout(monkeypatch, capsys):
     assert bad_motor.name == "bad_motor"
 
     out = capsys.readouterr().out
-    assert "Initializing devices" in out
+    assert "Connecting to beamline devices" in out
     assert "good_motor" in out
     assert "[   OK   ]" in out
     # The device that failed to connect is reported as disconnected.
@@ -230,6 +230,6 @@ def test_ensure_available_fails_if_val_invalid_type(mock_namespace):
 def test_ensure_available_fails_if_not_provided_and_not_in_ns(mock_namespace):
     with pytest.raises(
         ValueError,
-        match="Device non_existent_var of type <class 'int'>",
+        match="Object non_existent_var of type <class 'int'>",
     ):
         ensure_available(int, non_existent_var=None)
