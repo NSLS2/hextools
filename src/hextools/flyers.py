@@ -218,7 +218,7 @@ def construct_fly_info_models(
     else:
         pulse_width = max_exposure_time
         # The first pulse fires at the start, so num_pulses - 1 steps reach the stop.
-        pulse_step = move_time / (num_pulses - 1)
+        pulse_step = move_time / (num_pulses - 1) if num_pulses > 1 else move_time
 
     flyer_info = SingleAxisFlyscanInfo(
         start=start_in_counts,

@@ -51,23 +51,25 @@ def confirm_required_start_fields(run_start: dict[str, Any]) -> tuple[str, str, 
     return tuple(field_values)  # type: ignore
 
 
-def average_per_projection(values: np.ndarray, images_to_average: int) -> np.ndarray:
+def average_per_projection(
+    values: np.ndarray, num_projections: int, images_to_average: int
+) -> np.ndarray:
     """Average a PandA capture to one value per projection.
 
-    With ``images_to_average`` > 1 the PandA records every exposure, so Tiled
-    shapes the capture (projections, images_to_average). The averaged detector
-    frame belongs at the mean of its exposures' values.
+    With ``images_to_average`` > 1 the PandA records every exposure. ophyd-async
+    describes each event as ``images_to_average`` values, so Tiled shapes the
+    capture (projections, images_to_average); any other shape is refused rather
+    than guessed. The averaged detector frame belongs at the mean of its
+    exposures' values.
     """
     values = np.asarray(values)
-    if values.ndim == 1 and images_to_average == 1:
+    if images_to_average == 1 and values.shape == (num_projections,):
         return values
-    if values.ndim == 2 and values.shape[1] == images_to_average:
+    if values.shape == (num_projections, images_to_average):
         return values.mean(axis=1)
-    if values.ndim == 2 and values.shape[0] == images_to_average:
-        return values.mean(axis=0)
     raise ValueError(
-        f"Capture shape {values.shape} does not match "
-        f"images_to_average={images_to_average}"
+        f"Capture shape {values.shape} is not (num_projections, images_to_average)"
+        f" = ({num_projections}, {images_to_average})"
     )
 
 

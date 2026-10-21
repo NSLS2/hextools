@@ -80,14 +80,17 @@ def export_tomo_flyscan_to_h5(
     # PandA captures with one row per projection (e.g. rotation_angle when
     # averaging) are written as per-projection means; the raw link is kept.
     images_to_average = run_start.get("images_to_average", 1)
+    num_projections = run_start.get("num_points")
     if not isinstance(images_to_average, int):
         raise ValueError(f"images_to_average is not an int: {images_to_average!r}")
     averaged = {}
     for name, (_, _, ndim) in primary.items():
         if name in det_names or ndim != 2:
             continue
+        if not isinstance(num_projections, int):
+            raise ValueError(f"num_points is not an int: {num_projections!r}")
         averaged[name] = average_per_projection(
-            run["primary"][name].read(), images_to_average
+            run["primary"][name].read(), num_projections, images_to_average
         )
         links[f"{name}_raw"] = links.pop(name)
         logger.info(f"Averaging {name} over {images_to_average} images per projection")

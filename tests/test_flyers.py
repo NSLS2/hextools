@@ -74,3 +74,9 @@ def test_pulses_must_split_into_projections():
             current_enc_position=0,
             pulses_per_projection=5,
         )
+
+
+def test_single_time_based_pulse_fires_at_start():
+    flyer_info, motor_info = _models(1, 1, time_based=True)
+    assert flyer_info.num_pulses == 1
+    np.testing.assert_allclose(_trigger_angles(flyer_info, motor_info, 0.0), [0.0])
