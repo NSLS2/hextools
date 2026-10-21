@@ -117,3 +117,19 @@ def test_closing_windows_that_share_a_run_engine(RE, first):
         assert RE.state == "idle"
 
     assert _hooks(RE) == before
+
+
+# Nghia (2026-10-21): closing the GUI started with `hex-gui` left its IPython
+# session running underneath.
+@pytest.mark.parametrize("end_ipython", [False, True])
+def test_closing_the_window_can_end_the_ipython_session(RE, monkeypatch, end_ipython):
+    QApplication.instance() or QApplication([])
+    shell = InteractiveShell.instance()
+    asked = []
+    # The terminal shell's ask_exit; no prompt is waiting (pt_app is None).
+    monkeypatch.setattr(shell, "ask_exit", lambda: asked.append(True), raising=False)
+    window = QtDataAcquisitionWindow(re_client=RE, end_ipython_on_close=end_ipython)
+
+    window._qt_window.close()
+
+    assert asked == ([True] if end_ipython else [])
