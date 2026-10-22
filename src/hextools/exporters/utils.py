@@ -51,6 +51,28 @@ def confirm_required_start_fields(run_start: dict[str, Any]) -> tuple[str, str, 
     return tuple(field_values)  # type: ignore
 
 
+def average_per_projection(
+    values: np.ndarray, num_projections: int, images_to_average: int
+) -> np.ndarray:
+    """Average a PandA capture to one value per projection.
+
+    With ``images_to_average`` > 1 the PandA records every exposure. ophyd-async
+    describes each event as ``images_to_average`` values, so Tiled shapes the
+    capture (projections, images_to_average); any other shape is refused rather
+    than guessed. The averaged detector frame belongs at the mean of its
+    exposures' values.
+    """
+    values = np.asarray(values)
+    if images_to_average == 1 and values.shape == (num_projections,):
+        return values
+    if values.shape == (num_projections, images_to_average):
+        return values.mean(axis=1)
+    raise ValueError(
+        f"Capture shape {values.shape} is not (num_projections, images_to_average)"
+        f" = ({num_projections}, {images_to_average})"
+    )
+
+
 def create_baseline_dataset(run: BlueskyRunV3, h5file: h5py.File):
     if "baseline" not in run:
         logger.warning("No baseline data found in the run.")

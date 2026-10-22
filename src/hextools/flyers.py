@@ -192,7 +192,8 @@ def construct_fly_info_models(
         pulse_step = travel_counts // (num_pulses - 1)
     else:
         pulse_width = max_exposure_time
-        pulse_step = move_time / num_pulses
+        # The first pulse fires at the start, so num_pulses - 1 steps reach the stop.
+        pulse_step = move_time / (num_pulses - 1) if num_pulses > 1 else move_time
 
     flyer_info = SingleAxisFlyscanInfo(
         start=start_in_counts,

@@ -8,6 +8,7 @@ from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 
 from hextools.exporters.utils import (
+    average_per_projection,
     confirm_required_start_fields,
     create_baseline_dataset,
     find_hdf_datasets,
@@ -76,6 +77,24 @@ def export_tomo_flyscan_to_h5(
     for name, (relpath, dataset, _) in primary.items():
         links["data" if single_det and name in det_names else name] = (relpath, dataset)
 
+    # When averaging, every PandA capture (e.g. rotation_angle) is written as the
+    # mean of each projection's images; the raw link is kept.
+    images_to_average = run_start.get("images_to_average", 1)
+    num_projections = run_start.get("num_points")
+    if not isinstance(images_to_average, int):
+        raise ValueError(f"images_to_average is not an int: {images_to_average!r}")
+    averaged = {}
+    for name, (_, _, ndim) in primary.items():
+        if name in det_names or (images_to_average == 1 and ndim == 1):
+            continue
+        if not isinstance(num_projections, int):
+            raise ValueError(f"num_points is not an int: {num_projections!r}")
+        averaged[name] = average_per_projection(
+            run["primary"][name].read(), num_projections, images_to_average
+        )
+        links[f"{name}_raw"] = links.pop(name)
+        logger.info(f"Averaging {name} over {images_to_average} images per projection")
+
     if dark_flat_run is not None:
         for stream_name in ("dark", "flat"):
             found = find_hdf_datasets(dark_flat_run, stream_name, scan_id_dir_path)
@@ -99,6 +118,9 @@ def export_tomo_flyscan_to_h5(
         for link_name, (relpath, dataset) in links.items():
             data_grp[link_name] = h5py.ExternalLink(relpath, dataset)
             logger.info(f"Linked /entry/data/{link_name} -> {relpath}:{dataset}")
+        for name, values in averaged.items():
+            data_grp.create_dataset(name, data=values)
+            logger.info(f"Wrote /entry/data/{name} ({len(values)} projections)")
 
         logger.info("Writing baseline data")
         create_baseline_dataset(run, h5file)
