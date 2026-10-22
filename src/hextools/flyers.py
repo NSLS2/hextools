@@ -152,46 +152,21 @@ def construct_fly_info_models(
     time_based: bool = False,
     position_dataset_name: str = "rotation_angle",
     position_dataset_units: str = "deg",
-    pulses_per_projection: int = 1,
 ) -> tuple[SingleAxisFlyscanInfo, FlyMotorInfo]:
     """Construct the fly info models for a single axis flyscan.
-
-    ``start_position`` and ``stop_position`` are the angles of the first and last
-    projection. With ``pulses_per_projection`` > 1 (images averaged into one
-    projection), the triggers are spread evenly over a slightly wider range so
-    that each group of ``pulses_per_projection`` triggers is centred on its
-    projection angle. Recorded positions stay relative to ``start_position``.
 
     Returns
     -------
     tuple[SingleAxisFlyscanInfo, FlyMotorInfo]
         The fly info models for a single axis flyscan.
     """
-    if pulses_per_projection < 1 or num_pulses % pulses_per_projection:
-        raise ValueError(
-            f"num_pulses ({num_pulses}) must be a whole multiple of "
-            f"pulses_per_projection ({pulses_per_projection})."
-        )
-    num_projections = num_pulses // pulses_per_projection
-    margin = 0.0
-    if pulses_per_projection > 1 and num_projections > 1:
-        pulse_spacing = (stop_position - start_position) / (
-            (num_projections - 1) * pulses_per_projection
-        )
-        margin = (pulses_per_projection - 1) / 2 * pulse_spacing
-    trigger_start = start_position - margin
-    trigger_stop = stop_position + margin
-
-    projection_start_in_counts = round(
-        current_enc_position + (start_position - current_position) / encoder_resolution
-    )
-    dist_to_start = (trigger_start - current_position) / encoder_resolution
+    dist_to_start = (start_position - current_position) / encoder_resolution
     start_in_counts = round(current_enc_position + dist_to_start)
-    signed_travel_counts = round((trigger_stop - trigger_start) / encoder_resolution)
+    signed_travel_counts = round((stop_position - start_position) / encoder_resolution)
 
     travel_counts = abs(signed_travel_counts)
     move_time = calculate_move_time_for_flyscan(
-        abs(trigger_stop - trigger_start),
+        abs(stop_position - start_position),
         max_motor_velocity,
         num_pulses,
         max_exposure_time,
@@ -232,12 +207,12 @@ def construct_fly_info_models(
         position_dataset_name=position_dataset_name,
         position_dataset_units=position_dataset_units,
         position_scale=encoder_resolution,
-        position_offset=(-1 * projection_start_in_counts * encoder_resolution),
+        position_offset=(-1 * start_in_counts * encoder_resolution),
     )
 
     motor_info = FlyMotorInfo(
-        start_position=trigger_start,
-        end_position=trigger_stop,
+        start_position=start_position,
+        end_position=stop_position,
         time_for_move=move_time,
     )
     return flyer_info, motor_info

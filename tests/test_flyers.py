@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from ophyd_async.fastcs.panda import PandaPcompDirection
 
+from hextools.exporters.utils import average_per_projection
 from hextools.flyers import construct_fly_info_models
 
 RES = 0.001  # deg per encoder count
@@ -25,9 +26,6 @@ def _trigger_angles(flyer_info, motor_info, start):
 
 
 def _models(num_projections, images_to_average, time_based, start=0.0, stop=180.0):
-    extra = (
-        {"pulses_per_projection": images_to_average} if images_to_average > 1 else {}
-    )
     return construct_fly_info_models(
         num_pulses=num_projections * images_to_average,
         max_exposure_time=0.01,
@@ -38,7 +36,6 @@ def _models(num_projections, images_to_average, time_based, start=0.0, stop=180.
         current_position=0.0,
         current_enc_position=0,
         time_based=time_based,
-        **extra,
     )
 
 
@@ -50,30 +47,23 @@ def test_triggers_span_start_to_stop(time_based, start, stop):
     np.testing.assert_allclose(angles, np.linspace(0, stop - start, 19), atol=1e-9)
 
 
+# 19 x 5 triggers over 0-188 deg: 188000 counts split evenly into 94 steps.
 @pytest.mark.parametrize("time_based", [False, True])
-def test_averaged_projections_centre_on_requested_angles(time_based):
-    flyer_info, motor_info = _models(19, 5, time_based)
+def test_averaged_triggers_span_start_to_stop(time_based):
+    flyer_info, motor_info = _models(19, 5, time_based, stop=188.0)
     angles = _trigger_angles(flyer_info, motor_info, 0.0)
+    np.testing.assert_allclose(angles, np.linspace(0, 188, 95), atol=1e-9)
+
+
+def test_averaged_projection_angle_is_mean_of_its_images():
+    flyer_info, motor_info = _models(19, 5, time_based=True)
+    angles = _trigger_angles(flyer_info, motor_info, 0.0)
+    groups = angles.reshape(19, 5)
     np.testing.assert_allclose(
-        angles.reshape(19, 5).mean(axis=1), np.linspace(0, 180, 19), atol=1e-9
+        average_per_projection(groups, 19, 5), groups.sum(axis=1) / 5
     )
-    # Every trigger is evenly spaced, groups included.
-    np.testing.assert_allclose(np.diff(angles), 2.0, atol=1e-9)
-
-
-def test_pulses_must_split_into_projections():
-    with pytest.raises(ValueError, match="pulses_per_projection"):
-        construct_fly_info_models(
-            num_pulses=96,
-            max_exposure_time=0.01,
-            start_position=0.0,
-            stop_position=180.0,
-            encoder_resolution=RES,
-            max_motor_velocity=10.0,
-            current_position=0.0,
-            current_enc_position=0,
-            pulses_per_projection=5,
-        )
+    assert angles[0] == pytest.approx(0.0)
+    assert angles[-1] == pytest.approx(180.0)
 
 
 def test_single_time_based_pulse_fires_at_start():

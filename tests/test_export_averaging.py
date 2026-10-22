@@ -36,3 +36,8 @@ def test_leaves_one_capture_per_projection_alone():
 def test_refuses_a_shape_that_does_not_match():
     with pytest.raises(ValueError, match="images_to_average"):
         average_per_projection(np.zeros((19, 4)), 19, 5)
+
+
+def test_refuses_a_flattened_capture_when_averaging():
+    with pytest.raises(ValueError, match="images_to_average"):
+        average_per_projection(np.zeros(95), 19, 5)

@@ -236,10 +236,9 @@ def tomo_flyscan(
     images_to_average : int
         The number of images to average for each projection.
     start : float
-        The angle of the first projection. When averaging, the stage starts a
-        little earlier so the averaged images are centred on it.
+        The starting angle for the tomography fly scan.
     stop : float
-        The angle of the last projection (same note as ``start``).
+        The stopping angle for the tomography fly scan.
     use_shutter : bool
         Whether to use the shutter during the scan.
     sample_name : str | None
@@ -335,7 +334,6 @@ def tomo_flyscan(
             max_motor_velocity=max_velocity,
             acq_time_overhead=overhead,
             time_based=time_based,
-            pulses_per_projection=images_to_average,
         )
 
         if use_shutter:
