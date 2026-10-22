@@ -15395,6 +15395,7 @@ packages:
   - matplotlib ; extra == 'gui'
   - ntnda-qt-viewer @ git+https://github.com/jwlodek/ntnda-qt-viewer@main ; extra == 'gui'
   - pexpect ; extra == 'gui'
+  - pyqtgraph ; extra == 'gui'
   - pyside6 ; extra == 'gui'
   - qtpy ; extra == 'gui'
   - tiled[client] ; extra == 'gui'
