@@ -2,6 +2,7 @@ import atexit
 import os
 import signal
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -170,6 +171,38 @@ def test_only_a_terminal_ipython_session_is_ended(monkeypatch, shell, ends):
     gui_main._end_ipython_session()
 
     assert ipython.asked == ([True] if ends else [])
+
+
+class _PromptApp:
+    def __init__(self, is_running):
+        self.is_running = is_running
+
+    def exit(self, result):
+        pass
+
+
+class _Loop:
+    def __init__(self):
+        self.scheduled = []
+
+    def call_soon_threadsafe(self, callback, *args):
+        self.scheduled.append((callback, args))
+
+
+# A waiting prompt must be woken, or the session only ends on the next keypress.
+@pytest.mark.parametrize("prompt_running", [True, False])
+def test_a_waiting_prompt_is_woken_to_exit(monkeypatch, prompt_running):
+    ipython = _TerminalShell()
+    ipython.pt_app = SimpleNamespace(app=_PromptApp(prompt_running))
+    loop = _Loop()
+    monkeypatch.setattr(gui_main.IPython, "get_ipython", lambda: ipython)
+    monkeypatch.setattr(gui_main.asyncio, "get_running_loop", lambda: loop)
+
+    gui_main._end_ipython_session()
+
+    assert ipython.asked == [True]
+    expected = [(ipython.pt_app.app.exit, ("",))] if prompt_running else []
+    assert loop.scheduled == expected
 
 
 # PR 101 review (Jakub): `hex-gui --keep-ipython` leaves the session open on close.
