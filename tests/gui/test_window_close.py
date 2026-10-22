@@ -203,7 +203,8 @@ class _Loop:
 @pytest.mark.parametrize("prompt_running", [True, False])
 def test_a_waiting_prompt_is_woken_to_exit(monkeypatch, prompt_running):
     ipython = _TerminalShell()
-    ipython.pt_app = SimpleNamespace(app=_PromptApp(prompt_running))
+    app = _PromptApp(prompt_running)
+    monkeypatch.setattr(ipython, "pt_app", SimpleNamespace(app=app))
     loop = _Loop()
     monkeypatch.setattr(gui_main.IPython, "get_ipython", lambda: ipython)
     monkeypatch.setattr(gui_main.asyncio, "get_running_loop", lambda: loop)
@@ -211,7 +212,7 @@ def test_a_waiting_prompt_is_woken_to_exit(monkeypatch, prompt_running):
     gui_main._end_ipython_session()
 
     assert ipython.asked == [True]
-    expected = [(ipython.pt_app.app.exit, ("",))] if prompt_running else []
+    expected = [(app.exit, ("",))] if prompt_running else []
     assert loop.scheduled == expected
 
 
