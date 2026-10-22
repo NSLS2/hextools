@@ -14,6 +14,7 @@ plans in-process via ``RE(plan(...))``.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import atexit
 import os
 import time as ttime
@@ -36,6 +37,7 @@ from bluesky_widgets.qt.run_engine_client import (
     QtReRunningPlan,
     QtReStatusMonitor,
 )
+from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
@@ -507,6 +509,22 @@ class _StateSignal(QObject):
     changed = Signal()
 
 
+def _end_ipython_session() -> None:
+    """Make the attached IPython shell exit, without waiting for a keypress."""
+    ipython = IPython.get_ipython()
+    # Only a terminal session; a Jupyter kernel's shell has ask_exit too, and
+    # is left running.
+    if not isinstance(ipython, TerminalInteractiveShell):
+        return
+    ipython.ask_exit()
+    pt_app = getattr(ipython, "pt_app", None)
+    if pt_app is None or not pt_app.app.is_running:
+        return
+    # Qt runs inside prompt_toolkit's input hook, which only returns when its
+    # event loop is woken; call_soon_threadsafe wakes it.
+    asyncio.get_running_loop().call_soon_threadsafe(pt_app.app.exit, "")
+
+
 class _MainWindow(QMainWindow):
     """A ``QMainWindow`` that calls ``on_close`` before Qt deletes its children."""
 
@@ -543,10 +561,17 @@ class QtDataAcquisitionWindow:
         Window menu.
     """
 
-    def __init__(self, re_client: RunEngineClient | RunEngine, *, show: bool = True):
+    def __init__(
+        self,
+        re_client: RunEngineClient | RunEngine,
+        *,
+        show: bool = True,
+        end_ipython_on_close: bool = False,
+    ):
         self.qt_widget = QtTabbedTechniqueSelector(re_client)
 
         self._torn_down = False
+        self._end_ipython_on_close = end_ipython_on_close
         self._qt_window = _MainWindow(on_close=self._teardown)
         self._qt_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self._qt_window.setWindowTitle("HEX Data Acquisition")
@@ -595,6 +620,8 @@ class QtDataAcquisitionWindow:
             self.show()
 
     def _close_at_exit(self):
+        # IPython is already exiting; don't ask it again.
+        self._end_ipython_on_close = False
         self._qt_window.close()
 
     def _teardown(self):
@@ -610,6 +637,8 @@ class QtDataAcquisitionWindow:
             # Closing one widget can delete others (pyqtgraph deletes its viewport).
             if shiboken.isValid(widget):
                 widget.close()
+        if self._end_ipython_on_close:
+            _end_ipython_session()
 
     def _build_menus(self):
         menu_bar = self._qt_window.menuBar()
@@ -805,12 +834,13 @@ class QtDataAcquisitionWindow:
         del self._qt_window
 
 
-def launch_local_viewer():
+def launch_local_viewer(end_ipython_on_close: bool = False):
     """Create and return the GUI in in-process (local) mode.
 
     Intended to be run from within an IPython session that already has the
     RunEngine (``RE``) and devices loaded, so the plan widget can execute plans
-    via ``RE(plan(...))``.
+    via ``RE(plan(...))``. With ``end_ipython_on_close``, closing the window also
+    ends that IPython session (what ``hex-gui`` does, since it started it).
     """
     from qtpy.QtWidgets import QApplication
 
@@ -824,7 +854,9 @@ def launch_local_viewer():
             "RE not found in IPython user namespace or is not a RunEngine instance."
         )
 
-    return QtDataAcquisitionWindow(re_client=re)
+    return QtDataAcquisitionWindow(
+        re_client=re, end_ipython_on_close=end_ipython_on_close
+    )
 
 
 def main():
@@ -855,6 +887,13 @@ def main():
         default=None,
         help="JSON file to save plan history to as plans finish, and to load it"
         f" from on startup. Can also be set with {PLAN_HISTORY_FILE_ENV}.",
+    )
+
+    parser.add_argument(
+        "--keep-ipython",
+        action="store_true",
+        help="Keep the IPython session open when the GUI window is closed"
+        " (by default, closing the window also ends it).",
     )
 
     args = parser.parse_args()
@@ -894,7 +933,7 @@ def main():
         config.InteractiveShellApp.exec_lines = [
             f"get_ipython().run_line_magic('run', {f'-i {profile_path}'!r})",
             "from hextools.gui.__main__ import launch_local_viewer",
-            "launch_local_viewer()",
+            f"launch_local_viewer(end_ipython_on_close={not args.keep_ipython})",
         ]
         config.TerminalIPythonApp.display_banner = False
         start_ipython(argv=[], config=config)
