@@ -36,6 +36,10 @@ jobs:
         uses: peter-evans/create-pull-request@v7
         with:
           commit-message: "Update pixi lockfile"
+          author: >-
+            ${{ github.event_name == 'workflow_dispatch'
+              && format('{0} <{1}+{0}@users.noreply.github.com>', github.actor, github.actor_id)
+              || 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>' }}
           title: "Update pixi lockfile"
           branch: pixi-update
           add-paths: pixi.lock
