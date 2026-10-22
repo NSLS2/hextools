@@ -302,7 +302,9 @@ class QtRunViewer(QWidget):
         self._datasets: list[DatasetInfo] = []
         self._dataset: DatasetInfo | None = None
         self._array: Any = None
+        self._frame: np.ndarray | None = None
         self._image: np.ndarray | None = None
+        self._quarter_turns = 0
         self._columns: dict[tuple[str, str], np.ndarray] = {}
         self._columns_loading: set[tuple[str, str]] = set()
         self._other_axes: dict[int, QSpinBox] = {}
@@ -395,6 +397,12 @@ class QtRunViewer(QWidget):
         reset_zoom.clicked.connect(lambda: self._image_view.autoRange())
         auto_contrast = QPushButton("Auto contrast")
         auto_contrast.clicked.connect(self._auto_contrast)
+        self._rotate_left = QPushButton("Rotate left")
+        self._rotate_left.clicked.connect(lambda: self._rotate(1))
+        self._rotate_right = QPushButton("Rotate right")
+        self._rotate_right.clicked.connect(lambda: self._rotate(-1))
+        self._rotation = QLabel("0°")
+        self._rotation.setToolTip("Display rotation, clockwise; the data is unchanged")
 
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Slice axis:"))
@@ -408,6 +416,9 @@ class QtRunViewer(QWidget):
         controls.addWidget(self._zoom_box)
         controls.addWidget(reset_zoom)
         controls.addWidget(auto_contrast)
+        controls.addWidget(self._rotate_left)
+        controls.addWidget(self._rotate_right)
+        controls.addWidget(self._rotation)
 
         plot = pg.PlotWidget()
         self._image_view = plot.getViewBox()
@@ -522,6 +533,7 @@ class QtRunViewer(QWidget):
         for widget in (self._slider, self._index):
             widget.setEnabled(False)
         self._set_held_axes([])
+        self._frame = None
         self._image = None
         self._reset_view = True
         self._image_item.clear()
@@ -623,6 +635,7 @@ class QtRunViewer(QWidget):
         if array is not self._array or key != self._current_frame_key() or info is None:
             return
         if error is not None or image is None:
+            self._frame = None
             self._image = None
             self._image_item.clear()
             self._profile_curve.clear()
@@ -633,18 +646,31 @@ class QtRunViewer(QWidget):
             )
             return
         first, self._reset_view = self._reset_view, False
-        self._image = image
-        self._image_item.setImage(image, autoLevels=False)
+        self._frame = image
+        self._draw(recentre=first)
         if first:
             self._image_item.setLevels(auto_levels(image))
-            self._image_view.autoRange()
-            vertical = self._profile_direction.currentIndex() == 1
-            self._profile_line.setValue(image.shape[1 if vertical else 0] // 2)
-        self._update_profile()
         self._update_analysis(image, (id(array), key))
         self._status.setText(
             f"{info.stream}/{info.key}: image {image.shape}, {image.dtype}"
         )
+
+    def _draw(self, recentre: bool) -> None:
+        if self._frame is None:
+            return
+        self._image = np.rot90(self._frame, self._quarter_turns)
+        self._image_item.setImage(self._image, autoLevels=False)
+        if recentre:
+            self._image_view.autoRange()
+            vertical = self._profile_direction.currentIndex() == 1
+            self._profile_line.setValue(self._image.shape[1 if vertical else 0] // 2)
+        self._update_profile()
+
+    def _rotate(self, quarter_turns: int) -> None:
+        """Turn the display anticlockwise by ``quarter_turns`` (negative: clockwise)."""
+        self._quarter_turns = (self._quarter_turns + quarter_turns) % 4
+        self._rotation.setText(f"{(-self._quarter_turns % 4) * 90}°")
+        self._draw(recentre=True)
 
     def _auto_contrast(self) -> None:
         if self._image is not None:
