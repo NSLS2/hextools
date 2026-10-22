@@ -15,12 +15,20 @@ import pyqtgraph as pg  # noqa: E402
 from bluesky.plans import count  # noqa: E402
 from IPython.core.interactiveshell import InteractiveShell  # noqa: E402
 from IPython.terminal.interactiveshell import TerminalInteractiveShell  # noqa: E402
-from ophyd.sim import det  # noqa: E402  # type: ignore
+from ophyd_async.core import init_devices  # noqa: E402
+from ophyd_async.sim import PatternGenerator, SimPointDetector  # noqa: E402
 from qtpy.QtCore import QCoreApplication, QEvent, QProcess  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
 import hextools.gui.__main__ as gui_main  # noqa: E402
 from hextools.gui.__main__ import QtDataAcquisitionWindow  # noqa: E402
+
+
+@pytest.fixture
+def det(RE):
+    with init_devices():
+        det = SimPointDetector(PatternGenerator())
+    return det
 
 
 def _hooks(RE):
@@ -65,7 +73,7 @@ def _open_window(RE, tmp_path, request):
     return window, exporter, marker
 
 
-def _assert_torn_down(RE, before, marker):
+def _assert_torn_down(RE, det, before, marker):
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     QCoreApplication.processEvents()
     assert marker.exists(), "auto exporter was killed, not stopped"
@@ -78,7 +86,7 @@ def _assert_torn_down(RE, before, marker):
 # Closing the window ran none of the GUI's teardown: the exporter child was killed
 # by QProcess's destructor, and RE kept hooks into deleted widgets, so the next
 # RE(...) raised "Signal source has been deleted".
-def test_closing_the_window_tears_down(RE, tmp_path, request):
+def test_closing_the_window_tears_down(RE, det, tmp_path, request):
     before = _hooks(RE)
     window, _, marker = _open_window(RE, tmp_path, request)
     assert _hooks(RE) != before
@@ -87,10 +95,12 @@ def test_closing_the_window_tears_down(RE, tmp_path, request):
 
     window._qt_window.close()
 
-    _assert_torn_down(RE, before, marker)
+    _assert_torn_down(RE, det, before, marker)
 
 
-def test_interpreter_exit_tears_down_an_open_window(RE, tmp_path, request, monkeypatch):
+def test_interpreter_exit_tears_down_an_open_window(
+    RE, det, tmp_path, request, monkeypatch
+):
     registered = []
     monkeypatch.setattr(atexit, "register", lambda f, *a, **k: registered.append(f))
     monkeypatch.setattr(atexit, "unregister", lambda f: None)
@@ -100,13 +110,13 @@ def test_interpreter_exit_tears_down_an_open_window(RE, tmp_path, request, monke
     for exit_hook in registered:
         exit_hook()
 
-    _assert_torn_down(RE, before, marker)
+    _assert_torn_down(RE, det, before, marker)
 
 
 # PR 97 review: a closed window's hooks sit inside a newer window's chain when the
 # older window closes first; they must stop calling into the deleted window.
 @pytest.mark.parametrize("first", ["older", "newer"])
-def test_closing_windows_that_share_a_run_engine(RE, first):
+def test_closing_windows_that_share_a_run_engine(RE, det, first):
     QApplication.instance() or QApplication([])
     InteractiveShell.instance()
     before = _hooks(RE)
