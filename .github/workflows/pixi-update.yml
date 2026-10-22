@@ -1,5 +1,5 @@
 ---
-name: Pixi Update
+name: Refresh Lockfile
 
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   update:
-    name: Update Pixi Lockfile
+    name: Refresh Pixi Lockfile
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -35,12 +35,12 @@ jobs:
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
         with:
-          commit-message: "Update pixi lockfile"
+          commit-message: "Refresh pixi lockfile"
           author: >-
             ${{ github.event_name == 'workflow_dispatch'
               && format('{0} <{1}+{0}@users.noreply.github.com>', github.actor, github.actor_id)
               || 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>' }}
-          title: "Update pixi lockfile"
+          title: "Refresh pixi lockfile"
           branch: pixi-update
           add-paths: pixi.lock
           body-path: ${{ runner.temp }}/diff.md
