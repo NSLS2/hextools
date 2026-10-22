@@ -581,3 +581,34 @@ def test_viewer_clears_the_time_unit_when_x_changes():
     _wait_for(lambda: viewer._line_plot.getAxis("bottom").labelText == "Index")
     assert viewer._line_plot.getAxis("bottom").labelUnits == ""
     viewer.close()
+
+
+# AJ (2026-10-22): HEX images need rotating in the viewer; the data is unchanged.
+def test_viewer_rotates_the_displayed_image_in_quarter_turns():
+    QApplication.instance() or QApplication([])
+    run = _tomo_run()
+    viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
+    _wait_for(lambda: viewer._datasets)
+    _select(viewer, "kinetix-det1_image")
+    _wait_for(lambda: viewer._image is not None)
+    frame = PROJECTIONS[0, 0]
+
+    viewer._rotate_right.click()
+    np.testing.assert_array_equal(viewer._image_item.image, np.rot90(frame, -1))
+    assert viewer._rotation.text() == "90°"
+    xs, ys = viewer._profile_curve.getData()
+    assert len(ys) == frame.shape[0]
+
+    viewer._index.setValue(2)
+    _wait_for(lambda: viewer._image is not None and viewer._image[0, -1] == 40)
+    np.testing.assert_array_equal(
+        viewer._image_item.image, np.rot90(PROJECTIONS[2, 0], -1)
+    )
+
+    viewer._rotate_left.click()
+    viewer._rotate_left.click()
+    np.testing.assert_array_equal(
+        viewer._image_item.image, np.rot90(PROJECTIONS[2, 0], 1)
+    )
+    assert viewer._rotation.text() == "270°"
+    viewer.close()
