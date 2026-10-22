@@ -1,7 +1,9 @@
 """Exporters for tomography data."""
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import h5py
 from bluesky_tiled_plugins import CatalogOfBlueskyRuns
@@ -17,6 +19,46 @@ from hextools.exporters.utils import (
 from hextools.utils import ensure_available
 
 logger = logging.getLogger("hextools.exporters.tomography")
+
+
+def resolve_dark_flat_run(
+    tiled_client: Mapping[Any, Any],
+    run_start: Mapping[str, Any],
+    dark_flat_id: str | int | None = None,
+) -> BlueskyRunV3 | None:
+    """Return the dark/flat run to link into a tomography export, or None.
+
+    An explicit ``dark_flat_id`` is used as given. Otherwise the run's
+    ``last_dark_flat_uid`` is used only if that dark/flat was taken in the same
+    proposal: RE.md keeps the uid across a proposal switch.
+    """
+    if dark_flat_id is not None:
+        dark_flat_run = tiled_client[dark_flat_id]
+        if not isinstance(dark_flat_run, BlueskyRunV3):
+            raise ValueError(
+                f"Failed to resolve dark/flat run {dark_flat_id} to a BlueskyRunV3"
+            )
+        return dark_flat_run
+
+    uid = run_start.get("last_dark_flat_uid")
+    if uid is None:
+        logger.warning("No last_dark_flat_uid in the run start document")
+        return None
+    try:
+        dark_flat_run = tiled_client[uid]
+    except KeyError:
+        dark_flat_run = None
+    if not isinstance(dark_flat_run, BlueskyRunV3):
+        logger.warning(f"Dark/flat run {uid} not found; omitting dark/flat entries")
+        return None
+    dark_flat_session = dark_flat_run.start.get("data_session")
+    if dark_flat_session != run_start.get("data_session"):
+        logger.warning(
+            f"Dark/flat run {uid} is from {dark_flat_session}, not "
+            f"{run_start.get('data_session')}; omitting dark/flat entries"
+        )
+        return None
+    return dark_flat_run
 
 
 def export_tomo_flyscan_to_h5(
@@ -44,21 +86,10 @@ def export_tomo_flyscan_to_h5(
         f" for proposal {proposal}, cycle {cycle}"
     )
 
-    dark_flat_uid = dark_flat_id or run_start.get("last_dark_flat_uid")
-
-    if dark_flat_uid is None:
-        logger.warning(
-            "No last_dark_flat_uid found in the run start document. "
-            "Omitting dark/flat entries"
-        )
-        dark_flat_run = None
-    else:
+    dark_flat_run = resolve_dark_flat_run(tiled_client, run_start, dark_flat_id)
+    if dark_flat_run is not None:
+        dark_flat_uid = dark_flat_run.start.get("uid")
         logger.info(f"Using dark/flat run {dark_flat_uid}")
-        dark_flat_run = tiled_client[dark_flat_uid]
-        if not isinstance(dark_flat_run, BlueskyRunV3):
-            raise ValueError(
-                f"Failed to resolve dark/flat run {dark_flat_uid} to a BlueskyRunV3"
-            )
 
     scan_id_dir_path = Path(
         f"/nsls2/data/hex/proposals/{cycle}/{proposal}/tomography/metadata/scan_{scan_id:05}"

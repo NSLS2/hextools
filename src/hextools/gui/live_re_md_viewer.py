@@ -39,6 +39,7 @@ from qtpy.QtWidgets import (
 )
 
 from hextools.utils import (
+    DARK_FLAT_MD_KEYS,
     get_proposal_info,
     is_running_in_ci,
     list_proposals,
@@ -214,7 +215,11 @@ class QtProposalInfo(QtReMetadataMonitor):
                 response.get("msg") or "Couldn't read the RunEngine metadata."
             )
         md = dict(response.get("re_metadata") or {})
+        had = set(md)
         updated = switch_proposal(proposal, username, password, md=md)
+        if stale := [k for k in DARK_FLAT_MD_KEYS if k in had and k not in updated]:
+            # md is a copy; the worker's RE.md must lose them too.
+            client.script_upload(f"for _k in {stale!r}: RE.md.pop(_k, None)")
         if is_running_in_ci():
             # Outside mock mode RE.md is Redis-backed, so the switch already reached
             # the worker.

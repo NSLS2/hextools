@@ -408,6 +408,10 @@ def _run_sync_experiment(
     return output
 
 
+# Set by LastDarkFlatUIDTracker; they belong to the proposal the dark/flat was taken in.
+DARK_FLAT_MD_KEYS = ("last_dark_flat_uid", "last_dark_flat_scan_id")
+
+
 def switch_proposal(
     proposal_number: int,
     username: str,
@@ -419,7 +423,8 @@ def switch_proposal(
 
     Runs ``nslsii``'s ``sync-experiment`` command, answering its prompts with the
     given credentials. In mock mode any credentials are accepted and only ``md``
-    (e.g. ``RE.md``) is updated.
+    (e.g. ``RE.md``) is updated. Moving to a different proposal removes the
+    previous proposal's dark/flat (``DARK_FLAT_MD_KEYS``) from ``md``.
 
     Returns
     -------
@@ -427,10 +432,15 @@ def switch_proposal(
         The updated metadata: ``md`` if given (Redis-backed outside mock mode), else
         an empty dict.
     """
+    new_session = f"pass-{proposal_number}"
+    if md is not None and md.get("data_session") != new_session:
+        for key in DARK_FLAT_MD_KEYS:
+            md.pop(key, None)
+
     if is_running_in_ci():
         if md is None:
             raise ValueError("In mock mode, the metadata to update must be given.")
-        md["data_session"] = f"pass-{proposal_number}"
+        md["data_session"] = new_session
         md["username"] = username
         md["start_datetime"] = datetime.now().isoformat()
         info = get_proposal_info(proposal_number)
