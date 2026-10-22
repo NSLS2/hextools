@@ -37,6 +37,7 @@ from bluesky_widgets.qt.run_engine_client import (
     QtReRunningPlan,
     QtReStatusMonitor,
 )
+from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
@@ -511,8 +512,9 @@ class _StateSignal(QObject):
 def _end_ipython_session() -> None:
     """Make the attached IPython shell exit, without waiting for a keypress."""
     ipython = IPython.get_ipython()
-    # Only the terminal shell has ask_exit; a Jupyter kernel is left running.
-    if ipython is None or not hasattr(ipython, "ask_exit"):
+    # Only a terminal session; a Jupyter kernel's shell has ask_exit too, and
+    # is left running.
+    if not isinstance(ipython, TerminalInteractiveShell):
         return
     ipython.ask_exit()
     pt_app = getattr(ipython, "pt_app", None)
@@ -887,6 +889,13 @@ def main():
         f" from on startup. Can also be set with {PLAN_HISTORY_FILE_ENV}.",
     )
 
+    parser.add_argument(
+        "--keep-ipython",
+        action="store_true",
+        help="Keep the IPython session open when the GUI window is closed"
+        " (by default, closing the window also ends it).",
+    )
+
     args = parser.parse_args()
 
     if args.mock:
@@ -924,7 +933,7 @@ def main():
         config.InteractiveShellApp.exec_lines = [
             f"get_ipython().run_line_magic('run', {f'-i {profile_path}'!r})",
             "from hextools.gui.__main__ import launch_local_viewer",
-            "launch_local_viewer(end_ipython_on_close=True)",
+            f"launch_local_viewer(end_ipython_on_close={not args.keep_ipython})",
         ]
         config.TerminalIPythonApp.display_banner = False
         start_ipython(argv=[], config=config)

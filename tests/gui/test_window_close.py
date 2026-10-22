@@ -9,13 +9,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("qtpy")
 pytest.importorskip("bluesky_widgets")
 
+import IPython  # noqa: E402
 import pyqtgraph as pg  # noqa: E402
 from bluesky.plans import count  # noqa: E402
 from IPython.core.interactiveshell import InteractiveShell  # noqa: E402
+from IPython.terminal.interactiveshell import TerminalInteractiveShell  # noqa: E402
 from ophyd.sim import det  # noqa: E402  # type: ignore
 from qtpy.QtCore import QCoreApplication, QEvent, QProcess  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
+import hextools.gui.__main__ as gui_main  # noqa: E402
 from hextools.gui.__main__ import QtDataAcquisitionWindow  # noqa: E402
 
 
@@ -124,12 +127,71 @@ def test_closing_windows_that_share_a_run_engine(RE, first):
 @pytest.mark.parametrize("end_ipython", [False, True])
 def test_closing_the_window_can_end_the_ipython_session(RE, monkeypatch, end_ipython):
     QApplication.instance() or QApplication([])
-    shell = InteractiveShell.instance()
-    asked = []
-    # The terminal shell's ask_exit; no prompt is waiting (pt_app is None).
-    monkeypatch.setattr(shell, "ask_exit", lambda: asked.append(True), raising=False)
+    InteractiveShell.instance()
+    ended = []
+    monkeypatch.setattr(gui_main, "_end_ipython_session", lambda: ended.append(True))
     window = QtDataAcquisitionWindow(re_client=RE, end_ipython_on_close=end_ipython)
 
     window._qt_window.close()
 
-    assert asked == ([True] if end_ipython else [])
+    assert ended == ([True] if end_ipython else [])
+
+
+class _TerminalShell(TerminalInteractiveShell):
+    """A terminal shell with no prompt running (pt_app is None)."""
+
+    def __init__(self):
+        self.asked = []
+
+    def ask_exit(self):
+        self.asked.append(True)
+
+
+class _KernelShell:
+    """Stands in for ipykernel's ZMQInteractiveShell, which also has ask_exit."""
+
+    kernel = object()
+
+    def __init__(self):
+        self.asked = []
+
+    def ask_exit(self):
+        self.asked.append(True)
+
+
+# PR 101 review: a Jupyter kernel's shell has ask_exit too and must be left alone.
+@pytest.mark.parametrize(
+    ("shell", "ends"), [(_TerminalShell, True), (_KernelShell, False)]
+)
+def test_only_a_terminal_ipython_session_is_ended(monkeypatch, shell, ends):
+    ipython = shell()
+    monkeypatch.setattr(gui_main.IPython, "get_ipython", lambda: ipython)
+
+    gui_main._end_ipython_session()
+
+    assert ipython.asked == ([True] if ends else [])
+
+
+# PR 101 review (Jakub): `hex-gui --keep-ipython` leaves the session open on close.
+@pytest.mark.parametrize(("argv", "end"), [([], True), (["--keep-ipython"], False)])
+def test_hex_gui_ends_ipython_on_close_unless_asked_to_keep_it(monkeypatch, argv, end):
+    for var in (
+        "SESSION_MANAGER",
+        "PYTHONPATH",
+        "PYTHONUSERBASE",
+        "MPLBACKEND",
+        "BEAMLINE_ACRONYM",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    configs = []
+    monkeypatch.setattr(
+        IPython, "start_ipython", lambda argv, config: configs.append(config)
+    )
+    monkeypatch.setattr(sys, "argv", ["hex-gui", *argv])
+
+    gui_main.main()
+
+    (config,) = configs
+    assert f"launch_local_viewer(end_ipython_on_close={end})" in (
+        config.InteractiveShellApp.exec_lines
+    )
