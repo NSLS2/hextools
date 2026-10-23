@@ -47,7 +47,7 @@ def resolve_dark_flat_run(
     if not isinstance(dark_flat_run, BlueskyRunV3):
         logger.warning(f"Dark/flat run {uid} not found; omitting dark/flat entries")
         return None
-    if dark_flat_id is None:
+    if dark_flat_run is not None:
         # A dark/flat from the same proposal in an earlier cycle is stale too.
         dark_flat_from = tuple(
             dark_flat_run.start.get(k) for k in ("data_session", "cycle")
