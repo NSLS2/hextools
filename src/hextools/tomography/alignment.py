@@ -726,7 +726,7 @@ def tomo_alignment_scan(
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
     # Restored in the cleanup, so the stage returns at full speed before slowing.
-    initial_position = yield from bps.rd(rot_motor.user_setpoint)
+    initial_position = yield from bps.rd(rot_motor.user_readback)
     initial_velocity = yield from bps.rd(rot_motor.velocity)
 
     @bpp.reset_positions_decorator(
@@ -768,9 +768,9 @@ def tomo_alignment_scan(
 
     def _cleanup():
         yield from ensure_shutter_closed(photon_shutter)
-        yield from bps.mv(rot_motor, initial_position)
-        yield from bps.mv(rot_motor.velocity, initial_velocity)
         if isinstance(det, KinetixDetector):
             yield from enable_preview_mode(det)
+        yield from bps.mv(rot_motor, initial_position)
+        yield from bps.mv(rot_motor.velocity, initial_velocity)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))

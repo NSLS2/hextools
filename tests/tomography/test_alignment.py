@@ -13,6 +13,7 @@ from ophyd_async.core import (
     StaticPathProvider,
     UUIDFilenameProvider,
     callback_on_mock_execute,
+    get_mock_put,
     init_devices,
     set_mock_value,
 )
