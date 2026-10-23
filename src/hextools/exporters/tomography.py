@@ -32,15 +32,11 @@ def resolve_dark_flat_run(
     ``last_dark_flat_uid`` is used only if that dark/flat was taken in the same
     proposal and cycle: RE.md keeps the uid across a proposal switch.
     """
-    if dark_flat_id is not None:
-        dark_flat_run = tiled_client[dark_flat_id]
-        if not isinstance(dark_flat_run, BlueskyRunV3):
-            raise ValueError(
-                f"Failed to resolve dark/flat run {dark_flat_id} to a BlueskyRunV3"
-            )
-        return dark_flat_run
-
-    uid = run_start.get("last_dark_flat_uid")
+    uid = (
+        dark_flat_id
+        if dark_flat_id is not None
+        else run_start.get("last_dark_flat_uid")
+    )
     if uid is None:
         logger.warning("No last_dark_flat_uid in the run start document")
         return None
@@ -51,17 +47,19 @@ def resolve_dark_flat_run(
     if not isinstance(dark_flat_run, BlueskyRunV3):
         logger.warning(f"Dark/flat run {uid} not found; omitting dark/flat entries")
         return None
-    # A dark/flat from the same proposal in an earlier cycle is stale too.
-    dark_flat_from = tuple(
-        dark_flat_run.start.get(k) for k in ("data_session", "cycle")
-    )
-    scan_from = tuple(run_start.get(k) for k in ("data_session", "cycle"))
-    if dark_flat_from != scan_from:
-        logger.warning(
-            f"Dark/flat run {uid} is from {dark_flat_from}, not {scan_from}; "
-            "omitting dark/flat entries"
+    if dark_flat_id is None:
+        # A dark/flat from the same proposal in an earlier cycle is stale too.
+        dark_flat_from = tuple(
+            dark_flat_run.start.get(k) for k in ("data_session", "cycle")
         )
-        return None
+        scan_from = tuple(run_start.get(k) for k in ("data_session", "cycle"))
+        if dark_flat_from != scan_from:
+            logger.warning(
+                f"Dark/flat run {uid} is from {dark_flat_from}, not {scan_from}; "
+                "omitting dark/flat entries"
+            )
+            return None
+    logger.info(f"Using dark/flat run {uid}")
     return dark_flat_run
 
 
@@ -91,9 +89,6 @@ def export_tomo_flyscan_to_h5(
     )
 
     dark_flat_run = resolve_dark_flat_run(tiled_client, run_start, dark_flat_id)
-    if dark_flat_run is not None:
-        dark_flat_uid = dark_flat_run.start.get("uid")
-        logger.info(f"Using dark/flat run {dark_flat_uid}")
 
     scan_id_dir_path = Path(
         f"/nsls2/data/hex/proposals/{cycle}/{proposal}/tomography/metadata/scan_{scan_id:05}"
@@ -136,8 +131,8 @@ def export_tomo_flyscan_to_h5(
             missing = set(det_names) - found.keys()
             if missing:
                 logger.warning(
-                    f"Dark/flat run {dark_flat_uid} has no {stream_name} data for "
-                    f"{sorted(missing)}"
+                    f"Dark/flat run {dark_flat_run.start.get('uid')} has no "
+                    f"{stream_name} data for {sorted(missing)}"
                 )
             for name in set(det_names) & found.keys():
                 relpath, dataset, _ = found[name]

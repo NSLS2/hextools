@@ -408,10 +408,6 @@ def _run_sync_experiment(
     return output
 
 
-# Set by LastDarkFlatUIDTracker; they belong to the proposal the dark/flat was taken in.
-DARK_FLAT_MD_KEYS = ("last_dark_flat_uid", "last_dark_flat_scan_id")
-
-
 def switch_proposal(
     proposal_number: int,
     username: str,
@@ -423,8 +419,7 @@ def switch_proposal(
 
     Runs ``nslsii``'s ``sync-experiment`` command, answering its prompts with the
     given credentials. In mock mode any credentials are accepted and only ``md``
-    (e.g. ``RE.md``) is updated. Moving to a different proposal removes the
-    previous proposal's dark/flat (``DARK_FLAT_MD_KEYS``) from ``md``.
+    (e.g. ``RE.md``) is updated.
 
     Returns
     -------
@@ -432,13 +427,10 @@ def switch_proposal(
         The updated metadata: ``md`` if given (Redis-backed outside mock mode), else
         an empty dict.
     """
-    new_session = f"pass-{proposal_number}"
-    changing = md is not None and md.get("data_session") != new_session
-
     if is_running_in_ci():
         if md is None:
             raise ValueError("In mock mode, the metadata to update must be given.")
-        md["data_session"] = new_session
+        md["data_session"] = f"pass-{proposal_number}"
         md["username"] = username
         md["start_datetime"] = datetime.now().isoformat()
         info = get_proposal_info(proposal_number)
@@ -448,13 +440,9 @@ def switch_proposal(
             "type": info["type"],
             "pi_name": info["pi_name"],
         }
-    else:
-        _run_sync_experiment(proposal_number, username, password, beamline)
+        return md
 
-    # Only once the switch succeeded: a failed login keeps the current proposal.
-    if md is not None and changing:
-        for key in DARK_FLAT_MD_KEYS:
-            md.pop(key, None)
+    _run_sync_experiment(proposal_number, username, password, beamline)
     return md if md is not None else {}
 
 
@@ -600,8 +588,26 @@ def print_device_tree(device: Device, indent: int = 0) -> None:
     print("\n".join(x))
 
 
+# Set by LastDarkFlatUIDTracker.
+DARK_FLAT_MD_KEYS = ("last_dark_flat_uid", "last_dark_flat_scan_id")
+
+
+def clear_last_dark_flat(RE: RunEngine | None = None):
+    """Forget the last dark/flat, so later scans link none until a new one is taken.
+
+    Parameters
+    ----------
+    RE : RunEngine | None, optional
+        The RunEngine to update. If None, it is taken from the IPython namespace.
+    """
+    RE = ensure_available(RunEngine, RE=RE)
+    for key in DARK_FLAT_MD_KEYS:
+        RE.md.pop(key, None)
+    yield from bps.null()
+
+
 def reset_scan_id(new_scan_id: int = 0, RE: RunEngine | None = None):
-    """Reset the RunEngine's scan ID.
+    """Reset the RunEngine's scan ID, and forget the last dark/flat.
 
     Parameters
     ----------
@@ -612,4 +618,5 @@ def reset_scan_id(new_scan_id: int = 0, RE: RunEngine | None = None):
     """
     RE = ensure_available(RunEngine, RE=RE)
     RE.md["scan_id"] = new_scan_id
-    yield from bps.null()
+    # Earlier dark/flats belong to the scans being numbered over.
+    yield from clear_last_dark_flat(RE=RE)

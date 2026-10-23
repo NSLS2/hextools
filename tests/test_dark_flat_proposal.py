@@ -1,4 +1,4 @@
-"""A tomography run's dark/flat must come from its own proposal.
+"""A tomography run's dark/flat must come from its own proposal and cycle.
 
 RE.md is shared by the whole beamline and keeps ``last_dark_flat_uid`` across a
 proposal switch. At HEX on 2026-10-22, tomo scans 249-256 in pass-312143 were
@@ -7,12 +7,11 @@ exported with the dark/flat of scan 246 from pass-314022.
 
 from unittest.mock import Mock
 
-import pytest
+from bluesky import RunEngine
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 
-from hextools import utils
 from hextools.exporters.tomography import resolve_dark_flat_run
-from hextools.utils import DARK_FLAT_MD_KEYS, switch_proposal
+from hextools.utils import DARK_FLAT_MD_KEYS, clear_last_dark_flat, reset_scan_id
 
 
 def _run(data_session: str, cycle: str = "2026-3") -> Mock:
@@ -25,39 +24,18 @@ def _run(data_session: str, cycle: str = "2026-3") -> Mock:
     return run
 
 
-@pytest.fixture
-def mock_mode(monkeypatch):
-    monkeypatch.setenv("HEXTOOLS_RUNNING_IN_CI", "YES")
+def test_clear_last_dark_flat(RE: RunEngine):
+    RE.md.update({"last_dark_flat_uid": "uid-246", "last_dark_flat_scan_id": 246})
+    RE(clear_last_dark_flat(RE=RE))
+    assert not set(DARK_FLAT_MD_KEYS) & RE.md.keys()
+    RE(clear_last_dark_flat(RE=RE))  # nothing left to clear is fine
 
 
-def test_switching_proposal_forgets_the_previous_proposals_dark_flat(mock_mode):
-    md = {
-        "data_session": "pass-314022",
-        "last_dark_flat_uid": "uid-246",
-        "last_dark_flat_scan_id": 246,
-    }
-    switch_proposal(312143, "user", "pw", md=md)
-    assert md["data_session"] == "pass-312143"
-    assert not set(DARK_FLAT_MD_KEYS) & md.keys()
-
-
-def test_resyncing_the_same_proposal_keeps_its_dark_flat(mock_mode):
-    md = {"data_session": "pass-314022", "last_dark_flat_uid": "uid-246"}
-    switch_proposal(314022, "user", "pw", md=md)
-    assert md["last_dark_flat_uid"] == "uid-246"
-
-
-def test_failed_switch_keeps_the_current_proposals_dark_flat(monkeypatch):
-    monkeypatch.delenv("HEXTOOLS_RUNNING_IN_CI", raising=False)
-
-    def _login_fails(*_args, **_kwargs):
-        raise RuntimeError("authentication failed")
-
-    monkeypatch.setattr(utils, "_run_sync_experiment", _login_fails)
-    md = {"data_session": "pass-314022", "last_dark_flat_uid": "uid-246"}
-    with pytest.raises(RuntimeError, match="authentication"):
-        switch_proposal(312143, "user", "pw", md=md)
-    assert md == {"data_session": "pass-314022", "last_dark_flat_uid": "uid-246"}
+def test_reset_scan_id_forgets_the_last_dark_flat(RE: RunEngine):
+    RE.md.update({"scan_id": 256, "last_dark_flat_uid": "uid-246"})
+    RE(reset_scan_id(RE=RE))
+    assert RE.md["scan_id"] == 0
+    assert not set(DARK_FLAT_MD_KEYS) & RE.md.keys()
 
 
 def test_dark_flat_from_another_proposal_is_not_used():
@@ -105,3 +83,8 @@ def test_explicit_dark_flat_id_is_honoured_across_proposals():
     client = {"uid-246": dark_flat}
     start = {"data_session": "pass-312143"}
     assert resolve_dark_flat_run(client, start, dark_flat_id="uid-246") is dark_flat
+
+
+def test_unresolvable_explicit_dark_flat_id_is_skipped_not_raised():
+    start = {"data_session": "pass-312143", "cycle": "2026-3"}
+    assert resolve_dark_flat_run({}, start, dark_flat_id="gone") is None
