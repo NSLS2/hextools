@@ -394,14 +394,17 @@ def tomo_flyscan(
                 name="primary",
             )
 
-    def _cleanup():
+    def _cleanup(velocity: float):
         yield from ensure_shutter_closed(photon_shutter)
         yield from bps.abs_set(rot_motor.motor_stop, 1)
+        # The motor's fly prepare leaves VELO at the fly speed.
+        yield from bps.mv(rot_motor.velocity, velocity)
         for det in detectors:
             if isinstance(det, KinetixDetector):
                 yield from enable_preview_mode(det)
 
-    return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
+    velocity = yield from bps.rd(rot_motor.velocity)
+    return (yield from bpp.finalize_wrapper(_body(), _cleanup(velocity)))
 
 
 def tomo_flyscan_loop(
