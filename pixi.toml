@@ -22,7 +22,7 @@ bluesky-tiled-plugins = ">=2.0.9,<3"
 hextools = { path = ".", editable = true }
 nslsii = { git = "https://github.com/NSLS2/nslsii", rev = "main" }
 bluesky = { git = "https://github.com/bluesky/bluesky", rev = "main" }
-ophyd-async = { git = "https://github.com/jwlodek/ophyd-async", rev = "add-codec-and-process-plugin-allow-for-filtering" }
+ophyd-async = { git = "https://github.com/bluesky/ophyd-async", rev = "main" }
 
 [feature.profile.dependencies]
 redis-json-dict = ">=0.2.2,<0.3"
@@ -115,6 +115,7 @@ auto-exporter = "python -m hextools.exporters.auto_exporter"
 
 [feature.exporter.dependencies]
 h5py = ">=3.16.0,<4"
+
 [feature.docs.dependencies]
 sphinx = "*"
 sphinx-autobuild = "*"
@@ -156,5 +157,12 @@ solve-group = "profile"
 
 [feature.py313.tasks]
 tests = "pytest --cov=src/hextools --cov-report=term"
+# Run the tests, then serve the html coverage report whether or not they passed.
+# VS Code's terminal opens file:// links in the editor, but http:// in the browser.
+coverage = """
+pytest --cov=src/hextools --cov-report=term --cov-report=html; \
+echo "Coverage report: http://localhost:8765/index.html (Ctrl-C to stop)" \
+&& python -m http.server 8765 --bind 127.0.0.1 --directory $PIXI_PROJECT_ROOT/htmlcov
+"""
 lint = "pre-commit run --all-files"
 type-check = "ty check src tests"

@@ -32,9 +32,9 @@ dependencies = [
   "algotom",
   "ipython",
   "numpy",
-  "bluesky",
-  "nslsii",
-  "ophyd-async[ca, pva]",
+  "bluesky @ git+https://github.com/bluesky/bluesky@main",
+  "nslsii @ git+https://github.com/NSLS2/nslsii@main",
+  "ophyd-async[ca, pva] @ git+https://github.com/bluesky/ophyd-async@main",
   "rich>=15.0.0",
   "scikit-image>=0.26.0",
   "scipy>=1.17.1",
@@ -111,7 +111,7 @@ allow-direct-references = true
 artifacts = ["src/hextools/_version.py"]
 
 [tool.hatch.build.targets.wheel]
-sources = ["src"]
+projects = ["src/hextools"]
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/hextools/_version.py"

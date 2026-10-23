@@ -141,6 +141,12 @@ def validate_tomo_dark_flat(run: RunLike, version: str | None = "1") -> None:
 #   sample_name: str                 optional
 #   last_dark_flat_uid: str          optional, see the tomography dark/flat convention
 #   last_dark_flat_scan_id: int      optional, see the tomography dark/flat convention
+#   grid_index: int                  optional, from the step scans: 0-based point index
+#   num_grid_points: int             optional, from the step scans: points in the scan
+#   grid_positions: dict[str, float] optional, from the step scans: step motor name to
+#                                    setpoint; empty when the scan has no step axes
+#   previous_grid_point_uid: str     optional, from the step scans: start uid of the
+#                                    previous point's successful run; absent on first
 # Streams:
 #   primary: collected while flying
 #     <det>                     (num_points, height, width) image stack, external
