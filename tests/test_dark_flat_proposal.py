@@ -10,13 +10,18 @@ from unittest.mock import Mock
 import pytest
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 
+from hextools import utils
 from hextools.exporters.tomography import resolve_dark_flat_run
 from hextools.utils import DARK_FLAT_MD_KEYS, switch_proposal
 
 
-def _run(data_session: str) -> Mock:
+def _run(data_session: str, cycle: str = "2026-3") -> Mock:
     run = Mock(spec=BlueskyRunV3)
-    run.start = {"uid": f"uid-{data_session}", "data_session": data_session}
+    run.start = {
+        "uid": f"uid-{data_session}",
+        "data_session": data_session,
+        "cycle": cycle,
+    }
     return run
 
 
@@ -42,16 +47,47 @@ def test_resyncing_the_same_proposal_keeps_its_dark_flat(mock_mode):
     assert md["last_dark_flat_uid"] == "uid-246"
 
 
+def test_failed_switch_keeps_the_current_proposals_dark_flat(monkeypatch):
+    monkeypatch.delenv("HEXTOOLS_RUNNING_IN_CI", raising=False)
+
+    def _login_fails(*_args, **_kwargs):
+        raise RuntimeError("authentication failed")
+
+    monkeypatch.setattr(utils, "_run_sync_experiment", _login_fails)
+    md = {"data_session": "pass-314022", "last_dark_flat_uid": "uid-246"}
+    with pytest.raises(RuntimeError, match="authentication"):
+        switch_proposal(312143, "user", "pw", md=md)
+    assert md == {"data_session": "pass-314022", "last_dark_flat_uid": "uid-246"}
+
+
 def test_dark_flat_from_another_proposal_is_not_used():
     client = {"uid-246": _run("pass-314022")}
-    start = {"data_session": "pass-312143", "last_dark_flat_uid": "uid-246"}
+    start = {
+        "data_session": "pass-312143",
+        "cycle": "2026-3",
+        "last_dark_flat_uid": "uid-246",
+    }
+    assert resolve_dark_flat_run(client, start) is None
+
+
+def test_dark_flat_from_an_earlier_cycle_is_not_used():
+    client = {"uid-246": _run("pass-312143", cycle="2026-2")}
+    start = {
+        "data_session": "pass-312143",
+        "cycle": "2026-3",
+        "last_dark_flat_uid": "uid-246",
+    }
     assert resolve_dark_flat_run(client, start) is None
 
 
 def test_dark_flat_from_the_same_proposal_is_used():
     dark_flat = _run("pass-312143")
     client = {"uid-260": dark_flat}
-    start = {"data_session": "pass-312143", "last_dark_flat_uid": "uid-260"}
+    start = {
+        "data_session": "pass-312143",
+        "cycle": "2026-3",
+        "last_dark_flat_uid": "uid-260",
+    }
     assert resolve_dark_flat_run(client, start) is dark_flat
 
 

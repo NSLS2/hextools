@@ -30,7 +30,7 @@ def resolve_dark_flat_run(
 
     An explicit ``dark_flat_id`` is used as given. Otherwise the run's
     ``last_dark_flat_uid`` is used only if that dark/flat was taken in the same
-    proposal: RE.md keeps the uid across a proposal switch.
+    proposal and cycle: RE.md keeps the uid across a proposal switch.
     """
     if dark_flat_id is not None:
         dark_flat_run = tiled_client[dark_flat_id]
@@ -51,11 +51,15 @@ def resolve_dark_flat_run(
     if not isinstance(dark_flat_run, BlueskyRunV3):
         logger.warning(f"Dark/flat run {uid} not found; omitting dark/flat entries")
         return None
-    dark_flat_session = dark_flat_run.start.get("data_session")
-    if dark_flat_session != run_start.get("data_session"):
+    # A dark/flat from the same proposal in an earlier cycle is stale too.
+    dark_flat_from = tuple(
+        dark_flat_run.start.get(k) for k in ("data_session", "cycle")
+    )
+    scan_from = tuple(run_start.get(k) for k in ("data_session", "cycle"))
+    if dark_flat_from != scan_from:
         logger.warning(
-            f"Dark/flat run {uid} is from {dark_flat_session}, not "
-            f"{run_start.get('data_session')}; omitting dark/flat entries"
+            f"Dark/flat run {uid} is from {dark_flat_from}, not {scan_from}; "
+            "omitting dark/flat entries"
         )
         return None
     return dark_flat_run

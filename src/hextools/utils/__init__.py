@@ -433,9 +433,7 @@ def switch_proposal(
         an empty dict.
     """
     new_session = f"pass-{proposal_number}"
-    if md is not None and md.get("data_session") != new_session:
-        for key in DARK_FLAT_MD_KEYS:
-            md.pop(key, None)
+    changing = md is not None and md.get("data_session") != new_session
 
     if is_running_in_ci():
         if md is None:
@@ -450,9 +448,13 @@ def switch_proposal(
             "type": info["type"],
             "pi_name": info["pi_name"],
         }
-        return md
+    else:
+        _run_sync_experiment(proposal_number, username, password, beamline)
 
-    _run_sync_experiment(proposal_number, username, password, beamline)
+    # Only once the switch succeeded: a failed login keeps the current proposal.
+    if md is not None and changing:
+        for key in DARK_FLAT_MD_KEYS:
+            md.pop(key, None)
     return md if md is not None else {}
 
 
