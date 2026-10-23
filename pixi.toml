@@ -115,6 +115,7 @@ auto-exporter = "python -m hextools.exporters.auto_exporter"
 
 [feature.exporter.dependencies]
 h5py = ">=3.16.0,<4"
+
 [feature.docs.dependencies]
 sphinx = "*"
 sphinx-autobuild = "*"
@@ -156,5 +157,11 @@ solve-group = "profile"
 
 [feature.py313.tasks]
 tests = "pytest --cov=src/hextools --cov-report=term"
+# Run the tests generating an html coverage report, display the link on success or failure.
+coverage = """
+pytest --cov=src/hextools --cov-report=term --cov-report=html \
+&& echo "Coverage report: file://$PIXI_PROJECT_ROOT/htmlcov/index.html" \
+|| (echo "Coverage report: file://$PIXI_PROJECT_ROOT/htmlcov/index.html" && exit 1)
+"""
 lint = "pre-commit run --all-files"
 type-check = "ty check src tests"

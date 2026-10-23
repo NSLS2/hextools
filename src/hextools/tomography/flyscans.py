@@ -9,9 +9,10 @@ from typing import Any, cast
 from bluesky import plan_patterns
 from bluesky import plan_stubs as bps
 from bluesky import preprocessors as bpp
-from bluesky.protocols import Collectable
+from bluesky.protocols import Collectable, Flyable
 from bluesky.utils import (
     FailedStatus,
+    MsgGenerator,
     PlanHalt,
     RunEngineControlException,
 )
@@ -87,6 +88,11 @@ def tomo_dark_flat(
     if use_shutter:
         yield from ensure_shutter_open(fe_shutter)
 
+    # Each detector's prepare sets its exposure, so put it back in the cleanup.
+    initial_acquire_times = []
+    for det in detectors:
+        initial_acquire_times.append((yield from bps.rd(det.driver.acquire_time)))
+
     _md = {
         "plan_name": "tomo_dark_flat",
         "detectors": [det.name for det in detectors],
@@ -99,9 +105,7 @@ def tomo_dark_flat(
         ],
     }
 
-    @bpp.reset_positions_decorator(
-        [sample_tower.x1, *[det.driver.acquire_time for det in detectors]]
-    )
+    @bpp.reset_positions_decorator([sample_tower.x1])
     @bpp.run_decorator(md=_md)
     @bpp.stage_decorator([*detectors])
     def _body():
@@ -130,6 +134,9 @@ def tomo_dark_flat(
     def _cleanup():
         if use_shutter:
             yield from ensure_shutter_closed(photon_shutter)
+        # Before the preview restarts, so it runs at the original exposure.
+        for det, acquire_time in zip(detectors, initial_acquire_times, strict=True):
+            yield from bps.mv(det.driver.acquire_time, acquire_time)
         for det in detectors:
             if isinstance(det, KinetixDetector):
                 yield from enable_preview_mode(det)
@@ -441,6 +448,11 @@ def tomo_nd_step_scan(
     sample_tower : SampleTower | None, optional
         The SampleTower instance to use for positioning the sample. Default is None.
     """
+
+    # Ensure the number of retries is non-negative.
+    if num_retries < 0:
+        num_retries = 0
+
     # Extract the step axes from the positional arguments.
     if len(args) % 4:
         raise ValueError("Step axes must be given as (motor, start, stop, num) groups.")
@@ -513,6 +525,7 @@ def tomo_nd_step_scan(
             }
             if previous_uid is not None:
                 md["previous_grid_point_uid"] = previous_uid
+
             for attempt in range(1, num_retries + 2):
                 try:
                     previous_uid = yield from tomo_flyscan(

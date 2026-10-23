@@ -15398,11 +15398,11 @@ packages:
   name: hextools
   requires_dist:
   - algotom
-  - bluesky
+  - bluesky @ git+https://github.com/bluesky/bluesky@main
   - ipython
-  - nslsii
+  - nslsii @ git+https://github.com/NSLS2/nslsii@main
   - numpy
-  - ophyd-async[ca,pva]
+  - ophyd-async[ca,pva] @ git+https://github.com/bluesky/ophyd-async@main
   - rich>=15.0.0
   - scikit-image>=0.26.0
   - scipy>=1.17.1

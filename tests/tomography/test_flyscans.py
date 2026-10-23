@@ -203,11 +203,6 @@ async def test_tomo_dark_flat(
     assert await ktx.driver.trigger_mode.get_value() == KinetixTriggerMode.INTERNAL
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="reset_positions_decorator only restores devices the plan 'set's; "
-    "acquire_time is changed inside the detector's prepare, so it is never restored",
-)
 async def test_tomo_dark_flat_restores_acquire_time(
     RE: RunEngine,
     kinetix_det_factory: Callable[[int], KinetixDetector],
@@ -334,6 +329,9 @@ class FlyRig:
     would, recording what it wrote in ``written``.
     """
 
+    # neither the max velocity nor any fly speed, so a missed restore shows
+    INITIAL_VELOCITY = 7.0
+
     def __init__(
         self,
         static_path_provider: StaticPathProvider,
@@ -371,6 +369,7 @@ class FlyRig:
         )
 
         rot = _mock_motor(self.rot_motor)
+        set_mock_value(rot.velocity, self.INITIAL_VELOCITY)
         set_mock_value(rot.encoder_resolution, 0.01)
         callback_on_mock_put(rot.user_setpoint, self._move)
 
@@ -515,6 +514,7 @@ async def test_tomo_flyscan(
     assert rig.shutter_during_move == ShutterStatus.OPEN
     assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
     assert get_mock_put(rig.rot_motor.motor_stop).call_args.args[0] == 1
+    assert await rig.rot_motor.velocity.get_value() == FlyRig.INITIAL_VELOCITY
 
 
 async def test_tomo_flyscan_arms_only_after_run_up(
@@ -776,6 +776,7 @@ async def test_tomo_flyscan_fails_on_too_many_missed_frames(
     _, photon_shutter = open_fe_shutter
     assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
     assert get_mock_put(rig.rot_motor.motor_stop).called
+    assert await rig.rot_motor.velocity.get_value() == FlyRig.INITIAL_VELOCITY
     assert await ktx.driver.trigger_mode.get_value() == KinetixTriggerMode.INTERNAL
 
 
