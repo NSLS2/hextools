@@ -21,7 +21,7 @@ bluesky-tiled-plugins = ">=2.0.9,<3"
 hextools = { path = ".", editable = true }
 nslsii = { git = "https://github.com/NSLS2/nslsii", rev = "main" }
 bluesky = { git = "https://github.com/bluesky/bluesky", rev = "main" }
-ophyd-async = { git = "https://github.com/jwlodek/ophyd-async", rev = "add-codec-and-process-plugin-allow-for-filtering" }
+ophyd-async = { git = "https://github.com/bluesky/ophyd-async", rev = "main" }
 
 [feature.profile.dependencies]
 redis-json-dict = ">=0.2.2,<0.3"

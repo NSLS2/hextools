@@ -319,8 +319,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
+      - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/02/cdcc9b7c051786a103c3b09e1003a82fa0c66bcb91ffbdabcfbf7b4163b9/dnspython-2.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
@@ -844,9 +844,9 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
+      - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#6763cde3c4bb3b2baa47c5ab5208af6d3c148a21
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl
@@ -1229,8 +1229,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
+      - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/02/cdcc9b7c051786a103c3b09e1003a82fa0c66bcb91ffbdabcfbf7b4163b9/dnspython-2.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
@@ -1582,8 +1582,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
+      - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/10/02/cdcc9b7c051786a103c3b09e1003a82fa0c66bcb91ffbdabcfbf7b4163b9/dnspython-2.9.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
@@ -2037,9 +2037,9 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
+      - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#6763cde3c4bb3b2baa47c5ab5208af6d3c148a21
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl
@@ -2577,8 +2577,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
+      - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
       - pypi: https://files.pythonhosted.org/packages/0e/99/e3d4e3b8feae70ea2546533dc348ae325884db2ddf88b423f4452cc21d46/pvxslibs-1.5.3-cp311-cp311-manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1b/dd/a9fe6a0a09512da23951c68bf36466aeecd89def3183dc095edbc807ddc5/pint-0.25.3-py3-none-any.whl
@@ -3097,8 +3097,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
+      - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl
@@ -3616,8 +3616,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
+      - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/13/b5/3515126cb6dce557cb928cc3147a77d5f84b9cade3c8548b802792e6bbe4/redis_json_dict-0.2.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
@@ -4024,8 +4024,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
+      - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl
@@ -4451,8 +4451,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
-      - pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
-      - pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
+      - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
+      - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl
@@ -5063,7 +5063,7 @@ packages:
   - zstd >=1.5.7,<1.6.0a0
   license: BSD-3-Clause AND MIT AND EPL-2.0
   purls:
-  - pkg:pypi/backports-zstd?source=hash-mapping
+  - pkg:pypi/backports-zstd?source=compressed-mapping
   run_exports: {}
   size: 249002
   timestamp: 1791654829528
@@ -5323,7 +5323,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/cffi?source=hash-mapping
+  - pkg:pypi/cffi?source=compressed-mapping
   run_exports: {}
   size: 310350
   timestamp: 1788485287159
@@ -5582,7 +5582,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/cytoolz?source=hash-mapping
+  - pkg:pypi/cytoolz?source=compressed-mapping
   run_exports: {}
   size: 762767
   timestamp: 1791511255926
@@ -5598,7 +5598,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/cytoolz?source=hash-mapping
+  - pkg:pypi/cytoolz?source=compressed-mapping
   run_exports: {}
   size: 765976
   timestamp: 1791511269143
@@ -5614,7 +5614,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/cytoolz?source=hash-mapping
+  - pkg:pypi/cytoolz?source=compressed-mapping
   run_exports: {}
   size: 760733
   timestamp: 1791511265780
@@ -6056,7 +6056,7 @@ packages:
   license: Apache-2.0
   license_family: Apache
   purls:
-  - pkg:pypi/google-crc32c?source=hash-mapping
+  - pkg:pypi/google-crc32c?source=compressed-mapping
   run_exports: {}
   size: 29520
   timestamp: 1788537554663
@@ -9167,7 +9167,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/openpyxl?source=hash-mapping
+  - pkg:pypi/openpyxl?source=compressed-mapping
   run_exports: {}
   size: 478098
   timestamp: 1788523142686
@@ -9929,8 +9929,7 @@ packages:
   license: LGPL-3.0-only
   license_family: LGPL
   purls:
-  - pkg:pypi/pyside6?source=hash-mapping
-  - pkg:pypi/shiboken6?source=hash-mapping
+  - pkg:pypi/pyside6?source=compressed-mapping
   run_exports: {}
   size: 13947145
   timestamp: 1788745031498
@@ -10525,7 +10524,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/rpds-py?source=hash-mapping
+  - pkg:pypi/rpds-py?source=compressed-mapping
   run_exports: {}
   size: 302657
   timestamp: 1791202432096
@@ -11578,7 +11577,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/zstandard?source=hash-mapping
+  - pkg:pypi/zstandard?source=compressed-mapping
   run_exports: {}
   size: 466599
   timestamp: 1788604311166
@@ -11596,7 +11595,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/zstandard?source=hash-mapping
+  - pkg:pypi/zstandard?source=compressed-mapping
   run_exports: {}
   size: 466862
   timestamp: 1788604308908
@@ -11614,7 +11613,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/zstandard?source=hash-mapping
+  - pkg:pypi/zstandard?source=compressed-mapping
   run_exports: {}
   size: 472702
   timestamp: 1788604307981
@@ -12029,7 +12028,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/bokeh?source=hash-mapping
+  - pkg:pypi/bokeh?source=compressed-mapping
   run_exports: {}
   size: 4454345
   timestamp: 1787144786949
@@ -12087,7 +12086,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/cached-property?source=hash-mapping
+  - pkg:pypi/cached-property?source=compressed-mapping
   run_exports: {}
   size: 16597
   timestamp: 1787678456483
@@ -12932,7 +12931,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/imagesize?source=hash-mapping
+  - pkg:pypi/imagesize?source=compressed-mapping
   run_exports: {}
   size: 21467
   timestamp: 1787649248672
@@ -13190,7 +13189,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/jsonschema?source=hash-mapping
+  - pkg:pypi/jsonschema?source=compressed-mapping
   run_exports: {}
   size: 82084
   timestamp: 1787579299493
@@ -13223,7 +13222,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/jupyter-client?source=hash-mapping
+  - pkg:pypi/jupyter-client?source=compressed-mapping
   run_exports: {}
   size: 118962
   timestamp: 1787929615607
@@ -13552,7 +13551,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/nexusformat?source=hash-mapping
+  - pkg:pypi/nexusformat?source=compressed-mapping
   run_exports: {}
   size: 1021789
   timestamp: 1791251134726
@@ -13902,7 +13901,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/pyproject-hooks?source=hash-mapping
+  - pkg:pypi/pyproject-hooks?source=compressed-mapping
   run_exports: {}
   size: 17061
   timestamp: 1791576869230
@@ -14840,7 +14839,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/tenacity?source=hash-mapping
+  - pkg:pypi/tenacity?source=compressed-mapping
   run_exports: {}
   size: 34691
   timestamp: 1791389550882
@@ -15452,9 +15451,9 @@ packages:
   - redis-json-dict
   - requests
   requires_python: '>=3.11,<3.15'
-- pypi: git+https://github.com/bluesky/bluesky?rev=main#a424322948feb80dec9a051847f80bee939b55cd
+- pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
   name: bluesky
-  version: 1.15.2.dev274+ga42432294
+  version: 1.15.2.dev285+g7672549a1
   requires_dist:
   - cycler
   - event-model>=1.24.0
@@ -15471,7 +15470,7 @@ packages:
   - cloudpickle ; extra == 'dev'
   - copier ; extra == 'dev'
   - coverage ; extra == 'dev'
-  - databroker==2.0.1 ; extra == 'dev'
+  - databroker ; extra == 'dev'
   - doct ; extra == 'dev'
   - doctr ; extra == 'dev'
   - flake8 ; extra == 'dev'
@@ -15541,24 +15540,9 @@ packages:
   - zict<3 ; extra == 'old-persistentdict'
   - bluesky[cmd,common,dev,ipython,olog,plotting,streamz,tools,zmq] ; extra == 'all'
   requires_python: '>=3.10'
-- pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#6763cde3c4bb3b2baa47c5ab5208af6d3c148a21
-  name: ntnda-qt-viewer
-  version: 0.0.3.dev16+g6763cde3c
-  requires_dist:
-  - aioca>=2.0
-  - p4p>=4.2.2
-  - pyqtgraph>=0.14.0
-  - qtpy>=2.4.3
-  - pyside6>=6.9,<6.10 ; extra == 'pyside6'
-  - pyqt6>=6.9,<6.10 ; extra == 'pyqt6'
-  - blosc2 ; extra == 'codecs'
-  - lz4 ; extra == 'codecs'
-  - pillow ; extra == 'codecs'
-  - imagecodecs ; extra == 'codecs'
-  requires_python: '>=3.11'
-- pypi: git+https://github.com/jwlodek/ophyd-async?rev=add-codec-and-process-plugin-allow-for-filtering#5895770395c6f05db456b405c673b0f811f8d174
+- pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
   name: ophyd-async
-  version: 0.21.3.dev63+g589577039
+  version: 0.21.4.dev18+gde097ace3
   requires_dist:
   - numpy
   - bluesky>=1.13.1rc2
@@ -15578,6 +15562,21 @@ packages:
   - matplotlib ; extra == 'demo'
   - pyqt6<6.10 ; extra == 'demo'
   - pytest ; extra == 'demo'
+  requires_python: '>=3.11'
+- pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#6763cde3c4bb3b2baa47c5ab5208af6d3c148a21
+  name: ntnda-qt-viewer
+  version: 0.0.3.dev16+g6763cde3c
+  requires_dist:
+  - aioca>=2.0
+  - p4p>=4.2.2
+  - pyqtgraph>=0.14.0
+  - qtpy>=2.4.3
+  - pyside6>=6.9,<6.10 ; extra == 'pyside6'
+  - pyqt6>=6.9,<6.10 ; extra == 'pyqt6'
+  - blosc2 ; extra == 'codecs'
+  - lz4 ; extra == 'codecs'
+  - pillow ; extra == 'codecs'
+  - imagecodecs ; extra == 'codecs'
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
   name: pymongo
