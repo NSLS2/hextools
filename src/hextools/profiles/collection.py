@@ -55,6 +55,7 @@ from hextools.utils import (
     print_proposal_info,
     print_version_info,
 )
+from hextools.xrd import *
 
 # Adjust the default timeout for ophyd async to 60s
 DEFAULT_TIMEOUT = 60.0
