@@ -146,7 +146,7 @@ def validate_tomo_dark_flat(run: RunLike, version: str | None = "1") -> None:
 #   grid_positions: dict[str, float] optional, from the step scans: step motor name to
 #                                    setpoint; empty when the scan has no step axes
 #   previous_grid_point_uid: str     optional, from the step scans: start uid of the
-#                                    previous point's successful run; absent on the first
+#                                    previous point's successful run; absent on first
 # Streams:
 #   primary: collected while flying
 #     <det>                     (num_points, height, width) image stack, external
