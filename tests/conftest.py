@@ -11,6 +11,7 @@ from ophyd_async.core import (
     set_mock_value,
 )
 
+from hextools.detectors.germ import GeRMDetector
 from hextools.photon_delivery_system.shutter import Shutter, ShutterStatus
 
 # Pre-import websockets modules that trigger DeprecationWarnings so they are
@@ -81,6 +82,12 @@ def _error_and_kill_pending_tasks(
 @pytest.fixture(autouse=True)
 def _set_ci_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("HEXTOOLS_RUNNING_IN_CI", "YES")
+
+
+@pytest.fixture(autouse=True)
+def _preserve_detector_state(monkeypatch: pytest.MonkeyPatch):
+    # The profiles set this, so trigger() uses each detector's current settings.
+    monkeypatch.setenv("OPHYD_ASYNC_PRESERVE_DETECTOR_STATE", "YES")
 
 
 @pytest.fixture(autouse=True, scope="function")
@@ -191,3 +198,16 @@ def two_shutters(shutter_factory: Callable[[str], Shutter]) -> tuple[Shutter, Sh
 @pytest.fixture
 def static_path_provider(tmp_path: Path) -> StaticPathProvider:
     return StaticPathProvider(UUIDFilenameProvider(), tmp_path)
+
+
+@pytest.fixture
+def germ(RE: RunEngine, tmp_path: Path) -> GeRMDetector:
+    """A mock GeRM writing where the ``tiled_client`` fixture's server reads."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    with init_devices(mock=True):
+        germ = GeRMDetector(
+            "GeRM:", StaticPathProvider(UUIDFilenameProvider(), data_dir), name="germ"
+        )
+    set_mock_value(germ.driver.acquire_time, 0.01)
+    return germ

@@ -1,8 +1,11 @@
 """Ophyd async support for the GeRM detector at HEX."""
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated as A
+from typing import cast
 
 import numpy as np
 from ophyd_async.core import (
@@ -11,6 +14,7 @@ from ophyd_async.core import (
     DetectorDataLogic,
     DetectorTrigger,
     DetectorTriggerLogic,
+    DeviceMock,
     PathProvider,
     SignalDataProvider,
     SignalR,
@@ -19,7 +23,10 @@ from ophyd_async.core import (
     StandardReadable,
     StrictEnum,
     TriggerInfo,
+    callback_on_mock_put,
+    default_mock_class,
     set_and_wait_for_value,
+    set_mock_value,
     soft_signal_r_and_setter,
     wait_for_value,
 )
@@ -371,6 +378,148 @@ class GeRMStatsDataLogic(DetectorDataLogic):
         return [self.signal.name] if self.hinted else []
 
 
+#: Full-scale energy (keV) of each gain setting, for the mock's energy axis.
+_GAIN_FULL_SCALE_KEV = {
+    Gain.GAIN_240KEV: 240.0,
+    Gain.GAIN_120KEV: 120.0,
+    Gain.GAIN_60KEV: 60.0,
+    Gain.GAIN_30KEV: 30.0,
+}
+
+
+class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
+    """Simulates a GeRM count, writing each spectrum frame to HDF5 or TIFF.
+
+    Setting ``acquire`` counts for ``acquire_time`` (updating ``elapsed_time``),
+    then publishes a fresh ``(num_elements, num_energy_bins)`` frame to the live
+    signals and ``stats1.total``. Whichever file plugin is capturing writes the frame
+    to disk as the IOC would: appended to ``<file_path><file_name>.h5`` at
+    ``/entry/data/data``, or as ``<file_path><file_name>_NNNNNN.tiff``.
+    """
+
+    #: The HEX GeRM is a 192-strip detector.
+    num_elements = 192
+    #: Peak positions (keV) of the simulated diffraction lines.
+    peak_energies_kev = (24.0, 38.5, 52.0, 67.5, 81.0)
+
+    def __init__(self, name: str = "", parent: DeviceMock | None = None) -> None:
+        super().__init__(name, parent)
+        self._acquisition: asyncio.Task | None = None
+        self._rng = np.random.default_rng(0)
+
+    async def connect(self, device: "GeRMDetector") -> None:
+        driver = device.driver
+        set_mock_value(driver.num_elements, self.num_elements)
+        set_mock_value(driver.num_chips, self.num_elements // 32)
+        set_mock_value(driver.model, "Mock GeRM")
+        set_mock_value(driver.firmware_version, "mock")
+        set_mock_value(driver.ip_address, "127.0.0.1")
+        set_mock_value(driver.acquire_time, 1.0)
+        set_mock_value(driver.gain, Gain.GAIN_120KEV)
+        set_mock_value(driver.shaping_time, ShapingTime.ST_1_0_US)
+        set_mock_value(driver.count_mode, CountMode.TIMED)
+        set_mock_value(driver.shot_mode, ShotMode.ONE_SHOT)
+        set_mock_value(driver.high_voltage, -500.0)
+        set_mock_value(driver.temperature1, -30.0)
+        set_mock_value(driver.temperature2, -30.0)
+        set_mock_value(driver.temperature3, -30.0)
+        set_mock_value(driver.zynq_temperature, 45.0)
+        set_mock_value(driver.udp_reachable, True)
+        set_mock_value(device.hdf.num_frames_chunks, 1)
+
+        for writer in (device.hdf, device.tiff):
+            set_mock_value(writer.file_path_exists, True)
+            self._reset_count_on_capture(writer)
+
+        def _on_acquire(value: bool) -> None:
+            counting = self._acquisition is not None and not self._acquisition.done()
+            if counting and not value:
+                # Stopped early: abandon the count without writing a frame.
+                self._acquisition.cancel()  # type: ignore[union-attr]
+            elif value and not counting:
+                self._acquisition = asyncio.ensure_future(self._acquire(device))
+
+        callback_on_mock_put(driver.acquire, _on_acquire)
+
+    @staticmethod
+    def _reset_count_on_capture(writer: NDPluginFileIO) -> None:
+        def _on_capture(value: bool) -> None:
+            if value:
+                set_mock_value(writer.num_captured, 0)
+
+        callback_on_mock_put(writer.capture, _on_capture)
+
+    async def _acquire(self, device: "GeRMDetector") -> None:
+        driver = device.driver
+        acquire_time = await driver.acquire_time.get_value()
+        step = min(0.1, acquire_time)
+        elapsed = 0.0
+        set_mock_value(driver.elapsed_time, 0.0)
+        while elapsed < acquire_time:
+            await asyncio.sleep(step)
+            elapsed = min(elapsed + step, acquire_time)
+            set_mock_value(driver.elapsed_time, elapsed)
+
+        frame = await self._spectra(device, acquire_time)
+        set_mock_value(driver.mca, frame.ravel())
+        set_mock_value(driver.spectrum, frame.sum(axis=0, dtype=np.int32))
+        set_mock_value(driver.intensity, frame.sum(axis=1, dtype=np.int32))
+        set_mock_value(device.stats1.total, float(frame.sum()))
+
+        for writer in (device.hdf, device.tiff):
+            if await writer.capture.get_value():
+                await self._write_frame(writer, frame)
+                captured = await writer.num_captured.get_value()
+                set_mock_value(writer.num_captured, captured + 1)
+
+        set_mock_value(driver.acquire, False)
+
+    async def _spectra(self, device: "GeRMDetector", acquire_time: float) -> np.ndarray:
+        """One frame of per-element spectra: diffraction peaks on a background."""
+        num_elements = await device.driver.num_elements.get_value()
+        num_bins = await device.driver.num_energy_bins.get_value()
+        full_scale = _GAIN_FULL_SCALE_KEV[await device.driver.gain.get_value()]
+        energies = np.linspace(0.0, full_scale, num_bins)
+        set_mock_value(device.driver.spectrum_x, energies)
+
+        # Each strip sits at a slightly different angle, shifting the peaks.
+        shifts = np.linspace(-0.5, 0.5, num_elements)[:, np.newaxis]
+        expected = np.full((num_elements, num_bins), 0.05)
+        for peak in self.peak_energies_kev:
+            expected += 20.0 * np.exp(-0.5 * ((energies - peak - shifts) / 0.4) ** 2)
+        counts = self._rng.poisson(expected * max(acquire_time, 0.001))
+        return counts.astype(np.int32)
+
+    @staticmethod
+    async def _write_frame(writer: NDPluginFileIO, frame: np.ndarray) -> None:
+        directory = Path(await writer.file_path.get_value())
+        directory.mkdir(parents=True, exist_ok=True)
+        file_name = await writer.file_name.get_value()
+        if isinstance(writer, NDFileHDF5IO):
+            # Imported here so the detector does not require h5py unless mocked.
+            import h5py
+
+            with h5py.File(directory / f"{file_name}.h5", "a") as f:
+                if "/entry/data/data" in f:
+                    dataset = cast(h5py.Dataset, f["/entry/data/data"])
+                    dataset.resize(dataset.shape[0] + 1, axis=0)
+                    dataset[-1] = frame
+                else:
+                    f.create_dataset(
+                        "/entry/data/data",
+                        data=frame[np.newaxis],
+                        maxshape=(None, *frame.shape),
+                        chunks=(1, *frame.shape),
+                    )
+        else:
+            import tifffile
+
+            file_number = await writer.file_number.get_value()
+            tifffile.imwrite(directory / f"{file_name}_{file_number:06d}.tiff", frame)
+            set_mock_value(writer.file_number, file_number + 1)
+
+
+@default_mock_class(GeRMDetectorMock)
 class GeRMDetector(StandardDetector):
     """The ophyd class for GeRM detector."""
 

@@ -24,10 +24,7 @@ async def test_take_radiograph_single_row(
     RE: RunEngine,
     kinetix_det_factory: Callable[[int], KinetixDetector],
     two_shutters: tuple[Shutter, Shutter],
-    monkeypatch: pytest.MonkeyPatch,
 ):
-    # the profile sets this; tests do not load the profile
-    monkeypatch.setenv("OPHYD_ASYNC_PRESERVE_DETECTOR_STATE", "YES")
     exposure_time, num_images, num_acquisitions, wait = 0.1, 10, 5, 0.01
 
     fe_shutter, photon_shutter = two_shutters
@@ -196,11 +193,8 @@ def test_external_trigger_without_a_panda_fails_before_arming(
     RE: RunEngine,
     kinetix_det_factory: Callable[[int], KinetixDetector],
     two_shutters: tuple[Shutter, Shutter],
-    monkeypatch: pytest.MonkeyPatch,
 ):
     """With nothing pulsing the camera, an external radiograph used to time out."""
-    # the profile sets this, so trigger() re-arms with the camera's own (external) state
-    monkeypatch.setenv("OPHYD_ASYNC_PRESERVE_DETECTOR_STATE", "YES")
     fe_shutter, photon_shutter = two_shutters
     ktx = kinetix_det_factory(1)
     with pytest.raises(ValueError, match="panda"):
