@@ -28,9 +28,8 @@ def resolve_dark_flat_run(
 ) -> BlueskyRunV3 | None:
     """Return the dark/flat run to link into a tomography export, or None.
 
-    An explicit ``dark_flat_id`` is used as given. Otherwise the run's
-    ``last_dark_flat_uid`` is used only if that dark/flat was taken in the same
-    proposal and cycle: RE.md keeps the uid across a proposal switch.
+    Uses ``dark_flat_id`` if given, else the run's ``last_dark_flat_uid``, and
+    only if that dark/flat was taken in the same proposal and cycle as the run.
     """
     uid = (
         dark_flat_id
@@ -47,18 +46,17 @@ def resolve_dark_flat_run(
     if not isinstance(dark_flat_run, BlueskyRunV3):
         logger.warning(f"Dark/flat run {uid} not found; omitting dark/flat entries")
         return None
-    if dark_flat_run is not None:
-        # A dark/flat from the same proposal in an earlier cycle is stale too.
-        dark_flat_from = tuple(
-            dark_flat_run.start.get(k) for k in ("data_session", "cycle")
+    # A dark/flat from the same proposal in an earlier cycle is stale too.
+    dark_flat_from = tuple(
+        dark_flat_run.start.get(k) for k in ("data_session", "cycle")
+    )
+    scan_from = tuple(run_start.get(k) for k in ("data_session", "cycle"))
+    if dark_flat_from != scan_from:
+        logger.warning(
+            f"Dark/flat run {uid} is from {dark_flat_from}, not {scan_from}; "
+            "omitting dark/flat entries"
         )
-        scan_from = tuple(run_start.get(k) for k in ("data_session", "cycle"))
-        if dark_flat_from != scan_from:
-            logger.warning(
-                f"Dark/flat run {uid} is from {dark_flat_from}, not {scan_from}; "
-                "omitting dark/flat entries"
-            )
-            return None
+        return None
     logger.info(f"Using dark/flat run {uid}")
     return dark_flat_run
 

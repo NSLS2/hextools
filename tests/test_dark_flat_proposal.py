@@ -78,11 +78,21 @@ def test_no_dark_flat_recorded():
     assert resolve_dark_flat_run({}, {"data_session": "pass-312143"}) is None
 
 
-def test_explicit_dark_flat_id_is_honoured_across_proposals():
-    dark_flat = _run("pass-314022")
-    client = {"uid-246": dark_flat}
-    start = {"data_session": "pass-312143"}
-    assert resolve_dark_flat_run(client, start, dark_flat_id="uid-246") is dark_flat
+def test_explicit_dark_flat_id_from_another_proposal_is_not_used():
+    client = {"uid-246": _run("pass-314022")}
+    start = {"data_session": "pass-312143", "cycle": "2026-3"}
+    assert resolve_dark_flat_run(client, start, dark_flat_id="uid-246") is None
+
+
+def test_explicit_dark_flat_id_overrides_the_start_document():
+    dark_flat = _run("pass-312143")
+    client = {"uid-260": dark_flat, "uid-246": _run("pass-314022")}
+    start = {
+        "data_session": "pass-312143",
+        "cycle": "2026-3",
+        "last_dark_flat_uid": "uid-246",
+    }
+    assert resolve_dark_flat_run(client, start, dark_flat_id="uid-260") is dark_flat
 
 
 def test_unresolvable_explicit_dark_flat_id_is_skipped_not_raised():
