@@ -588,8 +588,26 @@ def print_device_tree(device: Device, indent: int = 0) -> None:
     print("\n".join(x))
 
 
+# Set by LastDarkFlatUIDTracker.
+DARK_FLAT_MD_KEYS = ("last_dark_flat_uid", "last_dark_flat_scan_id")
+
+
+def clear_last_dark_flat(RE: RunEngine | None = None):
+    """Forget the last dark/flat, so later scans link none until a new one is taken.
+
+    Parameters
+    ----------
+    RE : RunEngine | None, optional
+        The RunEngine to update. If None, it is taken from the IPython namespace.
+    """
+    RE = ensure_available(RunEngine, RE=RE)
+    for key in DARK_FLAT_MD_KEYS:
+        RE.md.pop(key, None)
+    yield from bps.null()
+
+
 def reset_scan_id(new_scan_id: int = 0, RE: RunEngine | None = None):
-    """Reset the RunEngine's scan ID.
+    """Reset the RunEngine's scan ID, and forget the last dark/flat.
 
     Parameters
     ----------
@@ -600,4 +618,5 @@ def reset_scan_id(new_scan_id: int = 0, RE: RunEngine | None = None):
     """
     RE = ensure_available(RunEngine, RE=RE)
     RE.md["scan_id"] = new_scan_id
-    yield from bps.null()
+    # Earlier dark/flats belong to the scans being numbered over.
+    yield from clear_last_dark_flat(RE=RE)
