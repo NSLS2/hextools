@@ -285,6 +285,9 @@ def tomo_flyscan(
     if acquire_period is None:
         acquire_period = exposure_time + FRAME_PERIOD_MARGIN
 
+    # The motor's fly prepare leaves VELO at the fly speed; restored in _cleanup.
+    initial_velocity = yield from bps.rd(rot_motor.velocity)
+
     all_detectors = [*detectors, panda]
 
     # Construct ephemeral flyer for the single axis flyscan
@@ -394,17 +397,15 @@ def tomo_flyscan(
                 name="primary",
             )
 
-    def _cleanup(velocity: float):
+    def _cleanup():
         yield from ensure_shutter_closed(photon_shutter)
         yield from bps.abs_set(rot_motor.motor_stop, 1)
-        # The motor's fly prepare leaves VELO at the fly speed.
-        yield from bps.mv(rot_motor.velocity, velocity)
+        yield from bps.mv(rot_motor.velocity, initial_velocity)
         for det in detectors:
             if isinstance(det, KinetixDetector):
                 yield from enable_preview_mode(det)
 
-    velocity = yield from bps.rd(rot_motor.velocity)
-    return (yield from bpp.finalize_wrapper(_body(), _cleanup(velocity)))
+    return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 
 
 def tomo_flyscan_loop(
