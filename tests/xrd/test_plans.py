@@ -11,6 +11,7 @@ from ophyd_async.core import (
     callback_on_mock_put,
     get_mock_put,
     init_devices,
+    set_mock_put_proceeds,
     set_mock_value,
 )
 from ophyd_async.epics.adcore import (
@@ -21,10 +22,17 @@ from ophyd_async.epics.adcore import (
     NDFileHDF5IO,
     NDProcessIO,
 )
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.sim import SimMotor
 
 from hextools.photon_delivery_system import Shutter, ShutterStatus
-from hextools.xrd import ensure_cont_acq_exposure, xrd_count, xrd_dark, xrd_scan
+from hextools.xrd import (
+    ensure_cont_acq_exposure,
+    xrd_calibration,
+    xrd_count,
+    xrd_dark,
+    xrd_scan,
+)
 
 
 @pytest.fixture
@@ -217,4 +225,69 @@ async def test_xrd_scan_closes_the_shutter_and_returns_the_motor_on_failure(
             )
         )
     assert await det_z.user_readback.get_value() == 1.0
+    assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
+
+
+async def test_xrd_scan_after_a_restart_waits_for_the_acquire_readback_not_its_put(
+    RE: RunEngine, perkin_elmer: ContAcqDetector, open_fe: tuple[Shutter, Shutter]
+):
+    """Acquire is a busy record: its put completes only when acquisition stops."""
+    fe_shutter, photon_shutter = open_fe
+    acquire = perkin_elmer.driver.acquire
+    timed_out: list[bool] = []
+    with init_devices():
+        det_z = SimMotor(name="det_z", instant=True)
+
+    def _busy_acquire(value):
+        if not value:
+            set_mock_put_proceeds(acquire, True)
+            return None
+        set_mock_put_proceeds(acquire, False)
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.2, set_mock_value, acquire, True)
+        # bound the test if the plan waits on the put rather than the readback
+        loop.call_later(15.0, _release_after_timeout)
+        return False
+
+    def _release_after_timeout():
+        timed_out.append(True)
+        set_mock_put_proceeds(acquire, True)
+
+    callback_on_mock_put(acquire, _busy_acquire)
+    docs = _collect(
+        RE,
+        xrd_scan(
+            det_z,
+            0.0,
+            1.0,
+            2,
+            0.3,
+            detector=perkin_elmer,
+            fe_shutter=fe_shutter,
+            photon_shutter=photon_shutter,
+        ),
+    )
+    RE.loop.call_soon_threadsafe(set_mock_put_proceeds, acquire, True)
+    assert len(docs["event"]) == 2
+    assert timed_out == []
+    assert await perkin_elmer.driver.acquire_time.get_value() == 0.3
+
+
+async def test_xrd_calibration_scans_the_perkin_elmer(
+    RE: RunEngine, perkin_elmer: ContAcqDetector, open_fe: tuple[Shutter, Shutter]
+):
+    _, photon_shutter = open_fe
+    with init_devices(mock=True):
+        det_z = AsyncEpicsMotor("DETZ:")
+    set_mock_value(det_z.velocity, 10000)
+    set_mock_value(det_z.acceleration_time, 0.0001)
+    docs = _collect(
+        RE,
+        xrd_calibration(
+            perkin_elmer, 0.1, det_z, photon_shutter, num_steps=2, gap=10.0
+        ),
+    )
+    assert [d["plan_name"] for d in docs["start"]] == ["xrd_calibration"]
+    assert len(docs["event"]) == 2
+    assert await det_z.user_readback.get_value() == 0.0
     assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED

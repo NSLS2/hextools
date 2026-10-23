@@ -6,6 +6,7 @@ Elmer's continuous-acquisition exposure setup.
 """
 
 from collections.abc import Generator, Mapping, Sequence
+from functools import partial
 from typing import Any
 
 from bluesky import Msg
@@ -13,7 +14,7 @@ from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.protocols import Movable, Readable
-from ophyd_async.core import DetectorTrigger, TriggerInfo
+from ophyd_async.core import DetectorTrigger, TriggerInfo, set_and_wait_for_value
 from ophyd_async.epics.adcore import ADImageMode, AreaDetector, ContAcqDetector
 
 from hextools.photon_delivery_system import Shutter
@@ -68,8 +69,18 @@ def ensure_cont_acq_exposure(detector: AreaDetector, exposure_time: float):
         detector.driver.image_mode,
         ADImageMode.CONTINUOUS,
     )
-    # A busy record: waiting on it would block until acquisition stops.
-    yield from bps.abs_set(detector.driver.acquire, True, wait=False)
+    # Acquire's put completes only when acquisition stops: wait on its readback.
+    (started,) = yield from bps.wait_for(
+        [
+            partial(
+                set_and_wait_for_value,
+                detector.driver.acquire,
+                True,
+                wait_for_set_completion=False,
+            )
+        ]
+    )
+    started.result()
 
 
 def xrd_count(
