@@ -5,11 +5,12 @@ from collections.abc import Generator
 from bluesky import Msg
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
-from ophyd_async.epics.adcore import AreaDetector
+from ophyd_async.epics.adcore import AreaDetector, ContAcqDetector
 from ophyd_async.epics.adcore._io import ADBaseIOT
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 from hextools.photon_delivery_system import Shutter
+from hextools.xrd.plans import ensure_cont_acq_exposure
 
 
 def xrd_calibration(
@@ -26,17 +27,18 @@ def xrd_calibration(
     if start_position is None:
         start_position: float = yield from bps.rd(motor.user_readback)
 
-    yield from bps.abs_set(
-        detector.driver.acquire_time,
-        exposure_time,
-        detector.driver.acquire_period,
-        0.0,
-        detector.driver.num_images,
-        1,
-        wait=True,
-    )
-
     try:
+        if isinstance(detector, ContAcqDetector):
+            yield from ensure_cont_acq_exposure(detector, exposure_time)
+        else:
+            yield from bps.mv(
+                detector.driver.acquire_time,
+                exposure_time,
+                detector.driver.acquire_period,
+                0.0,
+                detector.driver.num_images,
+                1,
+            )
         yield from bps.mv(photon_shutter, True)
 
         _md = {
@@ -52,5 +54,7 @@ def xrd_calibration(
             md=_md,
         )
     finally:
-        yield from bps.mv(photon_shutter, False)
-        yield from bps.mv(motor, start_position)
+        try:
+            yield from bps.mv(photon_shutter, False)
+        finally:
+            yield from bps.mv(motor, start_position)
