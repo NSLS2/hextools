@@ -14,6 +14,7 @@ from hextools.exporters.utils import (
     confirm_required_start_fields,
     create_baseline_dataset,
     find_hdf_datasets,
+    read_recorded_captures,
     run_metadata_to_json,
 )
 from hextools.utils import ensure_available
@@ -111,14 +112,31 @@ def export_tomo_flyscan_to_h5(
     num_projections = run_start.get("num_points")
     if not isinstance(images_to_average, int):
         raise ValueError(f"images_to_average is not an int: {images_to_average!r}")
+    recorded = (run.stop or {}).get("num_events", {}).get("primary", num_projections)
+    # A run that did not finish leaves files longer than its events, which Tiled
+    # will not serve, so its captures are read from the files up to what it recorded.
+    unfinished = isinstance(num_projections, int) and recorded < num_projections
+    if unfinished:
+        logger.warning(
+            f"Run recorded {recorded} of {num_projections} projections; exporting "
+            "those. Linked detector data may hold frames past the last projection."
+        )
     averaged = {}
-    for name, (_, _, ndim) in primary.items():
-        if name in det_names or (images_to_average == 1 and ndim == 1):
+    for name, (relpath, dataset, ndim) in primary.items():
+        if name in det_names or (
+            images_to_average == 1 and ndim == 1 and not unfinished
+        ):
             continue
         if not isinstance(num_projections, int):
             raise ValueError(f"num_points is not an int: {num_projections!r}")
+        if unfinished:
+            values = read_recorded_captures(
+                scan_id_dir_path / relpath, dataset, recorded, images_to_average
+            )
+        else:
+            values = run["primary"][name].read()
         averaged[name] = average_per_projection(
-            run["primary"][name].read(), num_projections, images_to_average
+            values, recorded if unfinished else num_projections, images_to_average
         )
         links[f"{name}_raw"] = links.pop(name)
         logger.info(f"Averaging {name} over {images_to_average} images per projection")

@@ -40,7 +40,7 @@ MAX_MESSAGE_BYTES = 10 * 1024 * 1024
 CSV_COLUMNS = ("scan_id", "plan_name", "uid", "status", "export_status")
 
 
-def _record_run(csv_path: Path, run: BlueskyRunV3, succeeded: bool) -> None:
+def _record_run(csv_path: Path, run: BlueskyRunV3, export_status: str) -> None:
     uid = run.start["uid"]
     try:
         write_header = not csv_path.exists() or csv_path.stat().st_size == 0
@@ -54,7 +54,7 @@ def _record_run(csv_path: Path, run: BlueskyRunV3, succeeded: bool) -> None:
                     run.start.get("plan_name"),
                     uid,
                     run.stop.get("exit_status"),
-                    "success" if succeeded else "failure",
+                    export_status,
                 ]
             )
     except OSError:
@@ -66,10 +66,17 @@ def auto_export_run(
 ) -> None:
     """Run every exporter registered for ``run``'s specs, raising if any of them failed.
 
+    A run that did not end in success is skipped; export it by hand if needed.
     If ``csv_path`` is given, append the run's scan_id, plan_name, uid and export
     status to it.
     """
     uid = run.start["uid"]
+    exit_status = run.stop.get("exit_status")
+    if exit_status != "success":
+        logger.info(f"Run {uid} ended with exit status {exit_status}; not exporting")
+        if csv_path is not None:
+            _record_run(Path(csv_path), run, "skipped")
+        return
     specs = {(spec.name, spec.version) for spec in run.specs}
     exporters = [EXPORTERS[spec] for spec in specs if spec in EXPORTERS]
     if not exporters:
@@ -85,7 +92,7 @@ def auto_export_run(
             failed.append(exporter.__name__)  # type: ignore
 
     if csv_path is not None:
-        _record_run(Path(csv_path), run, succeeded=not failed)
+        _record_run(Path(csv_path), run, "failure" if failed else "success")
     if failed:
         raise RuntimeError(f"Exporters failed for run {uid}: {failed}")
 
