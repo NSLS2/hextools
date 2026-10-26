@@ -131,6 +131,7 @@ def default_plan_history_file() -> Path:
     name = "plan_history_mock.json" if is_running_in_ci() else "plan_history.json"
     return Path(state_home) / "hextools" / name
 
+
 # Names must match those defined in the profile / Queue Server namespace.
 EXPECTED_DEVICES: list[tuple[str, type]] = [
     ("fe_shutter", Shutter),
