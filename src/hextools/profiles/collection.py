@@ -5,6 +5,7 @@ from pathlib import PurePath, PureWindowsPath
 
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
+from bluesky.magics import BlueskyMagics
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
@@ -95,6 +96,19 @@ if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
     ipython.xmode = "Minimal"
     autoawait_in_bluesky_event_loop()
 
+    # Configure plots to work interactively
+    from matplotlib import pyplot as plt
+    plt.ion()
+
+    # Configure the Bluesky magics with the current RunEngine instance.
+    BlueskyMagics.RE = RE
+    ipython.register_magics(BlueskyMagics)
+
+    # Make tracebacks minimal by default to reduce clutter.
+    # Use %tb verbose to view full traceback.
+    ipython.run_line_magic("xmode", "minimal")
+
+
 # Construct our tiled clients for writing and (in an interactive session) reading.
 # If we're running in CI, we use a simple client for both.
 if not is_running_in_ci():
@@ -113,8 +127,11 @@ else:
 # Subscribe the tiled writer to the RunEngine
 RE.subscribe(TiledWriter(tiled_writing_client, backup_directory="/tmp/bluesky-docs"))
 
-# Subscribe the best effort callback
+# Subscribe the best effort callback, for its plots. The GUI's live table and plan
+# narration already cover what its table and heading would print.
 bec = BestEffortCallback()
+bec.disable_table()
+bec.disable_heading()
 RE.subscribe(bec)
 
 # Keep track of last dark-flat scan UID

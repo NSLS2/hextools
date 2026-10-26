@@ -18,7 +18,7 @@ from typing import Any
 
 from bluesky import RunEngine
 from bluesky.callbacks.best_effort import BestEffortCallback, hinted_fields
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 from qtpy.QtCore import QObject, Qt, QTimer, Signal, Slot
 from qtpy.QtGui import QColor, QFont, QFontDatabase, QPainter, QPen
@@ -672,7 +672,12 @@ class QtPlanProgressView(QWidget):
         figure = Figure(layout="constrained")
         figure.set_label(name)
         canvas = FigureCanvasQTAgg(figure)
-        self._plots_layout.addWidget(canvas, stretch=1)
+        plot = QWidget()
+        plot_layout = QVBoxLayout(plot)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+        plot_layout.addWidget(NavigationToolbar2QT(canvas, plot))
+        plot_layout.addWidget(canvas, stretch=1)
+        self._plots_layout.addWidget(plot, stretch=1)
         if not self._plots.isVisible():
             self._plots.show()
             half = max(1, self._splitter.width() // 2)
@@ -829,7 +834,11 @@ class QtPlanHistory(QWidget):
         self._rerun_button = QPushButton("Re-run Selected Plan")
         self._rerun_button.setEnabled(False)
         self._rerun_button.clicked.connect(self._on_rerun_clicked)
+        self._clear_button = QPushButton("Clear History")
+        self._clear_button.setEnabled(False)
+        self._clear_button.clicked.connect(self._on_clear_clicked)
         buttons = QHBoxLayout()
+        buttons.addWidget(self._clear_button)
         buttons.addStretch()
         buttons.addWidget(self._rerun_button)
 
@@ -898,6 +907,22 @@ class QtPlanHistory(QWidget):
         self._add_row(record)
         self._save()
 
+    def clear(self):
+        """Remove every plan from the table and the history file."""
+        self._table.setRowCount(0)
+        self._records.clear()
+        self._update_button()
+        self._save()
+
+    def _on_clear_clicked(self):
+        answer = QMessageBox.question(
+            self,
+            "Clear plan history",
+            "Remove all plans from the history? This can't be undone.",
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.clear()
+
     def _add_row(self, record: PlanRecord):
         scan_ids = [str(s) for s in record.scan_ids if s is not None]
         cells = (
@@ -925,6 +950,7 @@ class QtPlanHistory(QWidget):
 
     @Slot()
     def _update_button(self):
+        self._clear_button.setEnabled(bool(self._records))
         record = self._selected_record()
         self._rerun_button.setEnabled(record is not None and record.rerunnable)
         if record is not None and not record.rerunnable:

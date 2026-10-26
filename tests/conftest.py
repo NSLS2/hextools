@@ -36,6 +36,14 @@ from tiled.server import SimpleTiledServer
 _ALLOWED_PYTEST_TASKS = {"async_finalizer", "async_setup", "async_teardown"}
 
 
+@pytest.fixture(autouse=True)
+def _plan_history_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep GUIs built in tests away from the user's real plan history file."""
+    monkeypatch.setenv(
+        "HEXTOOLS_PLAN_HISTORY_FILE", str(tmp_path / "plan_history.json")
+    )
+
+
 # ==================================================================================
 # Copied from ophyd-async conftest.py
 # ==================================================================================

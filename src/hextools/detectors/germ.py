@@ -424,13 +424,17 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
         self._rng = np.random.default_rng(0)
         self._frame_callbacks: list[Callable[[np.ndarray], None]] = []
         self._shutters: tuple[Shutter, ...] = ()
+        self._frame_shape: tuple[int, int] | None = None
 
     def register_frame_callback(self, callback: Callable[[np.ndarray], None]) -> None:
         """Call ``callback`` with each ``(num_elements, num_energy_bins)`` frame.
 
-        Called from the event loop the detector is connected in.
+        It is first called with an all-zero frame, once the detector is connected.
+        Later calls come from the event loop the detector is connected in.
         """
         self._frame_callbacks.append(callback)
+        if self._frame_shape is not None:
+            callback(np.zeros(self._frame_shape, dtype=np.int32))
 
     def unregister_frame_callback(self, callback: Callable[[np.ndarray], None]) -> None:
         """Stop calling a callback given to :meth:`register_frame_callback`."""
@@ -476,6 +480,12 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
                 self._acquisition = asyncio.ensure_future(self._acquire(device))
 
         callback_on_mock_put(driver.acquire, _on_acquire)
+
+        self._frame_shape = (
+            self.num_elements,
+            await driver.num_energy_bins.get_value(),
+        )
+        self._notify(np.zeros(self._frame_shape, dtype=np.int32))
 
     @staticmethod
     def _reset_count_on_capture(writer: NDPluginFileIO) -> None:

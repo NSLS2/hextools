@@ -123,6 +123,7 @@ from ._threading import wait_for_workers_to_quit
 RunEngineClientT = TypeVar("RunEngineClientT", bound=RunEngineClient | RunEngine)
 
 PLAN_HISTORY_FILE_ENV = "HEXTOOLS_PLAN_HISTORY_FILE"
+DEFAULT_PLAN_HISTORY_FILE = "~/.cache/hextools_gui_plan_history.json"
 
 # Names must match those defined in the profile / Queue Server namespace.
 EXPECTED_DEVICES: list[tuple[str, type]] = [
@@ -509,7 +510,8 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             tabs.addTab(execution_view, "Plan Execution")
             self.plan_history = QtPlanHistory(
                 self._plan_monitor,
-                history_file=os.environ.get(PLAN_HISTORY_FILE_ENV) or None,
+                history_file=os.environ.get(PLAN_HISTORY_FILE_ENV)
+                or DEFAULT_PLAN_HISTORY_FILE,
             )
             tabs.addTab(self.plan_history, "History")
             tabs.addTab(QtPlanLogView(self._plan_monitor, "hextools"), "Log")
@@ -916,7 +918,8 @@ def main():
         "--history-file",
         default=None,
         help="JSON file to save plan history to as plans finish, and to load it"
-        f" from on startup. Can also be set with {PLAN_HISTORY_FILE_ENV}.",
+        f" from on startup (default: {DEFAULT_PLAN_HISTORY_FILE}). Can also be set"
+        f" with {PLAN_HISTORY_FILE_ENV}.",
     )
 
     parser.add_argument(

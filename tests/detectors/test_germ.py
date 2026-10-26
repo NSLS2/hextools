@@ -194,6 +194,7 @@ async def _take_frame(germ: GeRMDetector) -> np.ndarray:
     mock = germ._mock
     assert isinstance(mock, GeRMDetectorMock)
     mock.register_frame_callback(frames.append)
+    frames.clear()
     await germ.driver.acquire.set(True)
     await asyncio.wait_for(_wait_idle(germ), timeout=5)
     mock.unregister_frame_callback(frames.append)
@@ -215,11 +216,22 @@ async def test_germ_mock_frame_callback_gets_each_frame(germ: GeRMDetector):
     assert frame.sum() > 0
 
 
+async def test_germ_mock_sends_zeros_when_a_callback_registers(
+    germ_mock: GeRMDetectorMock,
+):
+    frames: list[np.ndarray] = []
+    germ_mock.register_frame_callback(frames.append)
+    (frame,) = frames
+    assert frame.shape == (NUM_ELEMENTS, NUM_BINS)
+    assert not frame.any()
+
+
 async def test_germ_mock_frame_updates_each_second_while_counting(
     germ: GeRMDetector, germ_mock: GeRMDetectorMock
 ):
     frames: list[np.ndarray] = []
     germ_mock.register_frame_callback(frames.append)
+    frames.clear()
     set_mock_value(germ.driver.acquire_time, 2.5)
     await germ.driver.acquire.set(True)
     await asyncio.wait_for(_wait_idle(germ), timeout=10)
