@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import numpy as np
 from bluesky_widgets.models.run_engine_client import RunEngineClient
 from IPython.core.getipython import get_ipython
 from ntnda_qt_viewer import NTNDAViewerWidget
@@ -29,12 +30,14 @@ class QtTabbedDetectorsWidget(QTabWidget):
     """
 
     _signal_devices_changed = Signal()
+    _signal_frame = Signal(str, object)
 
     def __init__(self, re_client, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._detectors: dict[str, dict[str, Any]] = {}
         self._combined: dict[str, list[str]] = {}
         self._viewers: dict[str, NTNDAViewerWidget] = {}
+        self._viewers_by_name: dict[str, list[NTNDAViewerWidget]] = {}
         self._combined_tabs: dict[str, QWidget] = {}
         self._tab_viewers: dict[QWidget, list[NTNDAViewerWidget]] = {}
         self._running: set[NTNDAViewerWidget] = set()
@@ -42,6 +45,7 @@ class QtTabbedDetectorsWidget(QTabWidget):
 
         self.currentChanged.connect(self._sync_running)
         self._signal_devices_changed.connect(self._refresh)
+        self._signal_frame.connect(self._on_frame)
         self._source.subscribe(self._on_devices_changed)
 
     def add_detector(
@@ -87,6 +91,19 @@ class QtTabbedDetectorsWidget(QTabWidget):
             raise ValueError(f"Unknown detectors {unknown}; add them first")
         self._combined[label] = list(names)
         self._refresh()
+
+    def show_frame(self, name: str, frame: np.ndarray) -> None:
+        """Display ``frame`` in detector ``name``'s viewers, as if read from its PV.
+
+        Safe to call from any thread. Shown only while the viewers are running.
+        """
+        self._signal_frame.emit(name, frame)
+
+    @Slot(str, object)
+    def _on_frame(self, name: str, frame: np.ndarray) -> None:
+        for viewer in self._viewers_by_name.get(name, []):
+            # The viewer has no public setter; this is what its PV monitor feeds.
+            viewer._on_new_frame(frame)  # noqa: SLF001
 
     @staticmethod
     def _make_source(re_client) -> DeviceSource:
@@ -169,7 +186,9 @@ class QtTabbedDetectorsWidget(QTabWidget):
         self._sync_running()
 
     def _make_viewer(self, name: str, **overrides: Any) -> NTNDAViewerWidget:
-        return NTNDAViewerWidget(**{**self._detectors[name], **overrides})
+        viewer = NTNDAViewerWidget(**{**self._detectors[name], **overrides})
+        self._viewers_by_name.setdefault(name, []).append(viewer)
+        return viewer
 
     def _tab_position(self, name: str) -> int:
         """Index that keeps tabs in the order the detectors were given."""

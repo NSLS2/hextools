@@ -1,6 +1,5 @@
 """Bluesky plans for energy-dispersive X-ray diffraction (EDXD) at HEX."""
 
-import itertools
 from typing import Any
 
 import numpy as np
@@ -8,12 +7,18 @@ from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.preprocessors import finalize_wrapper
+from tiled.structures.core import Spec
 
 from hextools.detectors.germ import GeRMDetector
 from hextools.motors import CollimatorTable, EDXDTable, SampleTower
 from hextools.photon_delivery_system import Shutter, ensure_shutter_open
 from hextools.photon_delivery_system.shutter import ensure_shutter_closed
+from hextools.specs import EDXD_CALIBRATION_V1, EDXD_SCAN_V1
 from hextools.utils import Steppable, ensure_available
+
+
+def _tiled_specs(spec: Spec) -> list[dict[str, str | None]]:
+    return [{"name": spec.name, "version": spec.version}]
 
 
 def configure_test_pulses(
@@ -87,7 +92,10 @@ def edxd_count(
 
     yield from bps.mv(germ.driver.acquire_time, count_time)
 
-    _md = {"plan_name": "edxd_count"}
+    _md: dict[str, Any] = {
+        "plan_name": "edxd_count",
+        "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
+    }
     if description is not None:
         _md["description"] = description
     yield from bp.count([germ], num=num, md=_md)
@@ -158,8 +166,9 @@ def edxd_scan(
         else:
             germ.save_as_hdf()
 
-        _md = {
+        _md: dict[str, Any] = {
             "plan_name": "edxd_scan",
+            "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
         }
         if description is not None:
             _md["description"] = description
@@ -239,7 +248,10 @@ def edxd_custom_pos_list_grid(
 
         yield from bps.mv(germ.driver.acquire_time, count_time)
 
-        _md: dict[str, Any] = {"plan_name": "edxd_custom_pos_list_grid"}
+        _md: dict[str, Any] = {
+            "plan_name": "edxd_custom_pos_list_grid",
+            "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
+        }
         if description is not None:
             _md["description"] = description
         for i, outer_pos in enumerate(outer_positions_list):
@@ -329,7 +341,10 @@ def edxd_grid_scan(
 
         yield from bps.mv(germ.driver.acquire_time, count_time)
 
-        _md = {"plan_name": "edxd_grid_scan"}
+        _md: dict[str, Any] = {
+            "plan_name": "edxd_grid_scan",
+            "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
+        }
         if description is not None:
             _md["description"] = description
         yield from bp.grid_scan(
@@ -461,40 +476,37 @@ def edxd_calib_scan(
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
 
-    _md = {"plan_name": "edxd_calib_scan"}
+    _md: dict[str, Any] = {
+        "plan_name": "edxd_calib_scan",
+        "tiled_specs": _tiled_specs(EDXD_CALIBRATION_V1),
+    }
     if description is not None:
         _md["description"] = description
 
     z1_max_velocity = yield from bps.rd(sample_tower.z1.max_velocity)
+    z1_velocity = yield from bps.rd(sample_tower.z1.velocity)
     z1_curr_position = yield from bps.rd(sample_tower.z1.user_readback)
 
-    low, high = sorted((start, stop))
-    in_range = low <= z1_curr_position <= high
-    if in_range:
-        scan_origin = z1_curr_position
+    if abs(z1_curr_position - start) <= abs(z1_curr_position - stop):
+        near, far = start, stop
     else:
-        scan_origin = (
-            start
-            if abs(z1_curr_position - start) <= abs(z1_curr_position - stop)
-            else stop
-        )
+        near, far = stop, start
 
-    # One iteration is origin -> stop -> start -> origin, i.e. two full spans.
-    required_velo = (2 * abs(start - stop) * iterations) / count_time
+    required_velo = (abs(start - stop) * iterations) / count_time
+    if required_velo <= 0:
+        raise ValueError("start and stop must differ, and iterations be positive")
     if required_velo > z1_max_velocity:
         raise ValueError(
             f"Velocity {required_velo} exceeds max velocity {z1_max_velocity}"
         )
 
-    @bpp.reset_positions_decorator([sample_tower.z1, sample_tower.z1.velocity])
     @bpp.stage_decorator([germ])
     @bpp.run_decorator(md=_md)
     def _body():
         yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
         yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
-        if not in_range:
-            yield from bps.mv(sample_tower.z1.velocity, z1_max_velocity)
-            yield from bps.mv(sample_tower.z1, scan_origin)
+        yield from bps.mv(sample_tower.z1.velocity, z1_max_velocity)
+        yield from bps.mv(sample_tower.z1, near)
 
         yield from bps.mv(
             germ.driver.acquire_time,
@@ -503,19 +515,11 @@ def edxd_calib_scan(
             required_velo,
         )
 
-        count_status = yield from bps.trigger(germ, wait=False, group="germ")
+        yield from bps.trigger(germ, wait=False, group="germ")
 
-        waypoints = itertools.cycle((stop, start, scan_origin))
-        while not count_status.done:
-            move_sts = yield from bps.abs_set(
-                sample_tower.z1, next(waypoints), wait=False
-            )
-            while move_sts.done is False:
-                yield from bps.sleep(0.1)
-                if count_status.done:
-                    break
-
-        yield from bps.mv(sample_tower.z1.motor_stop, 1)
+        for sweep in range(iterations):
+            yield from bps.mv(sample_tower.z1, far if sweep % 2 == 0 else near)
+        yield from bps.wait("germ")
 
         yield from bps.create(name="primary")
         reading = yield from bps.read(germ)  # type: ignore
@@ -524,6 +528,9 @@ def edxd_calib_scan(
 
     def _cleanup():
         yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
+        # Restore the speed first, so z1 returns at its usual speed.
+        yield from bps.mv(sample_tower.z1.velocity, z1_velocity)
+        yield from bps.mv(sample_tower.z1, z1_curr_position)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 

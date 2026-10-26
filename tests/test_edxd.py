@@ -29,11 +29,13 @@ from hextools.edxd import (
 )
 from hextools.motors import CollimatorTable, EDXDTable, SampleTower
 from hextools.photon_delivery_system import Shutter, ShutterStatus
+from hextools.specs import EDXD_CALIBRATION_V1, EDXD_SCAN_V1
 
 Docs = dict[str, list[dict[str, Any]]]
 
 HDF5 = "application/x-hdf5"
 TIFF = "multipart/related;type=image/tiff"
+EDXD_SCAN_SPECS = [{"name": EDXD_SCAN_V1.name, "version": EDXD_SCAN_V1.version}]
 
 
 def _motors_in(device: Device) -> Generator[AsyncEpicsMotor]:
@@ -171,6 +173,7 @@ async def test_edxd_count(
 
     (start,) = docs["start"]
     assert start["plan_name"] == "edxd_count"
+    assert start["tiled_specs"] == EDXD_SCAN_SPECS
     assert start.get("description") == description
     assert docs["stop"][0]["exit_status"] == "success"
     assert await germ.driver.acquire_time.get_value() == 0.02
@@ -215,6 +218,7 @@ async def test_edxd_scan(
 
     (start,) = docs["start"]
     assert start["plan_name"] == "edxd_scan"
+    assert start["tiled_specs"] == EDXD_SCAN_SPECS
     assert start["description"] == "strain map"
     assert [e["data"]["x"] for e in docs["event"]] == pytest.approx([0, 1, 2])
     assert {r["mimetype"] for r in docs["stream_resource"]} == {mimetype}
@@ -305,6 +309,7 @@ async def test_edxd_grid_scan(
 
     (start,) = docs["start"]
     assert start["plan_name"] == "edxd_grid_scan"
+    assert start["tiled_specs"] == EDXD_SCAN_SPECS
     assert start["description"] == "grid"
     positions = [(e["data"]["x"], e["data"]["y"]) for e in docs["event"]]
     assert positions == [pytest.approx(p) for p in expected]
@@ -378,6 +383,7 @@ async def test_edxd_custom_pos_list_grid(
     first, second = docs["start"]
     assert [s["outer_position"] for s in docs["start"]] == [0.0, 1.0]
     assert all(s["plan_name"] == "edxd_custom_pos_list_grid" for s in docs["start"])
+    assert all(s["tiled_specs"] == EDXD_SCAN_SPECS for s in docs["start"])
     assert all(s["description"] == "pos list" for s in docs["start"])
     assert "initial_scan_uid" not in first
     assert second["initial_scan_uid"] == first["uid"]
@@ -523,9 +529,9 @@ async def sample_tower() -> SampleTower:
     _fast(sample_tower)
     z1 = sample_tower.z1
     set_mock_value(z1.max_velocity, 100.0)
-    # A distinct starting velocity, so a missed restore shows. Put rather than
-    # mocked, since the reset restores the last setpoint written.
-    await z1.velocity.set(7.0)
+    # A distinct starting velocity, so a missed restore shows. Mocked, not put, as
+    # in mock mode: its last written setpoint is still 0.
+    set_mock_value(z1.velocity, 7.0)
     return sample_tower
 
 
@@ -542,15 +548,15 @@ async def test_edxd_calib_scan_sweeps_during_one_count(
 ):
     z1 = sample_tower.z1
     fe_shutter, photon_shutter = two_shutters
-    set_mock_value(z1.user_setpoint, 0.5)
-    set_mock_value(z1.user_readback, 0.5)
+    set_mock_value(z1.user_setpoint, 0.4)
+    set_mock_value(z1.user_readback, 0.4)
 
     docs, _ = _run(
         RE,
         edxd_calib_scan(
             0.0,
             1.0,
-            iterations=1,
+            iterations=2,
             count_time=0.5,
             description="CeO2",
             sample_tower=sample_tower,
@@ -562,6 +568,9 @@ async def test_edxd_calib_scan_sweeps_during_one_count(
 
     (start,) = docs["start"]
     assert start["plan_name"] == "edxd_calib_scan"
+    assert start["tiled_specs"] == [
+        {"name": EDXD_CALIBRATION_V1.name, "version": EDXD_CALIBRATION_V1.version}
+    ]
     assert start["description"] == "CeO2"
     # A single count, read once the sweep is done.
     (event,) = docs["event"]
@@ -569,16 +578,13 @@ async def test_edxd_calib_scan_sweeps_during_one_count(
     assert np.asarray(tiled[start["uid"]]["primary"]["germ"].read()).shape[0] == 1
     assert await germ.driver.acquire_time.get_value() == 0.5
 
-    # Already in range, so it sweeps from where it is: toward stop, then start.
-    setpoints = _put_values(z1.user_setpoint)
-    assert setpoints[:2] == pytest.approx([1.0, 0.0])
-    # two spans per iteration over the count time
-    assert 2 * 1.0 * 1 / 0.5 in _put_values(z1.velocity)
-    assert get_mock_put(z1.motor_stop).called
+    # to the nearer end (start) at full speed, then one span per sweep at 4/s
+    assert _put_values(z1.user_setpoint)[:3] == pytest.approx([0.0, 1.0, 0.0])
+    assert _put_values(z1.velocity)[:2] == [100.0, 1.0 * 2 / 0.5]
 
     # z1 speed and position restored, photon shutter closed
     assert await z1.velocity.get_value() == 7.0
-    assert await z1.user_readback.get_value() == pytest.approx(0.5)
+    assert await z1.user_readback.get_value() == pytest.approx(0.4)
     assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
 
 
@@ -607,10 +613,9 @@ async def test_edxd_calib_scan_moves_in_range_first_at_full_speed(
         ),
     )
 
-    # out of range: to the nearer end (stop) at max speed, then sweep at 4/s
-    # (the first put is the fixture's starting velocity)
-    assert _put_values(z1.velocity)[1:3] == [100.0, 4.0]
-    assert _put_values(z1.user_setpoint)[0] == pytest.approx(1.0)
+    # out of range: to the nearer end (stop) at max speed, then sweep at 2/s
+    assert _put_values(z1.velocity)[:2] == [100.0, 2.0]
+    assert _put_values(z1.user_setpoint)[:2] == pytest.approx([1.0, 0.0])
     assert await z1.velocity.get_value() == 7.0
     assert await z1.user_readback.get_value() == pytest.approx(3.0)
 
@@ -623,7 +628,7 @@ def test_edxd_calib_scan_rejects_a_sweep_faster_than_the_motor(
 ):
     fe_shutter, photon_shutter = two_shutters
 
-    # 2 spans of 1 mm, twice, in 0.01 s needs 400 mm/s; z1 tops out at 100
+    # 2 spans of 1 mm in 0.01 s needs 200 mm/s; z1 tops out at 100
     with pytest.raises(ValueError, match="exceeds max velocity"):
         RE(
             edxd_calib_scan(
@@ -639,3 +644,24 @@ def test_edxd_calib_scan_rejects_a_sweep_faster_than_the_motor(
         )
     assert not get_mock_put(sample_tower.z1.user_setpoint).called
     assert not get_mock_put(germ.driver.acquire).called
+
+
+def test_edxd_calib_scan_rejects_a_zero_span(
+    RE: RunEngine,
+    germ: GeRMDetector,
+    sample_tower: SampleTower,
+    two_shutters: tuple[Shutter, Shutter],
+):
+    fe_shutter, photon_shutter = two_shutters
+
+    with pytest.raises(ValueError, match="start and stop must differ"):
+        RE(
+            edxd_calib_scan(
+                1.0,
+                1.0,
+                sample_tower=sample_tower,
+                germ=germ,
+                fe_shutter=fe_shutter,
+                photon_shutter=photon_shutter,
+            )
+        )

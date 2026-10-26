@@ -14,7 +14,7 @@ from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from nslsii.ophyd_async.providers import NSLS2PathProvider
-from ophyd_async.core import PathInfo
+from ophyd_async.core import PathInfo, YMDPathProvider
 from ophyd_async.epics.adcore import (
     ADWriterFactory,
     ContAcqDetector,
@@ -59,6 +59,9 @@ from hextools.utils import (
 # Adjust the default timeout for ophyd async to 60s
 DEFAULT_TIMEOUT = 60.0
 
+# Where mock detectors write their files, instead of the proposal directories.
+MOCK_DETECTOR_DATA_DIR = "/tmp/hextools_dets"
+
 # Environment variables for Redis host and ophyd_async detector state preservation
 os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"
 os.environ["OPHYD_ASYNC_PRESERVE_DETECTOR_STATE"] = "YES"
@@ -102,7 +105,9 @@ if not is_running_in_ci():
     if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
         tiled_reading_client = c = from_uri("https://tiled.nsls2.bnl.gov")["hex"]["raw"]
 else:
-    tiled_writing_client = tiled_reading_client = c = simple()
+    tiled_writing_client = tiled_reading_client = c = simple(
+        readable_storage=MOCK_DETECTOR_DATA_DIR
+    )
 
 
 # Subscribe the tiled writer to the RunEngine
@@ -148,13 +153,16 @@ class HEXPathProvider(NSLS2PathProvider):
 
 
 # Define our global default path provider for the beamline
-path_provider = HEXPathProvider(
-    RE.md,
-    filename_provider=filename_provider,
-    include_scan_id_dir=True,
-    granularity="year",
-    scan_id_padding=5,
-)
+if is_running_in_ci():
+    path_provider = YMDPathProvider(filename_provider, MOCK_DETECTOR_DATA_DIR)
+else:
+    path_provider = HEXPathProvider(
+        RE.md,
+        filename_provider=filename_provider,
+        include_scan_id_dir=True,
+        granularity="year",
+        scan_id_padding=5,
+    )
 
 with auto_init_devices(timeout=2.0):
     # Shutters (Front-end and photon)
@@ -250,10 +258,14 @@ with auto_init_devices(timeout=2.0):
 
     # For the Perkin-Elmer detector, we use a separate path provider
     # Since we need to specify the write directory as a windows path.
-    pe_path_provider = NSLS2PathProvider(
-        RE.md,
-        filename_provider=filename_provider,
-        base_write_dir=PureWindowsPath("Z:\\proposals"),
+    pe_path_provider = (
+        path_provider
+        if is_running_in_ci()
+        else NSLS2PathProvider(
+            RE.md,
+            filename_provider=filename_provider,
+            base_write_dir=PureWindowsPath("Z:\\proposals"),
+        )
     )
     perkin_elmer = ContAcqDetector(
         "XF:27ID1-ES{PE-Det:1}",

@@ -187,3 +187,84 @@ async def test_germ_mock_stopped_count_writes_no_frame(germ: GeRMDetector):
 async def _wait_idle(germ: GeRMDetector):
     while await germ.driver.acquire.get_value():
         await asyncio.sleep(0.01)
+
+
+async def _take_frame(germ: GeRMDetector) -> np.ndarray:
+    frames: list[np.ndarray] = []
+    mock = germ._mock
+    assert isinstance(mock, GeRMDetectorMock)
+    mock.register_frame_callback(frames.append)
+    await germ.driver.acquire.set(True)
+    await asyncio.wait_for(_wait_idle(germ), timeout=5)
+    mock.unregister_frame_callback(frames.append)
+    (frame,) = frames
+    assert frame.shape == (NUM_ELEMENTS, NUM_BINS)
+    assert float(frame.sum()) == await germ.stats1.total.get_value()
+    return frame
+
+
+@pytest.fixture
+def germ_mock(germ: GeRMDetector) -> GeRMDetectorMock:
+    assert isinstance(germ._mock, GeRMDetectorMock)
+    return germ._mock
+
+
+async def test_germ_mock_frame_callback_gets_each_frame(germ: GeRMDetector):
+    frame = await _take_frame(germ)
+    np.testing.assert_array_equal(await germ.driver.mca.get_value(), frame.ravel())
+    assert frame.sum() > 0
+
+
+async def test_germ_mock_frame_updates_each_second_while_counting(
+    germ: GeRMDetector, germ_mock: GeRMDetectorMock
+):
+    frames: list[np.ndarray] = []
+    germ_mock.register_frame_callback(frames.append)
+    set_mock_value(germ.driver.acquire_time, 2.5)
+    await germ.driver.acquire.set(True)
+    await asyncio.wait_for(_wait_idle(germ), timeout=10)
+
+    # at 1 s, 2 s, then the final frame, each accumulating on the last
+    assert len(frames) == 3
+    assert (frames[1] >= frames[0]).all() and (frames[2] >= frames[1]).all()
+    assert frames[0].sum() < frames[1].sum() < frames[2].sum()
+
+
+async def test_germ_mock_closed_shutter_gives_zeros(
+    germ: GeRMDetector, germ_mock: GeRMDetectorMock, two_shutters
+):
+    fe, photon = two_shutters
+    germ_mock.set_shutters(fe, photon)
+    await fe.set(True)
+    assert not (await _take_frame(germ)).any()
+
+
+async def test_germ_mock_open_shutters_count_with_exposure(
+    germ: GeRMDetector, germ_mock: GeRMDetectorMock, two_shutters
+):
+    germ_mock.set_shutters(*two_shutters)
+    for shutter in two_shutters:
+        await shutter.set(True)
+    short = await _take_frame(germ)
+    set_mock_value(germ.driver.acquire_time, 0.1)
+    long = await _take_frame(germ)
+    assert long.sum() > 5 * short.sum() > 0
+
+
+async def test_germ_mock_test_pulses(
+    germ: GeRMDetector, germ_mock: GeRMDetectorMock, two_shutters
+):
+    germ_mock.set_shutters(*two_shutters)
+    set_mock_value(germ.driver.test_pulse_enable, True)
+    pulses = await _take_frame(germ)
+    # same peak in every strip, 1000 Hz for 0.01 s, centred by the amplitude
+    assert (pulses == pulses[0]).all()
+    assert pulses[0].sum() == pytest.approx(10, abs=2)
+    assert abs(int(pulses[0].argmax()) - round(100 / 1024 * (NUM_BINS - 1))) <= 1
+
+    for shutter in two_shutters:
+        await shutter.set(True)
+    both = await _take_frame(germ)
+    signal = both - pulses
+    assert (signal >= 0).all()
+    assert signal.sum() > 0

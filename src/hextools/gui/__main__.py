@@ -18,6 +18,7 @@ import asyncio
 import atexit
 import os
 import time as ttime
+from functools import partial
 from pathlib import Path
 from typing import Generic, TypeVar
 
@@ -57,6 +58,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from hextools.detectors.germ import GeRMDetectorMock
 from hextools.detectors.phantom import PhantomDetector
 from hextools.edxd import (
     configure_test_pulses,
@@ -348,6 +350,34 @@ class QtEDXDView(QWidget):
         vbox = QVBoxLayout()
         vbox.addLayout(top, stretch=1)
         self.setLayout(vbox)
+
+        self._germ_mock: GeRMDetectorMock | None = None
+        if isinstance(re_client, RunEngine) and is_running_in_ci():
+            self._attach_germ_mock(detectors)
+
+    def _attach_germ_mock(self, detectors: QtTabbedDetectorsWidget) -> None:
+        """Show the mock GeRM's frames, gated by the namespace's shutters."""
+        ipython = IPython.get_ipython()
+        user_ns = ipython.user_ns if ipython is not None else {}
+        mock = getattr(user_ns.get("germ"), "_mock", None)
+        if not isinstance(mock, GeRMDetectorMock):
+            return
+        mock.set_shutters(
+            *(
+                shutter
+                for name in ("fe_shutter", "photon_shutter")
+                if isinstance(shutter := user_ns.get(name), Shutter)
+            )
+        )
+        self._show_germ_frame = partial(detectors.show_frame, "germ")
+        mock.register_frame_callback(self._show_germ_frame)
+        self._germ_mock = mock
+
+    def closeEvent(self, event):
+        if self._germ_mock is not None:
+            self._germ_mock.unregister_frame_callback(self._show_germ_frame)
+            self._germ_mock = None
+        super().closeEvent(event)
 
 
 class QtXRDView(QWidget):

@@ -1,11 +1,12 @@
 """Ophyd async support for the GeRM detector at HEX."""
 
 import asyncio
-from collections.abc import Mapping, Sequence
+import logging
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 from typing import Annotated as A
-from typing import cast
 
 import numpy as np
 from ophyd_async.core import (
@@ -43,6 +44,11 @@ from ophyd_async.epics.adcore import (
     NDStatsIO,
 )
 from ophyd_async.epics.core import EpicsDevice, PvSuffix
+
+if TYPE_CHECKING:
+    from hextools.photon_delivery_system.shutter import Shutter
+
+logger = logging.getLogger(__name__)
 
 
 class TDCSlopeTimes(StrictEnum):
@@ -395,17 +401,44 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
     signals and ``stats1.total``. Whichever file plugin is capturing writes the frame
     to disk as the IOC would: appended to ``<file_path><file_name>.h5`` at
     ``/entry/data/data``, or as ``<file_path><file_name>_NNNNNN.tiff``.
+
+    The frame is the sum of the diffraction signal, counted only while every shutter
+    given to :meth:`set_shutters` is open, and a fixed test pulse peak while
+    ``test_pulse_enable`` is set; with neither it is all zeros. Functions given to
+    :meth:`register_frame_callback` are called with the accumulated frame once per
+    second while counting, and with the final frame.
     """
 
     #: The HEX GeRM is a 192-strip detector.
     num_elements = 192
-    #: Peak positions (keV) of the simulated diffraction lines.
-    peak_energies_kev = (24.0, 38.5, 52.0, 67.5, 81.0)
+    #: Energies (keV) and rates (counts/s/bin) of the simulated diffraction lines.
+    lines_kev = ((11.7, 6.0), (12.4, 3.0), (28.3, 3.0), (30.6, 4.0), (35.0, 10.0))
+    #: Full-scale test pulse amplitude, in DAC counts.
+    test_pulse_full_scale = 1024
+    #: Seconds between frame callbacks while counting.
+    frame_update_period = 1.0
 
     def __init__(self, name: str = "", parent: DeviceMock | None = None) -> None:
         super().__init__(name, parent)
         self._acquisition: asyncio.Task | None = None
         self._rng = np.random.default_rng(0)
+        self._frame_callbacks: list[Callable[[np.ndarray], None]] = []
+        self._shutters: tuple[Shutter, ...] = ()
+
+    def register_frame_callback(self, callback: Callable[[np.ndarray], None]) -> None:
+        """Call ``callback`` with each ``(num_elements, num_energy_bins)`` frame.
+
+        Called from the event loop the detector is connected in.
+        """
+        self._frame_callbacks.append(callback)
+
+    def unregister_frame_callback(self, callback: Callable[[np.ndarray], None]) -> None:
+        """Stop calling a callback given to :meth:`register_frame_callback`."""
+        self._frame_callbacks.remove(callback)
+
+    def set_shutters(self, *shutters: "Shutter") -> None:
+        """Only count the diffraction signal while all of ``shutters`` are open."""
+        self._shutters = shutters
 
     async def connect(self, device: "GeRMDetector") -> None:
         driver = device.driver
@@ -425,6 +458,9 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
         set_mock_value(driver.temperature3, -30.0)
         set_mock_value(driver.zynq_temperature, 45.0)
         set_mock_value(driver.udp_reachable, True)
+        set_mock_value(driver.test_pulse_amplitude, 100)
+        set_mock_value(driver.test_pulse_frequency, 1000)
+        set_mock_value(driver.test_pulse_count, 99999)
         set_mock_value(device.hdf.num_frames_chunks, 1)
 
         for writer in (device.hdf, device.tiff):
@@ -452,15 +488,37 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
     async def _acquire(self, device: "GeRMDetector") -> None:
         driver = device.driver
         acquire_time = await driver.acquire_time.get_value()
+        num_elements = await driver.num_elements.get_value()
+        num_bins = await driver.num_energy_bins.get_value()
+        full_scale = _GAIN_FULL_SCALE_KEV[await driver.gain.get_value()]
+        energies = np.linspace(0.0, full_scale, num_bins)
+        set_mock_value(driver.spectrum_x, energies)
+        rate = self._beam_rate(energies, num_elements)
+
+        signal = np.zeros((num_elements, num_bins), dtype=np.int32)
+        pulse_time = 0.0
+        since_update = 0.0
         step = min(0.1, acquire_time)
         elapsed = 0.0
         set_mock_value(driver.elapsed_time, 0.0)
         while elapsed < acquire_time:
             await asyncio.sleep(step)
-            elapsed = min(elapsed + step, acquire_time)
+            previous, elapsed = elapsed, min(elapsed + step, acquire_time)
+            dt = elapsed - previous
+            # Shutters and test pulses are checked each step, as they can change.
+            if await self._shutters_open():
+                signal += self._rng.poisson(rate * dt).astype(np.int32)
+            if await driver.test_pulse_enable.get_value():
+                pulse_time += dt
             set_mock_value(driver.elapsed_time, elapsed)
+            since_update += dt
+            if since_update >= self.frame_update_period - 1e-9 and (
+                elapsed < acquire_time
+            ):
+                since_update = 0.0
+                self._notify(await self._frame(driver, signal, pulse_time))
 
-        frame = await self._spectra(device, acquire_time)
+        frame = await self._frame(driver, signal, pulse_time)
         set_mock_value(driver.mca, frame.ravel())
         set_mock_value(driver.spectrum, frame.sum(axis=0, dtype=np.int32))
         set_mock_value(driver.intensity, frame.sum(axis=1, dtype=np.int32))
@@ -472,23 +530,76 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
                 captured = await writer.num_captured.get_value()
                 set_mock_value(writer.num_captured, captured + 1)
 
+        self._notify(frame)
         set_mock_value(driver.acquire, False)
 
-    async def _spectra(self, device: "GeRMDetector", acquire_time: float) -> np.ndarray:
-        """One frame of per-element spectra: diffraction peaks on a background."""
-        num_elements = await device.driver.num_elements.get_value()
-        num_bins = await device.driver.num_energy_bins.get_value()
-        full_scale = _GAIN_FULL_SCALE_KEV[await device.driver.gain.get_value()]
-        energies = np.linspace(0.0, full_scale, num_bins)
-        set_mock_value(device.driver.spectrum_x, energies)
+    def _notify(self, frame: np.ndarray) -> None:
+        for callback in list(self._frame_callbacks):
+            try:
+                callback(frame)
+            except Exception:
+                logger.exception("GeRM mock frame callback %r failed", callback)
 
-        # Each strip sits at a slightly different angle, shifting the peaks.
-        shifts = np.linspace(-0.5, 0.5, num_elements)[:, np.newaxis]
-        expected = np.full((num_elements, num_bins), 0.05)
-        for peak in self.peak_energies_kev:
-            expected += 20.0 * np.exp(-0.5 * ((energies - peak - shifts) / 0.4) ** 2)
-        counts = self._rng.poisson(expected * max(acquire_time, 0.001))
-        return counts.astype(np.int32)
+    async def _frame(
+        self, driver: GeRMDetectorIO, signal: np.ndarray, pulse_time: float
+    ) -> np.ndarray:
+        """Add the test pulses for ``pulse_time`` seconds to a copy of ``signal``."""
+        frame = signal.copy()
+        if pulse_time > 0:
+            frame += await self._test_pulses(driver, frame.shape, pulse_time)
+        return frame
+
+    async def _shutters_open(self) -> bool:
+        from hextools.photon_delivery_system.shutter import ShutterStatus
+
+        for shutter in self._shutters:
+            if await shutter.status.get_value() != ShutterStatus.OPEN:
+                return False
+        return True
+
+    def _beam_rate(self, energies: np.ndarray, num_elements: int) -> np.ndarray:
+        """Return the expected counts/s per strip and bin with beam.
+
+        The continuum runs from a ragged low-energy cutoff near 6.5 keV, rising to a
+        sharp edge near 35.5 keV, with a sparse tail above it.
+        """
+        # Fixed seed: the per-strip geometry must not change between counts.
+        geometry = np.random.default_rng(1)
+        strips = np.arange(num_elements)[:, np.newaxis]
+        low = 6.5 + geometry.normal(0.0, 0.35, (num_elements, 1)) * (
+            1.0 + strips / num_elements
+        )
+        high = (
+            35.5
+            + 0.2 * np.sin(strips / 4.0)
+            + 0.3 * strips / num_elements
+            + geometry.normal(0.0, 0.08, (num_elements, 1))
+        )
+        position = np.clip((energies - low) / (high - low), 0.0, 1.0)
+        above_low = np.clip(energies - low, 0.0, None)
+        rate = 2.0 + 6.0 * position**3 + 3.0 * np.exp(-above_low / 0.8)
+        for energy, line_rate in self.lines_kev:
+            rate = rate + line_rate * np.exp(-0.5 * ((energies - energy) / 0.25) ** 2)
+        # Logistic edges, written with tanh so they cannot overflow.
+        rate *= 0.5 * (1.0 + np.tanh((energies - low) / 0.2))
+        rate *= 0.5 * (1.0 + np.tanh((high - energies) / 0.16))
+        above = np.clip(energies - high, 0.0, None)
+        rate += np.where(energies > high, 0.01 * np.exp(-above / 12.0), 0.0)
+        return rate
+
+    async def _test_pulses(
+        self, driver: GeRMDetectorIO, shape: tuple[int, ...], acquire_time: float
+    ) -> np.ndarray:
+        """Put the same narrow peak in every strip, at the bin set by the amplitude."""
+        num_bins = shape[1]
+        amplitude = await driver.test_pulse_amplitude.get_value()
+        frequency = await driver.test_pulse_frequency.get_value()
+        max_pulses = await driver.test_pulse_count.get_value()
+        pulses = min(frequency * acquire_time, max_pulses)
+        center = amplitude / self.test_pulse_full_scale * (num_bins - 1)
+        peak = np.exp(-0.5 * ((np.arange(num_bins) - center) / 2.0) ** 2)
+        peak *= pulses / peak.sum() if peak.sum() > 0 else 0.0
+        return np.broadcast_to(np.rint(peak).astype(np.int32), shape).copy()
 
     @staticmethod
     async def _write_frame(writer: NDPluginFileIO, frame: np.ndarray) -> None:
