@@ -124,26 +124,35 @@ def xrd_count(
         the photon shutter to open and close around the acquisition
     """
     detector = _resolve_detector(detector)
-    yield from ensure_cont_acq_exposure(detector, exposure_time)
-    return (
-        yield from _with_plan_name(
-            take_radiograph(
-                [detector],
-                exposure_time,
-                num_images=num_images,
-                num_iterations=num_iterations,
-                external_trigger=False,
-                time_gap=time_gap,
-                images_to_average=images_to_average,
-                sample_name=sample_name,
-                description=description,
-                use_shutter=use_shutter,
-                fe_shutter=fe_shutter,
-                photon_shutter=photon_shutter,
-            ),
-            "xrd_count",
+    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
+
+    def _body():
+        yield from ensure_cont_acq_exposure(detector, exposure_time)
+        return (
+            yield from _with_plan_name(
+                take_radiograph(
+                    [detector],
+                    exposure_time,
+                    num_images=num_images,
+                    num_iterations=num_iterations,
+                    external_trigger=False,
+                    time_gap=time_gap,
+                    images_to_average=images_to_average,
+                    sample_name=sample_name,
+                    description=description,
+                    use_shutter=use_shutter,
+                    fe_shutter=fe_shutter,
+                    photon_shutter=photon_shutter,
+                ),
+                "xrd_count",
+            )
         )
-    )
+
+    def _cleanup():
+        # take_radiograph closes it too; this covers a setup failure before it
+        yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
+
+    return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 
 
 def xrd_dark(

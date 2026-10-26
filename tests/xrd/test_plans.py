@@ -291,3 +291,63 @@ async def test_xrd_calibration_scans_the_perkin_elmer(
     assert len(docs["event"]) == 2
     assert await det_z.user_readback.get_value() == 0.0
     assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
+
+
+def _fail_exposure_setup(detector: ContAcqDetector) -> None:
+    def _fail(value, **_):
+        raise RuntimeError("exposure setup failed")
+
+    callback_on_mock_put(detector.driver.acquire_time, _fail)
+
+
+async def test_xrd_count_closes_an_open_shutter_when_exposure_setup_fails(
+    RE: RunEngine, perkin_elmer: ContAcqDetector, open_fe: tuple[Shutter, Shutter]
+):
+    fe_shutter, photon_shutter = open_fe
+    set_mock_value(photon_shutter.status, ShutterStatus.OPEN)
+    _fail_exposure_setup(perkin_elmer)
+    with pytest.raises(Exception, match="exposure setup failed"):
+        RE(
+            xrd_count(
+                0.3,
+                detector=perkin_elmer,
+                fe_shutter=fe_shutter,
+                photon_shutter=photon_shutter,
+            )
+        )
+    assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
+
+
+async def test_xrd_calibration_closes_an_open_shutter_when_exposure_setup_fails(
+    RE: RunEngine, perkin_elmer: ContAcqDetector, open_fe: tuple[Shutter, Shutter]
+):
+    _, photon_shutter = open_fe
+    set_mock_value(photon_shutter.status, ShutterStatus.OPEN)
+    with init_devices(mock=True):
+        det_z = AsyncEpicsMotor("DETZ:")
+    _fail_exposure_setup(perkin_elmer)
+    with pytest.raises(Exception, match="exposure setup failed"):
+        RE(xrd_calibration(perkin_elmer, 0.3, det_z, photon_shutter, num_steps=2))
+    assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
+
+
+async def test_xrd_calibration_returns_the_motor_when_the_shutter_fails_to_close(
+    RE: RunEngine, perkin_elmer: ContAcqDetector, open_fe: tuple[Shutter, Shutter]
+):
+    _, photon_shutter = open_fe
+    with init_devices(mock=True):
+        det_z = AsyncEpicsMotor("DETZ:")
+    set_mock_value(det_z.velocity, 10000)
+    set_mock_value(det_z.acceleration_time, 0.0001)
+
+    def _stuck_open(*_):
+        raise RuntimeError("shutter stuck")
+
+    callback_on_mock_execute(photon_shutter.close_cmd, _stuck_open)
+    with pytest.raises(Exception, match="shutter stuck"):
+        RE(
+            xrd_calibration(
+                perkin_elmer, 0.1, det_z, photon_shutter, num_steps=2, gap=10.0
+            )
+        )
+    assert await det_z.user_readback.get_value() == 0.0

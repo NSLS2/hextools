@@ -27,19 +27,18 @@ def xrd_calibration(
     if start_position is None:
         start_position: float = yield from bps.rd(motor.user_readback)
 
-    if isinstance(detector, ContAcqDetector):
-        yield from ensure_cont_acq_exposure(detector, exposure_time)
-    else:
-        yield from bps.mv(
-            detector.driver.acquire_time,
-            exposure_time,
-            detector.driver.acquire_period,
-            0.0,
-            detector.driver.num_images,
-            1,
-        )
-
     try:
+        if isinstance(detector, ContAcqDetector):
+            yield from ensure_cont_acq_exposure(detector, exposure_time)
+        else:
+            yield from bps.mv(
+                detector.driver.acquire_time,
+                exposure_time,
+                detector.driver.acquire_period,
+                0.0,
+                detector.driver.num_images,
+                1,
+            )
         yield from bps.mv(photon_shutter, True)
 
         _md = {
@@ -55,5 +54,7 @@ def xrd_calibration(
             md=_md,
         )
     finally:
-        yield from bps.mv(photon_shutter, False)
-        yield from bps.mv(motor, start_position)
+        try:
+            yield from bps.mv(photon_shutter, False)
+        finally:
+            yield from bps.mv(motor, start_position)
