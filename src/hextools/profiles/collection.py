@@ -1,15 +1,23 @@
 """Bluesky profile for the 27-ID-1 HEX beamline at NSLS-II."""
 
 import os
-from pathlib import PurePath, PureWindowsPath
+from pathlib import (
+    Path,  # noqa: F401 - operator namespace
+    PurePath,
+    PureWindowsPath,
+)
 
+from bluesky import plan_stubs as bps  # noqa: F401 - operator namespace
+from bluesky import plans as bp  # noqa: F401 - operator namespace
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
+    call_in_bluesky_event_loop,  # noqa: F401 - operator namespace
 )
 from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
+from bluesky.utils import ProgressBarManager  # noqa: F401 - operator namespace
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
@@ -21,15 +29,20 @@ from ophyd_async.epics.adcore import (
     NDStatsIO,
     PluginSignalDataLogic,
 )
+from ophyd_async.epics.adkinetix import KinetixDetector  # noqa: F401 - operator namespace
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.sim import SimMotor
 from tiled.client import from_uri, simple
 
-from hextools.detectors.germ import GeRMDetector
+from hextools.detectors.germ import (
+    GeRMDetector,
+    GeRMStatsDataLogic,  # noqa: F401 - operator namespace
+)
 from hextools.detectors.kinetix import kinetix_factory
 from hextools.detectors.phantom import PhantomDetector
 from hextools.edxd import *
+from hextools.edxd import edxd_grid_scan  # noqa: F401 - operator namespace
 from hextools.log import *
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
 from hextools.motors import (
@@ -39,6 +52,7 @@ from hextools.motors import (
     FOV_20_40_mm_Camera,
     OpticsTable,
     SampleTower,
+    move_motor,  # noqa: F401 - operator namespace
 )
 from hextools.photon_delivery_system import *
 from hextools.suspenders import SuspendFloorUnlessOpsMode
@@ -54,6 +68,8 @@ from hextools.utils import (
     is_running_in_ci,
     print_proposal_info,
     print_version_info,
+    reset_scan_id,  # noqa: F401 - operator namespace
+    show_docs,  # noqa: F401 - operator namespace
 )
 
 # Adjust the default timeout for ophyd async to 60s
