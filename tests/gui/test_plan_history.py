@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -62,3 +63,21 @@ def test_history_is_loaded_on_startup(RE, tmp_path):
     monitor, history = _history(RE, path)
     assert history._table.rowCount() == 1
     monitor.detach()
+
+
+@pytest.mark.parametrize(
+    ("mock", "name"), [("NO", "plan_history.json"), ("YES", "plan_history_mock.json")]
+)
+@pytest.mark.parametrize("xdg_state_home", [None, "/xdg/state"])
+def test_default_history_file(monkeypatch, tmp_path, mock, name, xdg_state_home):
+    from hextools.gui.__main__ import default_plan_history_file
+
+    monkeypatch.setenv("HEXTOOLS_RUNNING_IN_CI", mock)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    if xdg_state_home is None:
+        monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+        state_home = tmp_path / ".local" / "state"
+    else:
+        monkeypatch.setenv("XDG_STATE_HOME", xdg_state_home)
+        state_home = Path(xdg_state_home)
+    assert default_plan_history_file() == state_home / "hextools" / name

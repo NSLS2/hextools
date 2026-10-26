@@ -123,7 +123,13 @@ from ._threading import wait_for_workers_to_quit
 RunEngineClientT = TypeVar("RunEngineClientT", bound=RunEngineClient | RunEngine)
 
 PLAN_HISTORY_FILE_ENV = "HEXTOOLS_PLAN_HISTORY_FILE"
-DEFAULT_PLAN_HISTORY_FILE = "~/.cache/hextools_gui_plan_history.json"
+
+
+def default_plan_history_file() -> Path:
+    """``$XDG_STATE_HOME/hextools/plan_history[_mock].json``."""
+    state_home = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
+    name = "plan_history_mock.json" if is_running_in_ci() else "plan_history.json"
+    return Path(state_home) / "hextools" / name
 
 # Names must match those defined in the profile / Queue Server namespace.
 EXPECTED_DEVICES: list[tuple[str, type]] = [
@@ -511,7 +517,7 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             self.plan_history = QtPlanHistory(
                 self._plan_monitor,
                 history_file=os.environ.get(PLAN_HISTORY_FILE_ENV)
-                or DEFAULT_PLAN_HISTORY_FILE,
+                or default_plan_history_file(),
             )
             tabs.addTab(self.plan_history, "History")
             tabs.addTab(QtPlanLogView(self._plan_monitor, "hextools"), "Log")
@@ -918,7 +924,8 @@ def main():
         "--history-file",
         default=None,
         help="JSON file to save plan history to as plans finish, and to load it"
-        f" from on startup (default: {DEFAULT_PLAN_HISTORY_FILE}). Can also be set"
+        " from on startup (default: ~/.local/state/hextools/plan_history.json,"
+        " or plan_history_mock.json with --mock). Can also be set"
         f" with {PLAN_HISTORY_FILE_ENV}.",
     )
 
