@@ -46,6 +46,20 @@ matplotlib = ">=3.10.9,<4"
 qtpy = ">=2.4.3,<3"
 pyside6 = ">=6.9.0,<7"
 nexpy = ">=2.0.3,<3"
+pexpect = ">=4.9.0,<5"
+
+# Install the `gui` extra (bluesky-widgets, ntnda-qt-viewer, ...) in this env.
+[feature.terminal.pypi-dependencies]
+hextools = { path = ".", editable = true, extras = ["gui"] }
+ntnda-qt-viewer = { git = "https://github.com/jwlodek/ntnda-qt-viewer", rev = "main" }
+
+[feature.terminal.tasks.hex-gui]
+cmd = "python -m hextools.gui"
+default-environment = "terminal"
+
+[feature.terminal.tasks.qserver-gui]
+cmd = "queue-monitor --http-server-uri https://xf27id1-hex-qs1.nsls2.bnl.gov:443"
+default-environment = "terminal"
 
 [feature.terminal.tasks.start]
 cmd = "unset SESSION_MANAGER PYTHONPATH PYTHONUSERBASE && MPLBACKEND=qtagg ipython -i src/hextools/profiles/{{ profile }}.py"
@@ -54,6 +68,7 @@ args = [
   { arg = "profile", default = "collection" },
 ]
 env = { HEXTOOLS_RUNNING_IN_CI = "{% if mock == 'true' %}YES{% endif %}" }
+default-environment = "terminal"
 
 [feature.py311.dependencies]
 python = "3.11.*"
@@ -87,28 +102,20 @@ greenlet = ">=3.5.6,<4"
 # Runs the profile in mock mode; mock mode needs dev-only packages (uvicorn via
 # tiled-server). Sets its own env because task env does not propagate through
 # `depends-on`.
-[feature.mock.tasks.start-mock]
+[feature.dev.tasks.start-mock]
 cmd = "unset SESSION_MANAGER PYTHONPATH PYTHONUSERBASE && MPLBACKEND=qtagg ipython -i src/hextools/profiles/{{ profile }}.py"
 args = [{ arg = "profile", default = "collection" }]
 env = { HEXTOOLS_RUNNING_IN_CI = "YES", BEAMLINE_ACRONYM = "HEX" }
+default-environment = "dev"
 
-[feature.gui.dependencies]
-pyside6 = ">=6.9.0,<7"
-qtpy = ">=2.4.3,<3"
-pexpect = ">=4.9.0,<5"
+[feature.dev.tasks.hex-gui-mock]
+cmd = "python -m hextools.gui --mock"
+default-environment = "dev"
 
-# Install the `gui` extra (bluesky-widgets, ntnda-qt-viewer, ...) in this env.
-[feature.gui.pypi-dependencies]
-hextools = { path = ".", editable = true, extras = ["gui"] }
-ntnda-qt-viewer = { git = "https://github.com/jwlodek/ntnda-qt-viewer", rev = "main" }
-
-
-[feature.gui.tasks]
-qserver-gui = "queue-monitor --http-server-uri https://xf27id1-hex-qs1.nsls2.bnl.gov:443"
-hex-gui = "python -m hextools.gui"
-
-[feature.mock.tasks]
-hex-gui-mock = "python -m hextools.gui --mock"
+# ty doesn't pick up pixi's environment from CONDA_PREFIX on its own.
+[feature.dev.tasks.type-check]
+cmd = "ty check --python $CONDA_PREFIX src tests"
+default-environment = "dev"
 
 [feature.exporter.tasks]
 auto-exporter = "python -m hextools.exporters.auto_exporter"
@@ -136,10 +143,10 @@ args = [
 # Base environments
 default = { solve-group = "default" }
 # Everything needed to develop, test, and run the terminal and GUI in mock mode.
-dev = { features = ["profile", "terminal", "gui", "dev", "mock"], solve-group = "profile" }
+dev = { features = ["profile", "terminal", "dev"], solve-group = "profile" }
 docs = { features = ["docs"], solve-group = "default" }
 
-# Profile environments
+# Profile environments (`terminal` also runs the GUI)
 terminal = {features = ["profile", "terminal"], solve-group = "profile"}
 qs = { features = ["profile", "qs"], solve-group = "profile" }
 
@@ -147,22 +154,24 @@ qs = { features = ["profile", "qs"], solve-group = "profile" }
 exporter = { features = ["exporter"], solve-group = "default" }
 
 # Python version specific environments for CI
-py311 = { features = ["dev", "py311"], solve-group = "py311" }
-py312 = { features = ["dev", "py312"], solve-group = "py312" }
-py313 = { features = ["dev", "py313"], solve-group = "py313" }
+py311 = { features = ["dev", "terminal", "py311"], solve-group = "py311" }
+py312 = { features = ["dev", "terminal", "py312"], solve-group = "py312" }
+py313 = { features = ["dev", "terminal", "py313"], solve-group = "py313" }
 
-[environments.gui]
-features = ["profile", "gui"]
-solve-group = "profile"
+[feature.dev.tasks.tests]
+cmd = "pytest --cov=src/hextools --cov-report=term"
+default-environment = "dev"
 
-[feature.py313.tasks]
-tests = "pytest --cov=src/hextools --cov-report=term"
 # Run the tests, then serve the html coverage report whether or not they passed.
 # VS Code's terminal opens file:// links in the editor, but http:// in the browser.
-coverage = """
+[feature.dev.tasks.coverage]
+cmd = """
 pytest --cov=src/hextools --cov-report=term --cov-report=html; \
 echo "Coverage report: http://localhost:8765/index.html (Ctrl-C to stop)" \
 && python -m http.server 8765 --bind 127.0.0.1 --directory $PIXI_PROJECT_ROOT/htmlcov
 """
-lint = "pre-commit run --all-files"
-type-check = "ty check src tests"
+default-environment = "dev"
+
+[feature.dev.tasks.lint]
+cmd = "pre-commit run --all-files"
+default-environment = "dev"

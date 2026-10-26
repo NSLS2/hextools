@@ -51,7 +51,7 @@ jobs:
           frozen: true
 
       - name: Run type checks
-        run: pixi run --as-is -e dev ty check src tests
+        run: pixi run --as-is -e dev type-check
 
   test:
     name: Unit Tests - Python ${{ matrix.python-version }}

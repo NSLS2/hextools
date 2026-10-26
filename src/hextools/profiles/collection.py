@@ -98,6 +98,7 @@ if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
 
     # Configure plots to work interactively
     from matplotlib import pyplot as plt
+
     plt.ion()
 
     # Configure the Bluesky magics with the current RunEngine instance.

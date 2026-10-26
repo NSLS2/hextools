@@ -404,7 +404,7 @@ def test_hook_accepts_pre_serialized_messages():
 
 def test_hook_rejects_other_message_types():
     with pytest.raises(TypeError, match="Msg or a dict"):
-        MsgHookNarrator(emit=lambda _: None)(("checkpoint",))
+        MsgHookNarrator(emit=lambda _: None)(("checkpoint",))  # type: ignore
 
 
 def test_hook_flush_and_due_emit_buffered_lines():

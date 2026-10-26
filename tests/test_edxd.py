@@ -31,7 +31,7 @@ from hextools.motors import CollimatorTable, EDXDTable, SampleTower
 from hextools.photon_delivery_system import Shutter, ShutterStatus
 from hextools.specs import EDXD_CALIBRATION_V1, EDXD_SCAN_V1
 
-Docs = dict[str, list[dict[str, Any]]]
+Docs = dict[str, list[Any]]
 
 HDF5 = "application/x-hdf5"
 TIFF = "multipart/related;type=image/tiff"
