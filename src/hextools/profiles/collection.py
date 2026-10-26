@@ -3,6 +3,8 @@
 import os
 from pathlib import PurePath, PureWindowsPath
 
+from bluesky import plan_stubs as bps  # noqa: F401 - operator namespace
+from bluesky import plans as bp  # noqa: F401 - operator namespace
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
@@ -54,6 +56,8 @@ from hextools.utils import (
     is_running_in_ci,
     print_proposal_info,
     print_version_info,
+    reset_scan_id,  # noqa: F401 - operator namespace
+    show_docs,  # noqa: F401 - operator namespace
 )
 
 # Adjust the default timeout for ophyd async to 60s
