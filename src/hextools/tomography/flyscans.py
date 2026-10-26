@@ -1,17 +1,18 @@
 """Tomography plans for HEX beamline."""
 
+import asyncio
 import logging
 from collections import defaultdict
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 from bluesky import plan_patterns
 from bluesky import plan_stubs as bps
 from bluesky import preprocessors as bpp
-from bluesky.protocols import Collectable, Flyable
+from bluesky.protocols import Collectable
 from bluesky.utils import (
     FailedStatus,
-    MsgGenerator,
+    PlanHalt,
     RunEngineControlException,
 )
 from ophyd_async.core import (
@@ -43,67 +44,6 @@ logger = logging.getLogger("hextools")
 
 #: Most frames any detector may drop before a flyscan is treated as failed.
 MAX_MISSING_FRAMES = 10
-
-
-# TODO: Remove once bluesky has a fly stub builtin
-def _fly_stub(
-    flyers: list[Flyable],
-    *,
-    collect_flush_period: float | None = None,
-    stream_name: str | None = None,
-    watch: Sequence[str] = (),
-) -> MsgGenerator[None]:
-    """
-    Perform a fly scan with one or more 'flyers'.
-
-    Parameters
-    ----------
-    flyers : collection
-        objects that support the flyer interface
-    md : dict, optional
-        metadata
-    collect_flush_period : float, optional
-        If set, will use `collect_while_completing` with the given flush period
-    stream_name : str, optional
-        If set, will declare a stream with the given name for all flyers
-    watch: set of watch groups, optional
-        Additional groups to monitor while collecting from flyers.
-        Will only be used if `collect_flush_period` is set.
-
-    Yields
-    ------
-    msg : Msg
-        'kickoff', 'wait', 'complete, 'wait', 'collect' messages
-
-    See Also
-    --------
-    :func:`bluesky.preprocessors.fly_during_wrapper`
-    :func:`bluesky.preprocessors.fly_during_decorator`
-    """
-    # Extract list of collectable detectors from flyers
-    dets = [flyer for flyer in flyers if isinstance(flyer, Collectable)]
-
-    # If provided, attempt to declare single stream for all collectable detectors
-    # note that if set, all detectors must produce the same number of events.
-    if stream_name is not None:
-        yield from bps.declare_stream(*dets, name=stream_name)  # type: ignore
-
-    # Kickoff all flyers
-    yield from bps.kickoff_all(*flyers, wait=True)
-
-    # If flush period given, collect while completing.
-    if collect_flush_period is not None:
-        yield from bps.collect_while_completing(
-            flyers,
-            dets,
-            flush_period=collect_flush_period,
-            stream_name=stream_name,
-            watch=watch,
-        )
-    else:
-        # Otherwise, wait for all flyers to complete before collecting.
-        yield from bps.complete_all(*flyers, wait=True)
-        yield from bps.collect_all(*dets, name=stream_name)
 
 
 def tomo_dark_flat(
@@ -147,6 +87,11 @@ def tomo_dark_flat(
     if use_shutter:
         yield from ensure_shutter_open(fe_shutter)
 
+    # Each detector's prepare sets its exposure, so put it back in the cleanup.
+    initial_acquire_times = []
+    for det in detectors:
+        initial_acquire_times.append((yield from bps.rd(det.driver.acquire_time)))
+
     _md = {
         "plan_name": "tomo_dark_flat",
         "detectors": [det.name for det in detectors],
@@ -159,44 +104,38 @@ def tomo_dark_flat(
         ],
     }
 
-    @bpp.reset_positions_decorator(
-        [sample_tower.x1, *[det.driver.acquire_time for det in detectors]]
-    )
+    @bpp.reset_positions_decorator([sample_tower.x1])
     @bpp.run_decorator(md=_md)
     @bpp.stage_decorator([*detectors])
     def _body():
         yield from ensure_shutter_closed(photon_shutter)
 
-        for det in detectors:
-            yield from bps.prepare(
-                det,
-                TriggerInfo(
-                    livetime=exposure_time, collections_per_event=num_dark_images
-                ),
-                group="prepare-dark",
-            )
+        for dset in ("dark", "flat"):
+            if dset == "flat":
+                yield from bps.mvr(sample_tower.x1, x_offset)
+                if use_shutter:
+                    yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
 
-        yield from bps.wait(group="prepare-dark")
-        yield from bps.trigger_and_read(list(detectors), name="dark")
-
-        yield from bps.mvr(sample_tower.x1, x_offset)
-
-        if use_shutter:
-            yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
-        for det in detectors:
-            yield from bps.prepare(
-                det,
-                TriggerInfo(
-                    livetime=exposure_time, collections_per_event=num_flat_images
-                ),
-                group="prepare-flat",
-            )
-        yield from bps.wait(group="prepare-flat")
-        yield from bps.trigger_and_read(list(detectors), name="flat")
+            for det in detectors:
+                yield from bps.prepare(
+                    det,
+                    TriggerInfo(
+                        livetime=exposure_time,
+                        collections_per_event=num_dark_images
+                        if dset == "dark"
+                        else num_flat_images,
+                    ),
+                    group=f"prepare-{dset}",
+                )
+            yield from bps.wait(group=f"prepare-{dset}")
+            yield from bps.trigger_and_read(list(detectors), name=dset)
 
     def _cleanup():
         if use_shutter:
             yield from ensure_shutter_closed(photon_shutter)
+        # Before the preview restarts, so it runs at the original exposure.
+        for det, acquire_time in zip(detectors, initial_acquire_times, strict=True):
+            yield from bps.mv(det.driver.acquire_time, acquire_time)
         for det in detectors:
             if isinstance(det, KinetixDetector):
                 yield from enable_preview_mode(det)
@@ -219,6 +158,7 @@ def tomo_flyscan(
     rot_motor: RotationMotor | None = None,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
+    md: dict[str, Any] | None = None,
 ):
     """Take a single tomography fly scan.
 
@@ -254,6 +194,8 @@ def tomo_flyscan(
         The front-end shutter to use.
     photon_shutter : Shutter | None
         The photon shutter to use.
+    md : dict[str, Any] | None
+        Extra metadata for the run's start document.
     """
     panda = ensure_available(HDFPanda, panda=panda)
     rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
@@ -278,6 +220,7 @@ def tomo_flyscan(
     }
     if sample_name is not None:
         _md["sample_name"] = sample_name
+    _md.update(md or {})
 
     if use_shutter:
         yield from ensure_shutter_open(fe_shutter)
@@ -361,13 +304,17 @@ def tomo_flyscan(
         yield from bps.wait(group="arm")
 
         try:
-            yield from _fly_stub(
+            yield from bps.fly_stub(
                 all_devices,  # type: ignore
                 collect_flush_period=max(1, exposure_time + overhead),
                 stream_name="primary",
             )
         except FailedStatus as err:
-            indices = yield from bps.wait_for([det.get_index for det in detectors])
+            # bluesky annotates this as Status, but the RunEngine returns futures.
+            indices = cast(
+                list[asyncio.Future[int]],
+                (yield from bps.wait_for([det.get_index for det in detectors])),
+            )
             missing = {
                 det.name: num_projections - index.result()
                 for det, index in zip(detectors, indices, strict=True)
@@ -406,6 +353,225 @@ def tomo_flyscan(
                 yield from enable_preview_mode(det)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
+
+
+def tomo_nd_step_scan(
+    detectors: list[KinetixDetector | PhantomDetector],
+    *args,
+    num_projections: int,
+    exposure_time: float,
+    acquire_period: float | None = None,
+    images_to_average: int = 1,
+    start: float = 0,
+    stop: float = 180,
+    num_repeats: int = 1,
+    delay_between_points: float = 0.0,
+    use_shutter: bool = True,
+    alternate_flyscan_dir: bool = False,
+    dark_flat_offset: float = 0.0,
+    dark_flat_exposure_time: float | None = None,
+    num_dark_images: int = 20,
+    num_flat_images: int = 50,
+    dark_flat_frequency: int = 0,
+    sample_name: str | None = None,
+    time_based: bool = True,
+    snake_axes: bool | Sequence[Steppable] = False,
+    num_retries: int = 0,
+    sample_tower: SampleTower | None = None,
+    panda: HDFPanda | None = None,
+    rot_motor: RotationMotor | None = None,
+    fe_shutter: Shutter | None = None,
+    photon_shutter: Shutter | None = None,
+):
+    """N-D tomography step scan: a tomo flyscan at each point of an N-D grid.
+
+    Step motors are returned to their starting positions when the scan ends.
+
+    Parameters
+    ----------
+    detectors : list[KinetixDetector | PhantomDetector]
+        The list of detectors to use for each tomo flyscan.
+    ``*args``
+        Step axes patterned like ``(motor1, start1, stop1, num1, motor2, start2,
+        stop2, num2, ...)``, outermost (slowest) axis first, as in
+        :func:`bluesky.plans.grid_scan`. With no axes, the flyscan is repeated
+        in place.
+    num_projections : int
+        The number of images to acquire at each grid point.
+    exposure_time : float
+        The exposure time for each image.
+    acquire_period : float | None, optional
+        The period between consecutive acquisitions. If None, it is derived from
+        the exposure time.
+    images_to_average : int, optional
+        The number of images to average for each acquisition.
+    start : float, optional
+        The starting angle for the rotation motor.
+    stop : float, optional
+        The stopping angle for the rotation motor.
+    num_repeats : int, optional
+        The number of times to run the whole trajectory.
+    delay_between_points : float, optional
+        Seconds to wait between consecutive flyscans.
+    use_shutter : bool, optional
+        Whether to use the shutters during the scan.
+    alternate_flyscan_dir : bool, optional
+        Whether to reverse the flyscan direction at every other grid point.
+    sample_name : str | None, optional
+        The name of the sample being scanned.
+    dark_flat_offset : float, optional
+        Sample x offset for flats. If non-zero, a dark/flat is taken before and
+        after the scan; if 0, no darks/flats are taken.
+    dark_flat_exposure_time : float | None, optional
+        Exposure time for darks/flats. If None, ``exposure_time`` is used.
+    num_dark_images : int, optional
+        Number of dark images per dark/flat.
+    num_flat_images : int, optional
+        Number of flat images per dark/flat.
+    dark_flat_frequency : int, optional
+        If greater than 0, also take a dark/flat after every this many grid points.
+    time_based : bool, optional
+        Whether the scan is time-based.
+    snake_axes : bool | Sequence[Steppable], optional
+        If True, snake every axis but the outermost; otherwise, the motors to snake.
+    num_retries : int, optional
+        How many times to retry a grid point's flyscan if it fails; 0 never retries.
+    panda : HDFPanda | None, optional
+        The HDFPanda instance for data storage.
+    rot_motor : RotationMotor | None, optional
+        The rotation motor for the scan.
+    fe_shutter : Shutter | None, optional
+        The front-end shutter for the scan.
+    photon_shutter : Shutter | None, optional
+        The photon shutter for the scan.
+    sample_tower : SampleTower | None, optional
+        The SampleTower instance to use for positioning the sample. Default is None.
+    """
+    # Ensure the number of retries is non-negative.
+    if num_retries < 0:
+        num_retries = 0
+
+    # Extract the step axes from the positional arguments.
+    if len(args) % 4:
+        raise ValueError("Step axes must be given as (motor, start, stop, num) groups.")
+    axes = [args[i : i + 4] for i in range(0, len(args), 4)]
+    motors = [axis[0] for axis in axes]
+
+    # Determine which axes are snaked based on the snake_axes argument.
+    if isinstance(snake_axes, bool):
+        snaked = motors[1:] if snake_axes else []
+    else:
+        snaked = list(snake_axes)
+
+    # Make sure we didn't ask to snake the outermost axis.
+    if motors and motors[0] in snaked:
+        raise ValueError("The outermost axis cannot be snaked.")
+
+    # Construct the grid of positions for the scan.
+    if axes:
+        pattern_args: list[Any] = [*axes[0]]
+        for axis in axes[1:]:
+            pattern_args += [*axis, axis[0] in snaked]
+        grid = plan_patterns.outer_product(pattern_args)
+    else:
+        grid = [{}]  # When no axes are specified, create a single-point grid.
+
+    # Repeat the trajectory the specified number of times.
+    trajectory = grid * num_repeats
+
+    @bpp.reset_positions_decorator(motors)
+    def _body():
+        # Flats need the sample moved out of the beam, so a zero offset means no
+        # darks/flats.
+        take_dark_flats = dark_flat_offset != 0
+
+        # Define a helper function to acquire dark and flat images.
+        def _dark_flat():
+            yield from bps.checkpoint()
+            yield from tomo_dark_flat(
+                detectors=detectors,
+                exposure_time=dark_flat_exposure_time or exposure_time,
+                num_dark_images=num_dark_images,
+                num_flat_images=num_flat_images,
+                x_offset=dark_flat_offset,
+                use_shutter=use_shutter,
+                sample_tower=sample_tower,
+                fe_shutter=fe_shutter,
+                photon_shutter=photon_shutter,
+            )
+
+        if take_dark_flats:
+            yield from _dark_flat()
+
+        num_points = len(trajectory)
+        pos_cache: defaultdict[Any, Any] = defaultdict(lambda: None)
+        previous_uid: str | None = None
+        for i, point in enumerate(trajectory):
+            # A deferred pause stops here; resuming starts this point afresh.
+            yield from bps.checkpoint()
+            if i > 0 and delay_between_points > 0:
+                yield from bps.sleep(delay_between_points)
+
+            # Only moves the axes whose position changed since the last point.
+            yield from bps.move_per_step(point, pos_cache)
+
+            reverse = alternate_flyscan_dir and i % 2 == 1
+            md: dict[str, Any] = {
+                "grid_index": i,
+                "num_grid_points": num_points,
+                "grid_positions": {motor.name: pos for motor, pos in point.items()},
+            }
+            if previous_uid is not None:
+                md["previous_grid_point_uid"] = previous_uid
+
+            for attempt in range(1, num_retries + 2):
+                try:
+                    previous_uid = yield from tomo_flyscan(
+                        detectors=detectors,
+                        num_projections=num_projections,
+                        exposure_time=exposure_time,
+                        acquire_period=acquire_period,
+                        images_to_average=images_to_average,
+                        start=stop if reverse else start,
+                        stop=start if reverse else stop,
+                        use_shutter=use_shutter,
+                        sample_name=sample_name,
+                        time_based=time_based,
+                        panda=panda,
+                        rot_motor=rot_motor,
+                        fe_shutter=fe_shutter,
+                        photon_shutter=photon_shutter,
+                        md=md,
+                    )
+                    break
+                except (RunEngineControlException, PlanHalt):
+                    # Never retry a user's abort, stop or halt request.
+                    raise
+                except Exception as err:
+                    if attempt > num_retries:
+                        raise RuntimeError(
+                            f"Flyscan at point {i} failed after {attempt} "
+                            f"attempts: {err}"
+                        ) from err
+                    logger.error(
+                        f"Flyscan at point {i} failed ({err}), retrying "
+                        f"(attempt {attempt}/{num_retries})."
+                    )
+
+            # The final dark/flat below covers the last point.
+            is_last = i == num_points - 1
+            if (
+                take_dark_flats
+                and dark_flat_frequency > 0
+                and not is_last
+                and (i + 1) % dark_flat_frequency == 0
+            ):
+                yield from _dark_flat()
+
+        if take_dark_flats:
+            yield from _dark_flat()
+
+    return (yield from _body())
 
 
 def tomo_flyscan_loop(
@@ -488,247 +654,32 @@ def tomo_flyscan_loop(
         The photon shutter to use during acquisitions. Default is None.
 
     """
-    # Flats need the sample moved out of the beam, so a zero offset means no
-    # darks/flats.
-    take_dark_flats = dark_flat_offset != 0.0
-
-    def _dark_flat():
-        yield from tomo_dark_flat(
+    return (
+        yield from tomo_nd_step_scan(
             detectors,
-            exposure_time=dark_flat_exposure_time or exposure_time,
+            num_projections=num_projections,
+            exposure_time=exposure_time,
+            acquire_period=acquire_period,
+            images_to_average=images_to_average,
+            start=start,
+            stop=stop,
+            num_repeats=num_iterations,
+            delay_between_points=delay_between_tomograms,
+            dark_flat_offset=dark_flat_offset,
+            dark_flat_exposure_time=dark_flat_exposure_time,
             num_dark_images=num_dark_images,
             num_flat_images=num_flat_images,
-            x_offset=dark_flat_offset,
-            sample_tower=sample_tower,
+            dark_flat_frequency=dark_flat_frequency,
             use_shutter=use_shutter,
+            sample_name=sample_name,
+            time_based=time_based,
+            panda=panda,
+            sample_tower=sample_tower,
+            rot_motor=rot_motor,
             fe_shutter=fe_shutter,
             photon_shutter=photon_shutter,
         )
-
-    def _body():
-        if take_dark_flats:
-            yield from _dark_flat()
-
-        for i in range(num_iterations):
-            if i > 0 and delay_between_tomograms > 0:
-                yield from bps.sleep(delay_between_tomograms)
-
-            yield from tomo_flyscan(
-                detectors=detectors,
-                num_projections=num_projections,
-                exposure_time=exposure_time,
-                acquire_period=acquire_period,
-                images_to_average=images_to_average,
-                start=start,
-                stop=stop,
-                use_shutter=use_shutter,
-                sample_name=sample_name,
-                time_based=time_based,
-                panda=panda,
-                rot_motor=rot_motor,
-                fe_shutter=fe_shutter,
-                photon_shutter=photon_shutter,
-            )
-
-            # The final dark/flat below covers the last tomogram.
-            if (
-                take_dark_flats
-                and dark_flat_frequency > 0
-                and not i == num_iterations - 1
-                and (i + 1) % dark_flat_frequency == 0
-            ):
-                yield from _dark_flat()
-
-        if take_dark_flats:
-            yield from _dark_flat()
-
-    return (yield from _body())
-
-
-def tomo_nd_step_scan(
-    detectors: list[KinetixDetector | PhantomDetector],
-    *args,
-    num_projections: int,
-    exposure_time: float,
-    acquire_period: float | None = None,
-    images_to_average: int = 1,
-    start: float = 0,
-    stop: float = 180,
-    use_shutter: bool = True,
-    alternate_flyscan_dir: bool = False,
-    dark_flat_offset: float = 0.0,
-    dark_flat_exposure_time: float | None = None,
-    num_dark_images: int = 20,
-    num_flat_images: int = 50,
-    dark_flat_frequency: int = 0,
-    sample_name: str | None = None,
-    time_based: bool = True,
-    snake_axes: bool | Sequence[Steppable] = False,
-    num_retries: int = 0,
-    sample_tower: SampleTower | None = None,
-    panda: HDFPanda | None = None,
-    rot_motor: RotationMotor | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
-):
-    """N-D tomography step scan: a tomo flyscan at each point of an N-D grid.
-
-    Step motors are returned to their starting positions when the scan ends.
-
-    Parameters
-    ----------
-    detectors : list[KinetixDetector | PhantomDetector]
-        The list of detectors to use for each tomo flyscan.
-    ``*args``
-        Step axes patterned like ``(motor1, start1, stop1, num1, motor2, start2,
-        stop2, num2, ...)``, outermost (slowest) axis first, as in
-        :func:`bluesky.plans.grid_scan`.
-    num_projections : int
-        The number of images to acquire at each grid point.
-    exposure_time : float
-        The exposure time for each image.
-    acquire_period : float | None, optional
-        The period between consecutive acquisitions. If None, it is derived from
-        the exposure time.
-    images_to_average : int, optional
-        The number of images to average for each acquisition.
-    start : float, optional
-        The starting angle for the rotation motor.
-    stop : float, optional
-        The stopping angle for the rotation motor.
-    use_shutter : bool, optional
-        Whether to use the shutters during the scan.
-    alternate_flyscan_dir : bool, optional
-        Whether to reverse the flyscan direction at every other grid point.
-    sample_name : str | None, optional
-        The name of the sample being scanned.
-    dark_flat_offset : float, optional
-        Sample x offset for flats. If non-zero, a dark/flat is taken before and
-        after the scan; if 0, no darks/flats are taken.
-    dark_flat_exposure_time : float | None, optional
-        Exposure time for darks/flats. If None, ``exposure_time`` is used.
-    num_dark_images : int, optional
-        Number of dark images per dark/flat.
-    num_flat_images : int, optional
-        Number of flat images per dark/flat.
-    dark_flat_frequency : int, optional
-        If greater than 0, also take a dark/flat after every this many grid points.
-    time_based : bool, optional
-        Whether the scan is time-based.
-    snake_axes : bool | Sequence[Steppable], optional
-        If True, snake every axis but the outermost; otherwise, the motors to snake.
-    retry : bool, optional
-        Whether to retry a grid point's flyscan if it fails.
-    num_retries : int, optional
-        Maximum retries per grid point when ``retry`` is True; 0 retries until
-        the flyscan succeeds.
-    panda : HDFPanda | None, optional
-        The HDFPanda instance for data storage.
-    rot_motor : RotationMotor | None, optional
-        The rotation motor for the scan.
-    fe_shutter : Shutter | None, optional
-        The front-end shutter for the scan.
-    photon_shutter : Shutter | None, optional
-        The photon shutter for the scan.
-    sample_tower : SampleTower | None, optional
-        The SampleTower instance to use for positioning the sample. Default is None.
-    """
-    if not args or len(args) % 4:
-        raise ValueError("Step axes must be given as (motor, start, stop, num) groups.")
-    axes = [args[i : i + 4] for i in range(0, len(args), 4)]
-    motors = [axis[0] for axis in axes]
-
-    if isinstance(snake_axes, bool):
-        snaked = motors[1:] if snake_axes else []
-    else:
-        snaked = list(snake_axes)
-    if motors[0] in snaked:
-        raise ValueError("The outermost axis cannot be snaked.")
-
-    pattern_args: list[Any] = [*axes[0]]
-    for axis in axes[1:]:
-        pattern_args += [*axis, axis[0] in snaked]
-    trajectory = plan_patterns.outer_product(pattern_args)
-
-    @bpp.reset_positions_decorator(motors)
-    def _body():
-        # Flats need the sample moved out of the beam, so a zero offset means no
-        # darks/flats.
-        take_dark_flats = dark_flat_offset != 0
-
-        def _dark_flat():
-            yield from tomo_dark_flat(
-                detectors=detectors,
-                exposure_time=dark_flat_exposure_time or exposure_time,
-                num_dark_images=num_dark_images,
-                num_flat_images=num_flat_images,
-                x_offset=dark_flat_offset,
-                use_shutter=use_shutter,
-                sample_tower=sample_tower,
-                fe_shutter=fe_shutter,
-                photon_shutter=photon_shutter,
-            )
-
-        if take_dark_flats:
-            yield from _dark_flat()
-
-        num_points = len(trajectory)
-        pos_cache: defaultdict[Any, Any] = defaultdict(lambda: None)
-        for i, point in enumerate(trajectory):
-            # Only moves the axes whose position changed since the last point.
-            yield from bps.move_per_step(point, pos_cache)
-
-            reverse = alternate_flyscan_dir and i % 2 == 1
-            attempt = 0
-            while True:
-                try:
-                    yield from tomo_flyscan(
-                        detectors=detectors,
-                        num_projections=num_projections,
-                        exposure_time=exposure_time,
-                        acquire_period=acquire_period,
-                        images_to_average=images_to_average,
-                        start=stop if reverse else start,
-                        stop=start if reverse else stop,
-                        use_shutter=use_shutter,
-                        sample_name=sample_name,
-                        time_based=time_based,
-                        panda=panda,
-                        rot_motor=rot_motor,
-                        fe_shutter=fe_shutter,
-                        photon_shutter=photon_shutter,
-                    )
-                    break
-                except RunEngineControlException:
-                    # Never retry a user's abort or stop request.
-                    raise
-                except Exception as err:
-                    attempt += 1
-                    if num_retries > 0 and attempt <= num_retries:
-                        logger.error(
-                            f"Flyscan at grid point {i} failed ({err}), retrying "
-                            f"(attempt {attempt}/{num_retries})."
-                        )
-                    else:
-                        raise RuntimeError(
-                            f"Flyscan at grid point {i} failed after {attempt} "
-                            f"attempts: {err}"
-                        ) from err
-
-            # The final dark/flat below covers the last grid point.
-            is_last = i == num_points - 1
-            if (
-                take_dark_flats
-                and dark_flat_frequency > 0
-                and not is_last
-                and (i + 1) % dark_flat_frequency == 0
-            ):
-                yield from _dark_flat()
-
-        if take_dark_flats:
-            yield from _dark_flat()
-
-    return (yield from _body())
+    )
 
 
 def tomo_1d_step_scan(

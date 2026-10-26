@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from bluesky import Msg, RunEngine
 from bluesky import plan_stubs as bps
+from bluesky import preprocessors as bpp
 from bluesky.run_engine import RunEngineResult
 from ophyd_async.core import (
     StaticPathProvider,
@@ -428,15 +429,19 @@ async def test_tomo_alignment_scan(
     RE.msg_hook = messages.append  # type: ignore
 
     runs: RunEngineResult = RE(
-        tomo_alignment_scan(
-            ktx1,
-            exposure_time,
-            num_projections=num_projections,
-            init_angle=init_angle,
-            stop_angle=stop_angle,
-            fe_shutter=fe_shutter,
-            photon_shutter=photon_shutter,
-            rot_motor=rotation_motor,
+        # the shutter settle sleeps are only for hardware
+        bpp.msg_mutator(
+            tomo_alignment_scan(
+                ktx1,
+                exposure_time,
+                num_projections=num_projections,
+                init_angle=init_angle,
+                stop_angle=stop_angle,
+                fe_shutter=fe_shutter,
+                photon_shutter=photon_shutter,
+                rot_motor=rotation_motor,
+            ),
+            lambda msg: msg._replace(args=(0,)) if msg.command == "sleep" else msg,
         ),
         cache_docs,  # type: ignore
     )  # type: ignore
@@ -469,3 +474,11 @@ async def test_tomo_alignment_scan(
     assert await rotation_motor.velocity.get_value() == initial_velocity
     assert await rotation_motor.user_readback.get_value() == initial_position
     assert await ktx1.driver.acquire_time.get_value() == initial_acquire_time
+    # The stage returns at full speed, and only then slows back down.
+    close_run = next(i for i, msg in enumerate(messages) if msg.command == "close_run")
+    restores = [
+        msg.obj
+        for msg in messages[close_run:]
+        if msg.command == "set" and msg.obj in (rotation_motor, rotation_motor.velocity)
+    ]
+    assert restores == [rotation_motor, rotation_motor.velocity]
