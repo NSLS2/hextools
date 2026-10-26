@@ -8,7 +8,20 @@ import pytest
 PROFILE = Path(__file__).parents[1] / "src/hextools/profiles/collection.py"
 
 # Imported for the prompt, not used in the file, so ruff --fix (F401) deletes them.
-OPERATOR_NAMES = ["reset_scan_id", "show_docs", "bp", "bps", "bpp"]
+OPERATOR_NAMES = [
+    "reset_scan_id",
+    "show_docs",
+    "bp",
+    "bps",
+    "bpp",
+    "move_motor",
+    "edxd_grid_scan",
+    "GeRMStatsDataLogic",
+    "ProgressBarManager",
+    "call_in_bluesky_event_loop",
+    "KinetixDetector",
+    "Path",
+]
 
 
 def _profile_import_namespace() -> dict:
