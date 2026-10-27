@@ -42,7 +42,7 @@ The import block pulls in three kinds of names:
   `PhantomDetector`, `GeRMDetector`, `NSLS2StorageRing`, filters).
 - **Plans** — everything a user should be able to run at the prompt:
   `bp` and `bps` (bluesky's built-in plans and stubs), `move_motor`,
-  `set_filters`, `change_energy`, `change_beam_mode`, the tomography plans (`tomo_flyscan`,
+  `move_slits`, `set_filters`, `change_energy`, `change_beam_mode`, the tomography plans (`tomo_flyscan`,
   `tomo_alignment_scan`, `tomo_1d_step_scan`, `tomo_2d_step_scan`,
   `tomo_nd_step_scan`) and the EDXD plans (`edxd_scan`, `edxd_count`,
   `edxd_grid_scan`, `edxd_2theta_tilt`, `edxd_calib_scan`,

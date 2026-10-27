@@ -9,7 +9,7 @@ from .shutter import (
     ensure_shutter_open,
     ensure_shutter_state,
 )
-from .slits import Slits
+from .slits import Slits, move_slits
 
 __all__ = [
     "Shutter",
@@ -19,6 +19,7 @@ __all__ = [
     "set_filters",
     "FilterPosition",
     "Slits",
+    "move_slits",
     "ensure_shutter_closed",
     "ensure_shutter_open",
     "ensure_shutter_state",
