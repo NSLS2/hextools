@@ -96,7 +96,13 @@ from hextools.motors import (
     SampleTower,
     move_motor,
 )
-from hextools.photon_delivery_system import DCLM, Shutter, Slits, change_energy
+from hextools.photon_delivery_system import (
+    DCLM,
+    Shutter,
+    Slits,
+    change_energy,
+    move_slits,
+)
 from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.settings import (
     apply_device_settings,
@@ -393,6 +399,7 @@ class QtBeamlineView(QWidget):
         # IPython vs. Queue Server).
         plan_tabs = QTabWidget()
         plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
+        plan_tabs.addTab(QtPlanWidget(re_client, move_slits), "Slits")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
         plan_tabs.addTab(QtPlanWidget(re_client, reset_scan_id), "Reset Scan ID")

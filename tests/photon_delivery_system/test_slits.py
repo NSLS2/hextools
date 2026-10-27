@@ -3,7 +3,7 @@ import pytest
 from bluesky.run_engine import RunEngine
 from ophyd_async.core import callback_on_mock_put, init_devices, set_mock_value
 
-from hextools.photon_delivery_system.slits import Slits
+from hextools.photon_delivery_system.slits import Slits, move_slits
 
 
 @pytest.fixture
@@ -113,3 +113,56 @@ async def test_slits_set_reports_blade_progress_to_watchers(slits: Slits):
         slits.bottom.name,
         slits.top.name,
     } <= set(updates)
+
+
+def _re_slits(blades: tuple[float, float, float, float]) -> Slits:
+    """Mock slits under the RE loop; blades at (inboard, outboard, bottom, top)."""
+    with init_devices(mock=True):
+        slits = Slits("XF:TEST:", 1)  # type: ignore
+    for motor, value in zip(_motors(slits), blades, strict=True):
+        callback_on_mock_put(
+            motor.user_setpoint,
+            lambda value, motor=motor, **_: set_mock_value(motor.user_readback, value),
+        )
+        set_mock_value(motor.user_readback, value)
+    return slits
+
+
+def _motors(slits: Slits):
+    return (slits.inboard, slits.outboard, slits.bottom, slits.top)
+
+
+async def _blades(slits: Slits) -> list[float]:
+    return [await m.user_readback.get_value() for m in _motors(slits)]
+
+
+async def test_move_slits_moves_only_the_given_values(RE: RunEngine):
+    slits = _re_slits((-1.0, 3.0, -2.0, 2.0))
+
+    RE(move_slits(slits, horizontal_center=2.0))
+
+    # Both horizontal blades shift by +1 (gap 4 kept); the vertical pair stays put.
+    assert await _blades(slits) == pytest.approx([0.0, 4.0, -2.0, 2.0])
+
+
+async def test_move_slits_sets_gap_before_center(RE: RunEngine):
+    slits = _re_slits((-1.0, 1.0, 0.0, 0.0))
+
+    RE(move_slits(slits, horizontal_gap=4.0, horizontal_center=5.0))
+
+    assert (await _blades(slits))[:2] == pytest.approx([3.0, 7.0])
+
+
+async def test_move_slits_relative_shifts_from_current(RE: RunEngine):
+    slits = _re_slits((-1.0, 3.0, -2.0, 2.0))
+
+    RE(move_slits(slits, vertical_center=0.5, horizontal_gap=-1.0, relative=True))
+
+    # Horizontal gap 4 -> 3 about center 1; vertical pair shifted up by 0.5.
+    assert await _blades(slits) == pytest.approx([-0.5, 2.5, -1.5, 2.5])
+
+
+def test_move_slits_needs_a_value(RE: RunEngine):
+    slits = _re_slits((0.0, 0.0, 0.0, 0.0))
+    with pytest.raises(ValueError, match="at least one"):
+        RE(move_slits(slits))

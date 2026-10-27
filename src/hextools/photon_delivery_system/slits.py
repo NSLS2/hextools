@@ -3,6 +3,7 @@
 import asyncio
 from functools import partial
 
+import bluesky.plan_stubs as bps
 from ophyd_async.core import (
     AsyncMovable,
     StandardReadable,
@@ -198,3 +199,67 @@ class Slits(
         ]
         async for update in forward_watcher_updates(centers, self.name, combine=False):
             yield update
+
+
+def move_slits(
+    slits: Slits,
+    horizontal_center: float | None = None,
+    vertical_center: float | None = None,
+    horizontal_gap: float | None = None,
+    vertical_gap: float | None = None,
+    relative: bool = False,
+):
+    """Move a pair of slit blades by their center line and gap.
+
+    Only the values given move; the others stay where they are. A center move
+    shifts both blades of the pair together, keeping the gap, and a gap move
+    opens or closes both blades about the center line.
+
+    Parameters
+    ----------
+    slits : Slits
+        The slits to move.
+    horizontal_center : float, optional
+        Center of the inboard/outboard pair, in mm.
+    vertical_center : float, optional
+        Center of the bottom/top pair, in mm.
+    horizontal_gap : float, optional
+        Gap between the inboard and outboard blades, in mm.
+    vertical_gap : float, optional
+        Gap between the bottom and top blades, in mm.
+    relative : bool, default False
+        Treat the given values as shifts from the current positions.
+
+    Raises
+    ------
+    ValueError
+        If no center or gap is given.
+    """
+    horizontal = (slits.inboard, slits.outboard)
+    vertical = (slits.bottom, slits.top)
+    # A gap and a center on one axis drive the same two blades, so gaps go first
+    stages = [
+        [
+            (slits.horizontal_gap, horizontal_gap, horizontal, True),
+            (slits.vertical_gap, vertical_gap, vertical, True),
+        ],
+        [
+            (slits.horizontal_center, horizontal_center, horizontal, False),
+            (slits.vertical_center, vertical_center, vertical, False),
+        ],
+    ]
+    if all(value is None for stage in stages for _, value, _, _ in stage):
+        raise ValueError("Give at least one center or gap to move the slits.")
+    for stage in stages:
+        args = []
+        for signal, value, (low_motor, high_motor), is_gap in stage:
+            if value is None:
+                continue
+            if relative:
+                # bps.rd cannot read the derived gap/center: readbacks aren't locatable
+                low = yield from bps.rd(low_motor.user_readback)
+                high = yield from bps.rd(high_motor.user_readback)
+                value += high - low if is_gap else (low + high) / 2
+            args += [signal, value]
+        if args:
+            yield from bps.mv(*args)
