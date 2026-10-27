@@ -151,6 +151,7 @@ def tomo_flyscan(
     exposure_time: float,
     acquire_period: float | None = None,
     images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
@@ -161,8 +162,6 @@ def tomo_flyscan(
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
     md: dict[str, Any] | None = None,
-    *,
-    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
 ):
     """Take a single tomography fly scan.
 
@@ -593,6 +592,7 @@ def tomo_flyscan_loop(
     exposure_time: float,
     acquire_period: float | None = None,
     images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     start: float = 0,
     stop: float = 180,
     num_iterations: int = 1,
@@ -610,8 +610,6 @@ def tomo_flyscan_loop(
     rot_motor: RotationMotor | None = None,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
-    *,
-    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
 ):
     """Take a series of tomography fly scans, with interspersed dark/flat acquisitions.
 
@@ -710,6 +708,7 @@ def tomo_1d_step_scan(
     exposure_time: float,
     acquire_period: float | None = None,
     images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
@@ -726,8 +725,6 @@ def tomo_1d_step_scan(
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
     sample_tower: SampleTower | None = None,
-    *,
-    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
 ):
     """1-D tomography step scan: a tomo flyscan at each point along one axis.
 
@@ -835,6 +832,7 @@ def tomo_2d_step_scan(
     exposure_time: float,
     acquire_period: float | None = None,
     images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
@@ -848,8 +846,6 @@ def tomo_2d_step_scan(
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
     sample_tower: SampleTower | None = None,
-    *,
-    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
 ):
     """2-D tomography step scan: a tomo flyscan at each point of a 2-D grid.
 

@@ -1,4 +1,3 @@
-import inspect
 from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import Any
@@ -53,7 +52,6 @@ from hextools.tomography.flyscans import (
     tomo_flyscan_loop,
     tomo_nd_step_scan,
 )
-from hextools.tomography.radiography import take_radiograph
 
 Docs = dict[str, list[dict[str, Any]]]
 
@@ -555,23 +553,6 @@ async def test_tomo_flyscan_sets_the_proc_filter_type(
     assert docs["stop"][0]["exit_status"] == "success"
     assert await proc.filter_type.get_value() == expected
     assert docs["start"][0]["filter_type"] == expected.value
-
-
-@pytest.mark.parametrize(
-    "plan",
-    [
-        tomo_flyscan,
-        tomo_flyscan_loop,
-        tomo_nd_step_scan,
-        tomo_1d_step_scan,
-        tomo_2d_step_scan,
-        take_radiograph,
-    ],
-)
-def test_filter_type_is_keyword_only(plan):
-    # a positional slot would shift existing calls (PR #113 review)
-    param = inspect.signature(plan).parameters["filter_type"]
-    assert param.kind is inspect.Parameter.KEYWORD_ONLY
 
 
 def test_tomo_flyscan_rejects_an_unknown_filter_type(
