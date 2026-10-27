@@ -209,6 +209,10 @@ class FOV_2_4_mm_Camera(  # noqa: N801
             rb_check = self._at_left_objective
         await wait_for_value(rb_check, True, timeout=None)
 
+    async def stop(self, success: bool = False):
+        """Stop the objective selector, which the IOC moves to the chosen objective."""
+        await self.obj_selector.stop()
+
 
 class FOV_20_40_mm_Camera(StandardReadable, EpicsDevice):  # noqa: N801
     """HEX wide field of view camera."""

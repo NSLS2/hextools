@@ -114,6 +114,10 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
         await self.filter_motor.set(self.positions[value].position)
         await wait_for_value(self.in_position, True, timeout=10)
 
+    async def stop(self, success: bool = False):
+        """Stop the filter motor, so pausing or aborting the RunEngine stops a move."""
+        await self.filter_motor.stop()
+
 
 FILTERS_CONFIG_RESOURCE: str = "filters.yml"
 

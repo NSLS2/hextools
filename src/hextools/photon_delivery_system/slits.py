@@ -200,6 +200,15 @@ class Slits(
         async for update in forward_watcher_updates(centers, self.name, combine=False):
             yield update
 
+    async def stop(self, success: bool = False):
+        """Stop all four blades, so pausing or aborting the RunEngine stops a move."""
+        await asyncio.gather(
+            self.inboard.stop(),
+            self.outboard.stop(),
+            self.bottom.stop(),
+            self.top.stop(),
+        )
+
 
 def move_slits(
     slits: Slits,
