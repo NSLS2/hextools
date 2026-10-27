@@ -76,6 +76,10 @@ class FrontEndSlit(StandardReadable, AsyncMovable[SlitAperture]):
         """
         await self.y.set(APERTURE_POSITIONS[SlitAperture(value)])
 
+    async def stop(self, success: bool = False):
+        """Stop Y, so pausing or aborting the RunEngine stops a move."""
+        await self.y.stop()
+
 
 def set_fe_slit1_aperture(aperture: SlitAperture, fe_slit1: FrontEndSlit | None = None):
     """Move front-end Slit1 Y to a named aperture.

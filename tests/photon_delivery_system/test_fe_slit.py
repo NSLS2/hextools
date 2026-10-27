@@ -1,8 +1,14 @@
 from typing import cast
 
 import pytest
+from bluesky.protocols import Stoppable
 from bluesky.run_engine import RunEngine
-from ophyd_async.core import callback_on_mock_put, init_devices, set_mock_value
+from ophyd_async.core import (
+    callback_on_mock_put,
+    get_mock_put,
+    init_devices,
+    set_mock_value,
+)
 
 from hextools.photon_delivery_system.fe_slit import (
     APERTURE_POSITIONS,
@@ -67,3 +73,14 @@ async def test_set_fe_slit1_aperture_moves_y(RE: RunEngine, aperture: SlitApertu
 def test_set_fe_slit1_aperture_refuses_unknown_aperture(RE: RunEngine):
     with pytest.raises(ValueError):
         RE(set_fe_slit1_aperture(cast(SlitAperture, "2 x 2 mm"), fe_slit1=_re_slit()))
+
+
+async def test_stop_stops_y_while_moving(RE: RunEngine):
+    fe_slit1 = _re_slit()
+    # The RunEngine stops only what it moved, and only if it is Stoppable.
+    assert isinstance(fe_slit1, Stoppable)
+    set_mock_value(fe_slit1.y.motor_done_move, 0)
+
+    await fe_slit1.stop(success=False)
+
+    get_mock_put(fe_slit1.y.motor_stop).assert_called_once()
