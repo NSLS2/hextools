@@ -138,6 +138,9 @@ def validate_tomo_dark_flat(run: RunLike, version: str | None = "1") -> None:
 #   time_based: bool
 #   start_position, stop_position: float   rotation range, degrees
 #   images_to_average: int
+#   filter_type: str                 optional, Proc plugin filter type that combined the
+#                                    averaged images (e.g. "Average"); runs before
+#                                    2026-10-27 lack it
 #   sample_name: str                 optional
 #   last_dark_flat_uid: str          optional, see the tomography dark/flat convention
 #   last_dark_flat_scan_id: int      optional, see the tomography dark/flat convention

@@ -4,11 +4,12 @@ import logging
 from collections.abc import Sequence
 
 import bluesky.plan_stubs as bps
-from ophyd_async.core import OnOff
+from ophyd_async.core import EnableDisable, OnOff
 from ophyd_async.epics.adcore import (
     ADImageMode,
     AreaDetector,
     NDPluginBaseIO,
+    NDProcessFilterType,
     NDProcessIO,
 )
 from ophyd_async.epics.adkinetix import (
@@ -208,7 +209,7 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
 
     if hasattr(cam, "proc"):
         proc_plugin = cam.get_plugin("proc", NDProcessIO)
-        yield from bps.mv(proc_plugin.enable_callbacks, False)
+        yield from bps.mv(proc_plugin.enable_callbacks, EnableDisable.DISABLE)
 
     yield from bps.mv(cam.driver.image_mode, ADImageMode.CONTINUOUS)
     if isinstance(cam, KinetixDetector):
@@ -227,6 +228,31 @@ def enable_preview_mode(cam: KinetixDetector | VimbaDetector):
     # Since this is a busy record, wait=True will block till
     # the acquisition completes
     yield from bps.abs_set(cam.driver.acquire, True, wait=False)
+
+
+def set_proc_filter_type(
+    dets: Sequence[AreaDetector], filter_type: NDProcessFilterType | str
+):
+    """Set the Proc plugin's filter type on every detector that has one.
+
+    ophyd-async's prepare leaves the filter type to the IOC, so without this an
+    averaged acquisition uses whatever the Proc plugin was last left on.
+
+    Parameters
+    ----------
+    dets : Sequence[AreaDetector]
+        The detectors; those without a ``proc`` plugin are skipped.
+    filter_type : NDProcessFilterType | str
+        The filter type, or its EPICS name (e.g. ``"Average"``).
+    """
+    filter_type = NDProcessFilterType(filter_type)
+    sigs = []
+    for det in dets:
+        if hasattr(det, "proc"):
+            proc_plugin = det.get_plugin("proc", NDProcessIO)
+            sigs.extend([proc_plugin.filter_type, filter_type])
+    if sigs:
+        yield from bps.mv(*sigs)
 
 
 def set_plugin_queue_sizes(
