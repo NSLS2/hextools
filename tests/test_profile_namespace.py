@@ -15,6 +15,7 @@ OPERATOR_NAMES = [
     "bps",
     "bpp",
     "move_motor",
+    "set_filters",
     "edxd_grid_scan",
     "GeRMStatsDataLogic",
     "ProgressBarManager",
