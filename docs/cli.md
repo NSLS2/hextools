@@ -121,6 +121,15 @@ RE(bps.mv(sample_tower.x1, 1, sample_tower.y, 2))   # several motors at once
 RE(bps.mvr(sample_tower.x1, 0.5))             # relative move
 ```
 
+Slits (`a_slits`, `f_slits`, `edxd_slits`) move by the center line and gap of each
+blade pair; only the values given move, and a center move keeps the gap:
+
+```python
+RE(move_slits(a_slits, horizontal_center=0.5))                  # shift the pair
+RE(move_slits(a_slits, horizontal_gap=2.0, vertical_gap=1.0))   # open about the center
+RE(move_slits(f_slits, vertical_center=-0.1, relative=True))    # nudge by 0.1 mm
+```
+
 Every filter defined in the filter configuration file is placed in the
 namespace by name (e.g. `filter1_upstream`) and can be moved with `bps.mv`.
 
