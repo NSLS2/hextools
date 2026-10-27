@@ -846,7 +846,7 @@ environments:
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
-      - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#6763cde3c4bb3b2baa47c5ab5208af6d3c148a21
+      - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#778e71444a14eb4adcd92c6417a4362ebea39425
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl
@@ -2039,7 +2039,7 @@ environments:
       - pypi: git+https://github.com/NSLS2/nslsii?rev=main#b8c69931660f2d74534f44c210499958959a1a0e
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#7672549a145c59d5208ada6cc30c0f8262728b50
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#de097ace33ce2fa0ea2eb22572ef81e5af133b16
-      - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#6763cde3c4bb3b2baa47c5ab5208af6d3c148a21
+      - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#778e71444a14eb4adcd92c6417a4362ebea39425
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1c/8a/b34eb6d94c0b7ac75d278e6c67990c4be5311ea9d9f6e6c101bf48df3068/databroker-2.0.2-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl
@@ -15563,9 +15563,9 @@ packages:
   - pyqt6<6.10 ; extra == 'demo'
   - pytest ; extra == 'demo'
   requires_python: '>=3.11'
-- pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#6763cde3c4bb3b2baa47c5ab5208af6d3c148a21
+- pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#778e71444a14eb4adcd92c6417a4362ebea39425
   name: ntnda-qt-viewer
-  version: 0.0.3.dev16+g6763cde3c
+  version: 0.0.3.dev20+g778e71444
   requires_dist:
   - aioca>=2.0
   - p4p>=4.2.2
