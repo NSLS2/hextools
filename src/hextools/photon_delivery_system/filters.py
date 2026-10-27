@@ -189,8 +189,9 @@ def _setting_positions(filter_name: str) -> dict[str, FilterPosition]:
         FilterPosition.POS_4,
     ):
         value = positions[position.name.lower()]
-        label = value.get("description") if isinstance(value, dict) else None
-        choices[label or position.name.lower().replace("_", " ")] = position
+        # A slot with no description holds no filter, so it is not offered
+        if isinstance(value, dict) and value.get("description"):
+            choices[value["description"]] = position
     return choices
 
 
@@ -222,7 +223,7 @@ def set_filters(
     """Set filter 1 upstream, filter 1 downstream and filter 2 by material.
 
     Each setting is one of that filter's materials from ``filters.yml`` (for
-    example ``"6 mm SiC"``) or ``"pass through"``. A filter with no setting does
+    example ``"6 mm Cu"``) or ``"pass through"``. A filter with no setting does
     not move; the others move together.
 
     Parameters

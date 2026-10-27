@@ -86,10 +86,10 @@ def test_load_filters_parses_named_and_described_positions():
     positions = filters["filter1_upstream"].positions
     assert positions[FilterPosition.UPPER_LIMIT] == FilterSetting(68.0, None)
     assert positions[FilterPosition.PASS_THROUGH] == FilterSetting(66.6, None)
-    assert positions[FilterPosition.POS_1] == FilterSetting(41.5, "12 mm SiC")
-    assert positions[FilterPosition.POS_2] == FilterSetting(6.5, "9 mm SiC")
-    assert positions[FilterPosition.POS_3] == FilterSetting(-28.5, "6 mm SiC")
-    assert positions[FilterPosition.POS_4] == FilterSetting(-58.0, "3 mm SiC")
+    assert positions[FilterPosition.POS_1] == FilterSetting(41.5, "6 mm Cu")
+    assert positions[FilterPosition.POS_2] == FilterSetting(6.5, "6 mm Al")
+    assert positions[FilterPosition.POS_3] == FilterSetting(-28.5, None)
+    assert positions[FilterPosition.POS_4] == FilterSetting(-58.0, "Bo-Hori.")
     assert positions[FilterPosition.LOWER_LIMIT] == FilterSetting(-63.2, None)
 
 
@@ -161,12 +161,16 @@ def _set_filters_devices() -> dict[str, Filter]:
 def test_set_filters_choices_are_each_filters_materials():
     raw = _raw_filter_config()
     for name in SET_FILTERS_NAMES:
-        materials = [
-            raw[name]["positions"][key]["description"]
-            for key in ("pos_1", "pos_2", "pos_3", "pos_4")
-        ]
+        slots = [raw[name]["positions"][f"pos_{i}"] for i in range(1, 5)]
+        materials = [s["description"] for s in slots if isinstance(s, dict)]
         assert list(SETTING_POSITIONS[name]) == ["pass through", *materials]
-    assert "6 mm SiC" in SETTING_POSITIONS["filter1_upstream"]
+    assert list(SETTING_POSITIONS["filter1_upstream"]) == [
+        "pass through",
+        "6 mm Cu",
+        "6 mm Al",
+        "Bo-Hori.",
+    ]
+    assert "6 mm Al" in SETTING_POSITIONS["filter1_downstream"]
     assert "1 mm Cu" in SETTING_POSITIONS["filter2"]
 
 
@@ -177,7 +181,7 @@ async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):
 
     RE(
         set_filters(
-            filter1_upstream_setting="6 mm SiC",
+            filter1_upstream_setting="6 mm Cu",
             filter2_setting="1 mm Cu",
             filter1_upstream=devices["filter1_upstream"],
             filter1_downstream=devices["filter1_downstream"],
@@ -190,9 +194,31 @@ async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):
         for name, d in devices.items()
     }
     assert positions == {
-        "filter1_upstream": pytest.approx(-28.5),
+        "filter1_upstream": pytest.approx(41.5),
         "filter1_downstream": 999.0,
         "filter2": pytest.approx(-24.8),
+    }
+
+
+async def test_set_filters_sets_all_three(RE: RunEngine):
+    devices = _set_filters_devices()
+
+    RE(
+        set_filters(
+            filter1_upstream_setting="6 mm Cu",
+            filter1_downstream_setting="6 mm Al",
+            filter2_setting="1 mm Cu",
+            filter1_upstream=devices["filter1_upstream"],
+            filter1_downstream=devices["filter1_downstream"],
+            filter2=devices["filter2"],
+        )
+    )
+
+    descriptions = {n: await d.description.get_value() for n, d in devices.items()}
+    assert descriptions == {
+        "filter1_upstream": "6 mm Cu",
+        "filter1_downstream": "6 mm Al",
+        "filter2": "1 mm Cu",
     }
 
 
@@ -200,7 +226,7 @@ async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):
     "kwargs, match",
     [
         ({}, "at least one"),
-        ({"filter2_setting": "6 mm SiC"}, "not a setting of filter2"),
+        ({"filter2_setting": "6 mm Al"}, "not a setting of filter2"),
     ],
 )
 def test_set_filters_refuses_bad_input(RE: RunEngine, kwargs: dict, match: str):

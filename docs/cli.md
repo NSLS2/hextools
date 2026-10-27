@@ -127,7 +127,7 @@ Filter 1 upstream, filter 1 downstream and filter 2 can be set together by mater
 a filter left out does not move:
 
 ```python
-RE(set_filters(filter1_upstream_setting="6 mm SiC", filter2_setting="1 mm Cu"))
+RE(set_filters(filter1_upstream_setting="6 mm Cu", filter2_setting="1 mm Cu"))
 RE(set_filters(filter1_downstream_setting="pass through"))
 ```
 
