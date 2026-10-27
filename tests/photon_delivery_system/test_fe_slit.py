@@ -1,0 +1,69 @@
+from typing import cast
+
+import pytest
+from bluesky.run_engine import RunEngine
+from ophyd_async.core import callback_on_mock_put, init_devices, set_mock_value
+
+from hextools.photon_delivery_system.fe_slit import (
+    APERTURE_POSITIONS,
+    BETWEEN_APERTURES,
+    FrontEndSlit,
+    SlitAperture,
+    set_fe_slit1_aperture,
+)
+
+
+def _re_slit() -> FrontEndSlit:
+    """Mock slit built under the RE loop; moves complete instantly."""
+    with init_devices(mock=True):
+        fe_slit1 = FrontEndSlit("FE:TEST{Slt:1-Ax:Y}", name="fe-slit1")
+    callback_on_mock_put(
+        fe_slit1.y.user_setpoint,
+        lambda value, **_: set_mock_value(fe_slit1.y.user_readback, value),
+    )
+    return fe_slit1
+
+
+def test_aperture_positions_match_the_hex_table():
+    assert {a.value: y for a, y in APERTURE_POSITIONS.items()} == {
+        "Fully open (24 x 4.55 mm)": -30.0,
+        "7.13 x 3.56 mm": -10.0,
+        "Fully closed": 0.0,
+        "3.56 x 3.56 mm": 10.0,
+        "Pinhole 0.89 mm": 30.0,
+    }
+
+
+@pytest.mark.parametrize(
+    "y, expected",
+    [
+        (-30.0, "Fully open (24 x 4.55 mm)"),
+        (-10.02, "7.13 x 3.56 mm"),
+        (0.0, "Fully closed"),
+        (30.0, "Pinhole 0.89 mm"),
+        (5.0, BETWEEN_APERTURES),
+        (-30.67, BETWEEN_APERTURES),
+    ],
+)
+async def test_aperture_reads_from_y(RE: RunEngine, y: float, expected: str):
+    fe_slit1 = _re_slit()
+    set_mock_value(fe_slit1.y.user_readback, y)
+    assert await fe_slit1.aperture.get_value() == expected
+
+
+@pytest.mark.parametrize("aperture", list(SlitAperture))
+async def test_set_fe_slit1_aperture_moves_y(RE: RunEngine, aperture: SlitAperture):
+    fe_slit1 = _re_slit()
+
+    # The GUI submits the dropdown's string value.
+    RE(set_fe_slit1_aperture(cast(SlitAperture, aperture.value), fe_slit1=fe_slit1))
+
+    assert await fe_slit1.y.user_readback.get_value() == pytest.approx(
+        APERTURE_POSITIONS[aperture]
+    )
+    assert await fe_slit1.aperture.get_value() == aperture.value
+
+
+def test_set_fe_slit1_aperture_refuses_unknown_aperture(RE: RunEngine):
+    with pytest.raises(ValueError):
+        RE(set_fe_slit1_aperture(cast(SlitAperture, "2 x 2 mm"), fe_slit1=_re_slit()))

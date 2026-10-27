@@ -87,6 +87,7 @@ from hextools.gui.re_execution_controls import (
 )
 from hextools.gui.scan_browser import QtScanBrowser
 from hextools.gui.shutter_status import QtShutterStatus
+from hextools.gui.slit_control import QtSlitControl
 from hextools.gui.theme_switch import QtThemeAction
 from hextools.machine import NSLS2StorageRing
 from hextools.motors import (
@@ -98,6 +99,7 @@ from hextools.motors import (
 )
 from hextools.photon_delivery_system import (
     DCLM,
+    FrontEndSlit,
     Shutter,
     Slits,
     change_energy,
@@ -134,6 +136,7 @@ EXPECTED_DEVICES: list[tuple[str, type]] = [
     ("photon_shutter", Shutter),
     ("a_slits", Slits),
     ("f_slits", Slits),
+    ("fe_slit1", FrontEndSlit),
     ("storage_ring", NSLS2StorageRing),
     ("dclm", DCLM),
     ("optics_table", OpticsTable),
@@ -400,6 +403,7 @@ class QtBeamlineView(QWidget):
         plan_tabs = QTabWidget()
         plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
         plan_tabs.addTab(QtPlanWidget(re_client, move_slits), "Slits")
+        plan_tabs.addTab(QtSlitControl(re_client), "Slit Control")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
         plan_tabs.addTab(QtPlanWidget(re_client, reset_scan_id), "Reset Scan ID")
