@@ -238,6 +238,9 @@ async def test_averaged_radiograph_sets_the_proc_filter_type(
     set_mock_value(proc.filter_type, NDProcessFilterType.DIFFERENCE)
     docs: dict[str, list[dict[str, Any]]] = {}
 
+    def cache_docs(name: str, doc: dict[str, Any]):
+        docs.setdefault(name, []).append(doc)
+
     RE(
         take_radiograph(
             [ktx],
@@ -250,7 +253,7 @@ async def test_averaged_radiograph_sets_the_proc_filter_type(
             photon_shutter=photon_shutter,
             **kwargs,
         ),
-        lambda name, doc: docs.setdefault(name, []).append(doc),
+        cache_docs,  # type: ignore
     )
 
     assert await proc.filter_type.get_value() == expected

@@ -27,13 +27,14 @@ def take_radiograph(
     external_trigger: bool = True,
     time_gap: float = 0.0,
     images_to_average: int = 1,
-    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     sample_name: str | None = None,
     description: str | None = None,
     use_shutter: bool = True,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
     panda: HDFPanda | None = None,
+    *,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
 ):
     """Acquire a burst-mode radiograph series on the HEX beamline.
 

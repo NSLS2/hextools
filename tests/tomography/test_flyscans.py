@@ -1,3 +1,4 @@
+import inspect
 from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,7 @@ from hextools.tomography.flyscans import (
     tomo_flyscan_loop,
     tomo_nd_step_scan,
 )
+from hextools.tomography.radiography import take_radiograph
 
 Docs = dict[str, list[dict[str, Any]]]
 
@@ -555,6 +557,23 @@ async def test_tomo_flyscan_sets_the_proc_filter_type(
     assert docs["start"][0]["filter_type"] == expected.value
 
 
+@pytest.mark.parametrize(
+    "plan",
+    [
+        tomo_flyscan,
+        tomo_flyscan_loop,
+        tomo_nd_step_scan,
+        tomo_1d_step_scan,
+        tomo_2d_step_scan,
+        take_radiograph,
+    ],
+)
+def test_filter_type_is_keyword_only(plan):
+    # a positional slot would shift existing calls (PR #113 review)
+    param = inspect.signature(plan).parameters["filter_type"]
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+
+
 def test_tomo_flyscan_rejects_an_unknown_filter_type(
     RE: RunEngine,
     kinetix_det_factory: Callable[..., KinetixDetector],
@@ -919,7 +938,7 @@ def test_tomo_flyscan_loop_forwards_flyscan_arguments(
             exposure_time=0.2,
             acquire_period=0.3,
             images_to_average=2,
-            filter_type="Sum",
+            filter_type=NDProcessFilterType.SUM,
             start=10,
             stop=190,
             num_iterations=3,
@@ -937,7 +956,7 @@ def test_tomo_flyscan_loop_forwards_flyscan_arguments(
         "exposure_time": 0.2,
         "acquire_period": 0.3,
         "images_to_average": 2,
-        "filter_type": "Sum",
+        "filter_type": NDProcessFilterType.SUM,
         "start": 10,
         "stop": 190,
         "use_shutter": False,
@@ -1290,7 +1309,7 @@ def test_tomo_nd_step_scan_forwards_flyscan_arguments(
             exposure_time=0.2,
             acquire_period=0.3,
             images_to_average=2,
-            filter_type="Sum",
+            filter_type=NDProcessFilterType.SUM,
             use_shutter=False,
             sample_name="rock",
             time_based=False,
@@ -1304,7 +1323,7 @@ def test_tomo_nd_step_scan_forwards_flyscan_arguments(
         "exposure_time": 0.2,
         "acquire_period": 0.3,
         "images_to_average": 2,
-        "filter_type": "Sum",
+        "filter_type": NDProcessFilterType.SUM,
         "use_shutter": False,
         "sample_name": "rock",
         "time_based": False,
