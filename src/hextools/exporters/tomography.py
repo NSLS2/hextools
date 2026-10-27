@@ -112,10 +112,15 @@ def export_tomo_flyscan_to_h5(
     num_projections = run_start.get("num_points")
     if not isinstance(images_to_average, int):
         raise ValueError(f"images_to_average is not an int: {images_to_average!r}")
-    recorded = (run.stop or {}).get("num_events", {}).get("primary", num_projections)
+    num_events = (run.stop or {}).get("num_events")
+    recorded = num_events.get("primary") if isinstance(num_events, Mapping) else None
     # A run that did not finish leaves files longer than its events, which Tiled
     # will not serve, so its captures are read from the files up to what it recorded.
-    unfinished = isinstance(num_projections, int) and recorded < num_projections
+    unfinished = (
+        isinstance(num_projections, int)
+        and isinstance(recorded, int)
+        and recorded < num_projections
+    )
     if unfinished:
         logger.warning(
             f"Run recorded {recorded} of {num_projections} projections; exporting "
