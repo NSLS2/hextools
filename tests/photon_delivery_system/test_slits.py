@@ -124,6 +124,8 @@ def _re_slits(blades: tuple[float, float, float, float]) -> Slits:
             motor.user_setpoint,
             lambda value, motor=motor, **_: set_mock_value(motor.user_readback, value),
         )
+        # A motor at rest: bps.mvr moves relative to the setpoint, not the readback
+        set_mock_value(motor.user_setpoint, value)
         set_mock_value(motor.user_readback, value)
     return slits
 
@@ -166,3 +168,24 @@ def test_move_slits_needs_a_value(RE: RunEngine):
     slits = _re_slits((0.0, 0.0, 0.0, 0.0))
     with pytest.raises(ValueError, match="at least one"):
         RE(move_slits(slits))
+
+
+@pytest.mark.parametrize("axis, low, high, gap, center", _AXES)
+async def test_slits_gap_and_center_work_with_locating_plan_stubs(
+    RE: RunEngine, axis: str, low: str, high: str, gap: str, center: str
+):
+    # bps.rd and bps.mvr locate() a movable; a derived signal is only locatable
+    # when its raw inputs are, so the gap/center must be built from the motors.
+    slits = _re_slits((-1.0, 3.0, -1.0, 3.0))
+    readings = {}
+
+    def plan():
+        readings["gap"] = yield from bps.rd(getattr(slits, gap))
+        readings["center"] = yield from bps.rd(getattr(slits, center))
+        yield from bps.mvr(getattr(slits, center), 0.5)
+
+    RE(plan())
+
+    assert readings == {"gap": pytest.approx(4.0), "center": pytest.approx(1.0)}
+    assert await getattr(slits, center).get_value() == pytest.approx(1.5)
+    assert await getattr(slits, gap).get_value() == pytest.approx(4.0)

@@ -44,32 +44,32 @@ class Slits(
                 partial(self._set_gap, self.inboard, self.outboard),
                 derived_units="mm",
                 derived_precision=3,
-                low=self.inboard.user_readback,
-                high=self.outboard.user_readback,
+                low=self.inboard,
+                high=self.outboard,
             )
             self.horizontal_center = derived_signal_rw(
                 self._get_center,
                 partial(self._set_center, self.inboard, self.outboard),
                 derived_units="mm",
                 derived_precision=3,
-                low=self.inboard.user_readback,
-                high=self.outboard.user_readback,
+                low=self.inboard,
+                high=self.outboard,
             )
             self.vertical_gap = derived_signal_rw(
                 self._get_gap,
                 partial(self._set_gap, self.bottom, self.top),
                 derived_units="mm",
                 derived_precision=3,
-                low=self.bottom.user_readback,
-                high=self.top.user_readback,
+                low=self.bottom,
+                high=self.top,
             )
             self.vertical_center = derived_signal_rw(
                 self._get_center,
                 partial(self._set_center, self.bottom, self.top),
                 derived_units="mm",
                 derived_precision=3,
-                low=self.bottom.user_readback,
-                high=self.top.user_readback,
+                low=self.bottom,
+                high=self.top,
             )
 
         super().__init__(name=name)
@@ -235,31 +235,20 @@ def move_slits(
     ValueError
         If no center or gap is given.
     """
-    horizontal = (slits.inboard, slits.outboard)
-    vertical = (slits.bottom, slits.top)
     # A gap and a center on one axis drive the same two blades, so gaps go first
     stages = [
+        [(slits.horizontal_gap, horizontal_gap), (slits.vertical_gap, vertical_gap)],
         [
-            (slits.horizontal_gap, horizontal_gap, horizontal, True),
-            (slits.vertical_gap, vertical_gap, vertical, True),
-        ],
-        [
-            (slits.horizontal_center, horizontal_center, horizontal, False),
-            (slits.vertical_center, vertical_center, vertical, False),
+            (slits.horizontal_center, horizontal_center),
+            (slits.vertical_center, vertical_center),
         ],
     ]
-    if all(value is None for stage in stages for _, value, _, _ in stage):
+    if all(value is None for stage in stages for _, value in stage):
         raise ValueError("Give at least one center or gap to move the slits.")
+    move = bps.mvr if relative else bps.mv
     for stage in stages:
-        args = []
-        for signal, value, (low_motor, high_motor), is_gap in stage:
-            if value is None:
-                continue
-            if relative:
-                # bps.rd cannot read the derived gap/center: readbacks aren't locatable
-                low = yield from bps.rd(low_motor.user_readback)
-                high = yield from bps.rd(high_motor.user_readback)
-                value += high - low if is_gap else (low + high) / 2
-            args += [signal, value]
+        args = [
+            x for signal, value in stage if value is not None for x in (signal, value)
+        ]
         if args:
-            yield from bps.mv(*args)
+            yield from move(*args)
