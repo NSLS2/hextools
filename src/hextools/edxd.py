@@ -1,5 +1,6 @@
 """Bluesky plans for energy-dispersive X-ray diffraction (EDXD) at HEX."""
 
+import itertools
 from typing import Any
 
 import numpy as np
@@ -484,29 +485,35 @@ def edxd_calib_scan(
         _md["description"] = description
 
     z1_max_velocity = yield from bps.rd(sample_tower.z1.max_velocity)
-    z1_velocity = yield from bps.rd(sample_tower.z1.velocity)
     z1_curr_position = yield from bps.rd(sample_tower.z1.user_readback)
 
-    if abs(z1_curr_position - start) <= abs(z1_curr_position - stop):
-        near, far = start, stop
+    low, high = sorted((start, stop))
+    in_range = low <= z1_curr_position <= high
+    if in_range:
+        scan_origin = z1_curr_position
     else:
-        near, far = stop, start
+        scan_origin = (
+            start
+            if abs(z1_curr_position - start) <= abs(z1_curr_position - stop)
+            else stop
+        )
 
-    required_velo = (abs(start - stop) * iterations) / count_time
-    if required_velo <= 0:
-        raise ValueError("start and stop must differ, and iterations be positive")
+    # One iteration is origin -> stop -> start -> origin, i.e. two full spans.
+    required_velo = (2 * abs(start - stop) * iterations) / count_time
     if required_velo > z1_max_velocity:
         raise ValueError(
             f"Velocity {required_velo} exceeds max velocity {z1_max_velocity}"
         )
 
+    @bpp.reset_positions_decorator([sample_tower.z1, sample_tower.z1.velocity])
     @bpp.stage_decorator([germ])
     @bpp.run_decorator(md=_md)
     def _body():
         yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
         yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
-        yield from bps.mv(sample_tower.z1.velocity, z1_max_velocity)
-        yield from bps.mv(sample_tower.z1, near)
+        if not in_range:
+            yield from bps.mv(sample_tower.z1.velocity, z1_max_velocity)
+            yield from bps.mv(sample_tower.z1, scan_origin)
 
         yield from bps.mv(
             germ.driver.acquire_time,
@@ -515,11 +522,19 @@ def edxd_calib_scan(
             required_velo,
         )
 
-        yield from bps.trigger(germ, wait=False, group="germ")
+        count_status = yield from bps.trigger(germ, wait=False, group="germ")
 
-        for sweep in range(iterations):
-            yield from bps.mv(sample_tower.z1, far if sweep % 2 == 0 else near)
-        yield from bps.wait("germ")
+        waypoints = itertools.cycle((stop, start, scan_origin))
+        while not count_status.done:
+            move_sts = yield from bps.abs_set(
+                sample_tower.z1, next(waypoints), wait=False
+            )
+            while move_sts.done is False:
+                yield from bps.sleep(0.1)
+                if count_status.done:
+                    break
+
+        yield from bps.mv(sample_tower.z1.motor_stop, 1)
 
         yield from bps.create(name="primary")
         reading = yield from bps.read(germ)  # type: ignore
@@ -528,9 +543,6 @@ def edxd_calib_scan(
 
     def _cleanup():
         yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
-        # Restore the speed first, so z1 returns at its usual speed.
-        yield from bps.mv(sample_tower.z1.velocity, z1_velocity)
-        yield from bps.mv(sample_tower.z1, z1_curr_position)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 

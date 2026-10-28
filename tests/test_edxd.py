@@ -529,9 +529,11 @@ async def sample_tower() -> SampleTower:
     _fast(sample_tower)
     z1 = sample_tower.z1
     set_mock_value(z1.max_velocity, 100.0)
-    # A distinct starting velocity, so a missed restore shows. Mocked, not put, as
-    # in mock mode: its last written setpoint is still 0.
-    set_mock_value(z1.velocity, 7.0)
+    # A distinct starting velocity, so a missed restore shows. Put, not mocked: a
+    # mocked value leaves the mock setpoint at 0, and the plan restores the
+    # setpoint (on the IOC, VELO's setpoint is its value).
+    await z1.velocity.set(7.0)
+    get_mock_put(z1.velocity).reset_mock()
     return sample_tower
 
 
@@ -578,9 +580,11 @@ async def test_edxd_calib_scan_sweeps_during_one_count(
     assert np.asarray(tiled[start["uid"]]["primary"]["germ"].read()).shape[0] == 1
     assert await germ.driver.acquire_time.get_value() == 0.5
 
-    # to the nearer end (start) at full speed, then one span per sweep at 4/s
-    assert _put_values(z1.user_setpoint)[:3] == pytest.approx([0.0, 1.0, 0.0])
-    assert _put_values(z1.velocity)[:2] == [100.0, 1.0 * 2 / 0.5]
+    # in range: sweeps from where z1 is, origin -> stop -> start -> origin, at
+    # two spans per iteration over the count (2 * 1.0 * 2 / 0.5 = 8/s)
+    assert _put_values(z1.velocity)[0] == pytest.approx(8.0)
+    assert _put_values(z1.user_setpoint)[:3] == pytest.approx([1.0, 0.0, 0.4])
+    get_mock_put(z1.motor_stop).assert_called()
 
     # z1 speed and position restored, photon shutter closed
     assert await z1.velocity.get_value() == 7.0
@@ -613,9 +617,10 @@ async def test_edxd_calib_scan_moves_in_range_first_at_full_speed(
         ),
     )
 
-    # out of range: to the nearer end (stop) at max speed, then sweep at 2/s
-    assert _put_values(z1.velocity)[:2] == [100.0, 2.0]
-    assert _put_values(z1.user_setpoint)[:2] == pytest.approx([1.0, 0.0])
+    # out of range: to the nearer end (stop) at max speed, then sweep from there
+    # at 2 * 1.0 * 1 / 0.5 = 4/s
+    assert _put_values(z1.velocity)[:2] == pytest.approx([100.0, 4.0])
+    assert _put_values(z1.user_setpoint)[:3] == pytest.approx([1.0, 1.0, 0.0])
     assert await z1.velocity.get_value() == 7.0
     assert await z1.user_readback.get_value() == pytest.approx(3.0)
 
@@ -644,24 +649,3 @@ def test_edxd_calib_scan_rejects_a_sweep_faster_than_the_motor(
         )
     assert not get_mock_put(sample_tower.z1.user_setpoint).called
     assert not get_mock_put(germ.driver.acquire).called
-
-
-def test_edxd_calib_scan_rejects_a_zero_span(
-    RE: RunEngine,
-    germ: GeRMDetector,
-    sample_tower: SampleTower,
-    two_shutters: tuple[Shutter, Shutter],
-):
-    fe_shutter, photon_shutter = two_shutters
-
-    with pytest.raises(ValueError, match="start and stop must differ"):
-        RE(
-            edxd_calib_scan(
-                1.0,
-                1.0,
-                sample_tower=sample_tower,
-                germ=germ,
-                fe_shutter=fe_shutter,
-                photon_shutter=photon_shutter,
-            )
-        )
