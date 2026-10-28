@@ -1,9 +1,10 @@
-"""Clickable open/closed indicators for the beamline shutters."""
+"""Clickable open/closed indicators for two-state devices such as shutters."""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+from types import FunctionType
 from typing import Any
 
 from bluesky import RunEngine
@@ -19,11 +20,6 @@ from qtpy.QtWidgets import (
 )
 
 from hextools.gui._ipython import run_in_ipython, show_plan_error
-from hextools.photon_delivery_system.shutter import (
-    Shutter,
-    ensure_shutter_closed,
-    ensure_shutter_open,
-)
 
 # (top, bottom) gradient stops.
 _OPEN_COLORS = ("#7bb08a", "#4a7a58")
@@ -40,7 +36,7 @@ class _ShutterButton(QPushButton):
     def __init__(
         self,
         var_name: str,
-        shutter: Shutter,
+        shutter: Any,
         loop: asyncio.AbstractEventLoop,
         parent=None,
     ):
@@ -100,25 +96,48 @@ class _ShutterButton(QPushButton):
 # TODO: Once ophyd as a service exists, this widget should use that when
 # running in remote mode.
 class QtShutterStatus(QWidget):
-    """Shutter indicators; click one to toggle it (local mode only).
+    """Open/closed indicators; click one to toggle it (local mode only).
 
     Parameters
     ----------
     re : RunEngine
         The in-process RunEngine.
     namespace : Mapping[str, object]
-        Namespace searched for :class:`Shutter` objects, typically IPython's
-        ``user_ns``. Aliases of the same shutter are shown once.
+        Namespace searched for ``device_type`` objects, typically IPython's
+        ``user_ns``. Aliases of the same device are shown once.
+    device_type : type
+        Devices shown; each must be subscribable with a truthy reading when open.
+    open_plan, close_plan : function
+        Plans run as ``RE(plan(device, **plan_kwargs))`` to toggle a device,
+        looked up in ``namespace`` by their ``__name__``.
+    plan_kwargs : mapping, optional
+        Extra keyword arguments for both plans.
+    title : str, optional
+        Group box title. Default: ``"Shutters"``.
     """
 
-    def __init__(self, re: RunEngine, namespace: Mapping[str, Any], parent=None):
+    def __init__(
+        self,
+        re: RunEngine,
+        namespace: Mapping[str, Any],
+        *,
+        device_type: type,
+        open_plan: FunctionType,
+        close_plan: FunctionType,
+        plan_kwargs: Mapping[str, Any] | None = None,
+        title: str = "Shutters",
+        parent=None,
+    ):
         super().__init__(parent)
         self._re = re
         self._namespace = namespace
+        self._open_plan = open_plan
+        self._close_plan = close_plan
+        self._plan_kwargs = dict(plan_kwargs or {})
 
-        shutters: dict[int, tuple[str, Shutter]] = {}
+        shutters: dict[int, tuple[str, Any]] = {}
         for name, obj in sorted(namespace.items()):
-            if not name.startswith("_") and isinstance(obj, Shutter):
+            if not name.startswith("_") and isinstance(obj, device_type):
                 shutters.setdefault(id(obj), (name, obj))
 
         self._buttons: list[_ShutterButton] = []
@@ -135,7 +154,7 @@ class QtShutterStatus(QWidget):
             grid.addWidget(button, row, 1)
             self._buttons.append(button)
 
-        group_box = QGroupBox("Shutters")
+        group_box = QGroupBox(title)
         group_box.setLayout(grid)
         vbox = QVBoxLayout()
         vbox.addWidget(group_box)
@@ -149,10 +168,11 @@ class QtShutterStatus(QWidget):
                 "Cannot actuate a shutter while the RunEngine is busy.",
             )
             return
-        plan = ensure_shutter_closed if button.is_open else ensure_shutter_open
+        plan = self._close_plan if button.is_open else self._open_plan
         # Make the plan resolvable when the command is echoed and run in IPython.
         self._namespace.setdefault(plan.__name__, plan)  # type: ignore
-        code = f"RE({plan.__name__}({button.var_name}, allow_actuation=True))"
+        args = "".join(f", {k}={v!r}" for k, v in self._plan_kwargs.items())
+        code = f"RE({plan.__name__}({button.var_name}{args}))"
         # Defer so the click handler returns before IPython executes the cell.
         QTimer.singleShot(0, lambda: self._execute_cell(code))
 

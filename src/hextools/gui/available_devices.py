@@ -1,9 +1,9 @@
-"""Qt widget listing beamline devices and their connection status.
+"""Qt widget listing beamline devices and their availability.
 
 In local (in-process) mode every ``ophyd.Device`` or ``ophyd_async`` ``Device``
 in the IPython namespace is listed, and counts as connected only once it has
-actually connected. In Queue Server mode a fixed list of expected devices is
-shown, each connected if the server reports it among its allowed devices or plans.
+actually connected. In Queue Server mode the table reports whether each device
+is present in the server's allowed-device list; this is not live device status.
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ except ImportError:  # pragma: no cover
 
 _CONNECTED_STYLE = "color: #2e7d32; font-weight: bold;"
 _DISCONNECTED_STYLE = "color: #c62828; font-weight: bold;"
+_ALLOWED_STYLE = "color: #555; font-weight: bold;"
 _LOCAL_POLL_MS = 2000
 
 
@@ -125,6 +126,12 @@ class QtAvailableDevices(QWidget):
 
         vbox = QVBoxLayout()
         vbox.addWidget(self._scroll)
+        if self._is_qserver:
+            vbox.addWidget(
+                QLabel(
+                    "Queue Server permissions only; this is not live device status."
+                )
+            )
         self.setLayout(vbox)
 
         self._signal_refresh.connect(self._refresh)
@@ -144,7 +151,7 @@ class QtAvailableDevices(QWidget):
         # Model events fire from a polling thread; marshal onto the GUI thread.
         self._signal_refresh.emit()
 
-    def _qserver_connected(self, name: str, dtype: type) -> bool:
+    def _qserver_allowed(self, name: str, dtype: type) -> bool:
         model = self._re_client
         allowed_devices = getattr(model, "_allowed_devices", {}) or {}  # noqa: SLF001
         allowed_plans = getattr(model, "_allowed_plans", {}) or {}  # noqa: SLF001
@@ -160,7 +167,7 @@ class QtAvailableDevices(QWidget):
                 (
                     device_display_name(name),
                     dtype.__name__,
-                    lambda n=name, t=dtype: self._qserver_connected(n, t),
+                    lambda n=name, t=dtype: self._qserver_allowed(n, t),
                 )
                 for name, dtype in self._devices
             ]
@@ -194,10 +201,16 @@ class QtAvailableDevices(QWidget):
         if rows != self._rows:
             self._rebuild(rows)
         for label, _, is_connected in entries:
-            connected = is_connected()
+            available = is_connected()
             status = self._status_labels[label]
-            status.setText("Connected" if connected else "Disconnected")
-            status.setStyleSheet(_CONNECTED_STYLE if connected else _DISCONNECTED_STYLE)
+            if self._is_qserver:
+                status.setText("Allowed" if available else "Not allowed")
+                status.setStyleSheet(_ALLOWED_STYLE)
+            else:
+                status.setText("Connected" if available else "Disconnected")
+                status.setStyleSheet(
+                    _CONNECTED_STYLE if available else _DISCONNECTED_STYLE
+                )
 
     def closeEvent(self, event):
         if self._is_qserver:

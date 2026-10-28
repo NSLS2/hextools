@@ -225,6 +225,7 @@ class QtReWaitingHookMonitor(QWidget):
         self._re_client = re_client
         self._hook: _WaitingHookDispatcher | None = None
         self._thread = None
+        self._remote_progress_supported = False
 
         # Maps device name -> _ReDeviceProgressBar
         self._progress_bars = {}
@@ -246,9 +247,20 @@ class QtReWaitingHookMonitor(QWidget):
         self.signal_completed.connect(self._on_completed)
 
         if isinstance(self._re_client, RunEngineClient):
-            # Not in released bluesky-widgets (0.0.18); needs a newer release.
-            self._re_client.start_re_progress_monitoring()  # type: ignore
-            self._start_thread()
+            start_monitoring = getattr(
+                self._re_client, "start_re_progress_monitoring", None
+            )
+            if callable(start_monitoring) and callable(
+                getattr(self._re_client, "re_progress_monitoring_thread", None)
+            ):
+                self._remote_progress_supported = True
+                start_monitoring()
+                self._start_thread()
+            else:
+                self._lb_status.setText(
+                    "QueueServer plan progress unavailable in this "
+                    "bluesky-widgets version."
+                )
         else:
             self._install_waiting_hook()
 
@@ -270,7 +282,8 @@ class QtReWaitingHookMonitor(QWidget):
         self._thread.start()
 
     def _finished_receiving_progress_update(self):
-        self._start_thread()
+        if self._remote_progress_supported:
+            self._start_thread()
 
     def _process_new_progress_update(self, result):
         if not result:
@@ -335,8 +348,8 @@ class QtReWaitingHookMonitor(QWidget):
         """Stop progress monitoring or restore the previous waiting hook."""
         try:
             if isinstance(self._re_client, RunEngineClient):
-                # Not in released bluesky-widgets (0.0.18); needs a newer release.
-                self._re_client.stop_re_progress_monitoring()  # type: ignore
+                if self._remote_progress_supported:
+                    self._re_client.stop_re_progress_monitoring()  # type: ignore
             else:
                 self._uninstall_waiting_hook()
         except Exception:

@@ -653,7 +653,7 @@ class MsgHookNarrator:
 
     Attach an instance to a RunEngine and it will, for every ``Msg`` the RunEngine
     processes, serialize the message, feed it to a :class:`StreamNarrator`, and log any
-    finalized narration lines (to the ``hextools`` logger at ``INFO`` by default)::
+    finalized narration lines (to the ``bluesky`` logger at ``INFO`` by default)::
 
         RE.msg_hook = MsgHookNarrator()
 
@@ -665,7 +665,7 @@ class MsgHookNarrator:
     emit : callable, optional
         Called with each finalized narration line (a ``str``) instead of logging it.
     logger : logging.Logger or str, optional
-        Logger (or its name) the lines are logged to, by default ``"hextools"``.
+        Logger (or its name) the lines are logged to, by default ``"bluesky"``.
     level : int, optional
         Level the lines are logged at, by default ``logging.INFO``.
     show_timestamps : bool, optional
@@ -679,7 +679,7 @@ class MsgHookNarrator:
         self,
         *,
         emit: Callable[[str], Any] | None = None,
-        logger: logging.Logger | str = "hextools",
+        logger: logging.Logger | str = "bluesky",
         level: int = logging.INFO,
         show_timestamps: bool = False,
         window: float = 60.0,

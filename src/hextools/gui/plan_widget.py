@@ -69,7 +69,7 @@ from hextools.gui.device_sources import (
     QueueServerDeviceSource,
     device_display_name,
 )
-from hextools.log import _unwrap_failed_status
+from hextools.gui.errors import unwrap_failed_status as _unwrap_failed_status
 
 _NO_SELECTION = "\u2014"  # em dash placeholder for an unset single device
 
