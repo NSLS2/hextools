@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import h5py
 import numpy as np
@@ -280,3 +281,55 @@ async def test_germ_mock_test_pulses(
     signal = both - pulses
     assert (signal >= 0).all()
     assert signal.sum() > 0
+
+
+# Copilot on #109: the last step slept a full 0.1 s, past the exposure.
+async def test_germ_mock_sleeps_no_longer_than_the_exposure(
+    germ: GeRMDetector, monkeypatch
+):
+    import hextools.detectors.germ as germ_module
+
+    requested: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def record(delay: float, *args, **kwargs):
+        requested.append(delay)
+        await real_sleep(0)
+
+    proxy = SimpleNamespace(**vars(asyncio))
+    proxy.sleep = record
+    monkeypatch.setattr(germ_module, "asyncio", proxy)
+    set_mock_value(germ.driver.acquire_time, 0.15)
+
+    await germ.driver.acquire.set(True)
+    await asyncio.wait_for(_wait_idle(germ), timeout=5)
+
+    assert sum(requested) == pytest.approx(0.15)
+    assert max(requested) <= 0.1
+
+
+# Copilot on #109: turning test pulses off mid-count recomputed the pulses
+# already counted with the new settings, so they vanished from the frame.
+async def test_germ_mock_keeps_pulses_counted_before_they_were_turned_off(
+    germ: GeRMDetector, germ_mock: GeRMDetectorMock, two_shutters
+):
+    germ_mock.set_shutters(*two_shutters)  # closed: only test pulses count
+    driver = germ.driver
+    set_mock_value(driver.test_pulse_enable, True)
+    set_mock_value(driver.acquire_time, 0.4)
+    frames: list[np.ndarray] = []
+    germ_mock.register_frame_callback(frames.append)
+
+    await driver.acquire.set(True)
+    await asyncio.sleep(0.25)
+    # what configure_test_pulses(False) leaves behind
+    set_mock_value(driver.test_pulse_enable, False)
+    for signal in (
+        driver.test_pulse_amplitude,
+        driver.test_pulse_frequency,
+        driver.test_pulse_count,
+    ):
+        set_mock_value(signal, 0)
+    await asyncio.wait_for(_wait_idle(germ), timeout=5)
+
+    assert frames[-1].any()

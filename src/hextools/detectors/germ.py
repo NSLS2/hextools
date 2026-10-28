@@ -506,29 +506,32 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
         rate = self._beam_rate(energies, num_elements)
 
         signal = np.zeros((num_elements, num_bins), dtype=np.int32)
-        pulse_time = 0.0
+        pulses = np.zeros(num_bins)
+        pulses_sent = 0.0
         since_update = 0.0
         step = min(0.1, acquire_time)
         elapsed = 0.0
         set_mock_value(driver.elapsed_time, 0.0)
         while elapsed < acquire_time:
-            await asyncio.sleep(step)
-            previous, elapsed = elapsed, min(elapsed + step, acquire_time)
-            dt = elapsed - previous
+            dt = min(step, acquire_time - elapsed)
+            await asyncio.sleep(dt)
+            elapsed = min(elapsed + dt, acquire_time)
             # Shutters and test pulses are checked each step, as they can change.
             if await self._shutters_open():
                 signal += self._rng.poisson(rate * dt).astype(np.int32)
             if await driver.test_pulse_enable.get_value():
-                pulse_time += dt
+                peak, sent = await self._test_pulses(driver, num_bins, dt, pulses_sent)
+                pulses += peak
+                pulses_sent += sent
             set_mock_value(driver.elapsed_time, elapsed)
             since_update += dt
             if since_update >= self.frame_update_period - 1e-9 and (
                 elapsed < acquire_time
             ):
                 since_update = 0.0
-                self._notify(await self._frame(driver, signal, pulse_time))
+                self._notify(self._frame(signal, pulses))
 
-        frame = await self._frame(driver, signal, pulse_time)
+        frame = self._frame(signal, pulses)
         set_mock_value(driver.mca, frame.ravel())
         set_mock_value(driver.spectrum, frame.sum(axis=0, dtype=np.int32))
         set_mock_value(driver.intensity, frame.sum(axis=1, dtype=np.int32))
@@ -550,14 +553,10 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
             except Exception:
                 logger.exception("GeRM mock frame callback %r failed", callback)
 
-    async def _frame(
-        self, driver: GeRMDetectorIO, signal: np.ndarray, pulse_time: float
-    ) -> np.ndarray:
-        """Add the test pulses for ``pulse_time`` seconds to a copy of ``signal``."""
-        frame = signal.copy()
-        if pulse_time > 0:
-            frame += await self._test_pulses(driver, frame.shape, pulse_time)
-        return frame
+    @staticmethod
+    def _frame(signal: np.ndarray, pulses: np.ndarray) -> np.ndarray:
+        """Add the test pulses counted so far to every strip of ``signal``."""
+        return signal + np.rint(pulses).astype(np.int32)
 
     async def _shutters_open(self) -> bool:
         from hextools.photon_delivery_system.shutter import ShutterStatus
@@ -598,18 +597,21 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
         return rate
 
     async def _test_pulses(
-        self, driver: GeRMDetectorIO, shape: tuple[int, ...], acquire_time: float
-    ) -> np.ndarray:
-        """Put the same narrow peak in every strip, at the bin set by the amplitude."""
-        num_bins = shape[1]
+        self, driver: GeRMDetectorIO, num_bins: int, dt: float, sent: float
+    ) -> tuple[np.ndarray, float]:
+        """Return the pulse peak for ``dt`` seconds at the current settings.
+
+        The peak's bin is set by the amplitude; no more than the pulse count are
+        sent in one acquisition. Also returns how many pulses the peak holds.
+        """
         amplitude = await driver.test_pulse_amplitude.get_value()
         frequency = await driver.test_pulse_frequency.get_value()
         max_pulses = await driver.test_pulse_count.get_value()
-        pulses = min(frequency * acquire_time, max_pulses)
+        count = max(0.0, min(frequency * dt, max_pulses - sent))
         center = amplitude / self.test_pulse_full_scale * (num_bins - 1)
         peak = np.exp(-0.5 * ((np.arange(num_bins) - center) / 2.0) ** 2)
-        peak *= pulses / peak.sum() if peak.sum() > 0 else 0.0
-        return np.broadcast_to(np.rint(peak).astype(np.int32), shape).copy()
+        peak *= count / peak.sum() if peak.sum() > 0 else 0.0
+        return peak, count
 
     @staticmethod
     async def _write_frame(writer: NDPluginFileIO, frame: np.ndarray) -> None:

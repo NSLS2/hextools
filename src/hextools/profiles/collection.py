@@ -11,7 +11,6 @@ from bluesky import plan_stubs as bps  # noqa: F401 - operator namespace
 from bluesky import plans as bp  # noqa: F401 - operator namespace
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
-from bluesky.magics import BlueskyMagics
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
@@ -23,7 +22,7 @@ from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from nslsii.ophyd_async.providers import NSLS2PathProvider
-from ophyd_async.core import PathInfo, YMDPathProvider
+from ophyd_async.core import PathInfo
 from ophyd_async.epics.adcore import (
     ADWriterFactory,
     ContAcqDetector,
@@ -72,6 +71,8 @@ from hextools.utils import (
     reset_scan_id,  # noqa: F401 - operator namespace
     show_docs,  # noqa: F401 - operator namespace
 )
+from hextools.utils.magics import HEXBlueskyMagics
+from hextools.utils.path_providers import mock_path_provider
 
 # Adjust the default timeout for ophyd async to 60s
 DEFAULT_TIMEOUT = 60.0
@@ -118,8 +119,8 @@ if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
     plt.ion()
 
     # Configure the Bluesky magics with the current RunEngine instance.
-    BlueskyMagics.RE = RE
-    ipython.register_magics(BlueskyMagics)
+    HEXBlueskyMagics.RE = RE
+    ipython.register_magics(HEXBlueskyMagics)
 
     # Make tracebacks minimal by default to reduce clutter.
     # Use %tb verbose to view full traceback.
@@ -188,7 +189,7 @@ class HEXPathProvider(NSLS2PathProvider):
 
 # Define our global default path provider for the beamline
 if is_running_in_ci():
-    path_provider = YMDPathProvider(filename_provider, MOCK_DETECTOR_DATA_DIR)
+    path_provider = mock_path_provider(MOCK_DETECTOR_DATA_DIR)
 else:
     path_provider = HEXPathProvider(
         RE.md,

@@ -102,8 +102,7 @@ class QtTabbedDetectorsWidget(QTabWidget):
     @Slot(str, object)
     def _on_frame(self, name: str, frame: np.ndarray) -> None:
         for viewer in self._viewers_by_name.get(name, []):
-            # The viewer has no public setter; this is what its PV monitor feeds.
-            viewer._on_new_frame(frame)  # noqa: SLF001
+            viewer.push_frame(frame)
 
     @staticmethod
     def _make_source(re_client) -> DeviceSource:

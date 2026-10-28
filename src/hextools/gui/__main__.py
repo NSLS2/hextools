@@ -20,7 +20,7 @@ import os
 import time as ttime
 from functools import partial
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 import IPython
 from bluesky import RunEngine
@@ -327,6 +327,27 @@ class QtTomographyView(QWidget):
         self.setLayout(vbox)
 
 
+def germ_viewer_options(mock: bool) -> dict[str, Any]:
+    """Options for the live GeRM viewer.
+
+    A mock viewer is in callback mode, so it never subscribes to the real GeRM
+    PV; the mock's frames reach it through ``show_frame``.
+    """
+    options: dict[str, Any] = {
+        "raw_waveform": True,
+        "image_shape": (192, 4096),
+        "colormap": "JET",
+        "roi_suffix_pattern": "1:ROI{}:",
+        "auto_scale_method": "minmax",
+        "log_scale": True,
+        "use_ca": True,
+        "show_profile_lines": True,
+    }
+    if mock:
+        options["push_frame"] = lambda push: None
+    return options
+
+
 class QtEDXDView(QWidget):
     """Energy-dispersive X-ray diffraction view: the live GeRM viewer and EDXD plans."""
 
@@ -336,17 +357,9 @@ class QtEDXDView(QWidget):
 
         top = QHBoxLayout()
         detectors = QtTabbedDetectorsWidget(re_client)
+        mock = isinstance(re_client, RunEngine) and is_running_in_ci()
         detectors.add_detector(
-            "germ",
-            "XF:27ID1-ES{GeRM-Det:1}MCA",
-            raw_waveform=True,
-            image_shape=(192, 4096),
-            colormap="JET",
-            roi_suffix_pattern="1:ROI{}:",
-            auto_scale_method="minmax",
-            log_scale=True,
-            use_ca=True,
-            show_profile_lines=True,
+            "germ", "XF:27ID1-ES{GeRM-Det:1}MCA", **germ_viewer_options(mock=mock)
         )
         top.addWidget(detectors, stretch=3)
 
@@ -371,7 +384,7 @@ class QtEDXDView(QWidget):
         self.setLayout(vbox)
 
         self._germ_mock: GeRMDetectorMock | None = None
-        if isinstance(re_client, RunEngine) and is_running_in_ci():
+        if mock:
             self._attach_germ_mock(detectors)
 
     def _attach_germ_mock(self, detectors: QtTabbedDetectorsWidget) -> None:

@@ -79,7 +79,9 @@ jobs:
           frozen: true
 
       - name: Run tests
-        run: pixi run --as-is -e ${{ steps.pixi.outputs.env }} pytest --cov=src/hextools --cov-report=xml --cov-report=term
+        # The GUI tests run in their own job: in one process with the rest, Qt objects
+        # they leave behind crash later tests when garbage-collected.
+        run: pixi run --as-is -e ${{ steps.pixi.outputs.env }} pytest --ignore=tests/gui --cov=src/hextools --cov-report=xml --cov-report=term
 
   gui-test:
     name: GUI Tests
