@@ -5,14 +5,18 @@ import bluesky.plan_stubs as bps
 import pytest
 from bluesky.protocols import Reading
 from bluesky.run_engine import RunEngine
+from bluesky.utils import FailedStatus
 from ophyd_async.core import (
     DeviceMock,
     callback_on_mock_execute,
+    callback_on_mock_put,
+    get_mock_put,
     init_devices,
     set_mock_value,
 )
 
 from hextools.photon_delivery_system.shutter import (
+    InterlockAcknowledge,
     Shutter,
     ShutterStatus,
     ensure_shutter_closed,
@@ -159,3 +163,41 @@ async def test_subscribe_reading_translates_status_to_bool(
     count = len(received)
     set_mock_value(shutter.status, ShutterStatus.OPEN)
     assert len(received) == count
+
+
+def _interlock() -> InterlockAcknowledge:
+    with init_devices(mock=True):
+        interlock = InterlockAcknowledge("TEST:FE:")
+    return interlock
+
+
+async def test_interlock_acknowledge_writes_and_waits_for_the_pps(RE: RunEngine):
+    interlock = _interlock()
+    set_mock_value(interlock.acknowledged, False)
+
+    RE(bps.mv(interlock, True))
+
+    get_mock_put(interlock.request).assert_called_once()
+    assert await interlock.acknowledged.get_value()
+
+
+async def test_interlock_already_acknowledged_is_not_written(RE: RunEngine):
+    interlock = _interlock()
+
+    RE(bps.mv(interlock, True))
+
+    get_mock_put(interlock.request).assert_not_called()
+
+
+async def test_interlock_acknowledge_fails_if_the_pps_never_reports_it(
+    RE: RunEngine, monkeypatch
+):
+    monkeypatch.setattr(
+        "hextools.photon_delivery_system.shutter.INTERLOCK_ACK_TIMEOUT", 0.1
+    )
+    interlock = _interlock()
+    set_mock_value(interlock.acknowledged, False)
+    callback_on_mock_put(interlock.request, lambda *_, **__: None)
+
+    with pytest.raises(FailedStatus):
+        RE(bps.mv(interlock, True))

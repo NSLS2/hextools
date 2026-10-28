@@ -20,7 +20,7 @@ from ophyd_async.epics.core import EpicsDevice, epics_signal_r
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 from ..utils import ensure_available
-from .shutter import PPSShutter, ShutterStatus, acknowledge_interlock
+from .shutter import PPSShutter, ShutterStatus
 
 
 @dataclass
@@ -277,6 +277,6 @@ def set_filters(
     fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
     fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
     yield from bps.mv(*args)
-    yield from acknowledge_interlock(fe_shutter)
+    yield from bps.mv(fe_shutter.interlock, True)
     if fe_was_open:
         yield from bps.mv(fe_shutter, True)
