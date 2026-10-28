@@ -88,6 +88,16 @@ class RotationMotor(AsyncEpicsMotor):
         return int(360.0 / encoder_resolution)
 
 
+class SampleSmall(StandardReadable, EpicsDevice):
+    """HEX small sample stage with independent X and Y motors."""
+
+    def __init__(self, prefix: str, name: str = "sample_small"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.CHILD):
+            self.x = AsyncEpicsMotor(prefix + "X}Mtr", name="x")
+            self.y = AsyncEpicsMotor(prefix + "Y}Mtr", name="y")
+
+
 class SampleTower(StandardReadable, EpicsDevice):
     """HEX sample tower."""
 

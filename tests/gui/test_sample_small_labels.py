@@ -17,28 +17,31 @@ from hextools.gui.device_selector_widget import (  # noqa: E402
     QtDeviceSelector,
 )
 from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
-from hextools.motors import AsyncEpicsMotor, move_motor  # noqa: E402
+from hextools.motors import SampleSmall, move_motor  # noqa: E402
 
 
 @pytest.mark.parametrize("remote_form", [False, True])
 def test_sample_small_labels_preserve_device_identifiers(monkeypatch, remote_form):
     app = QApplication.instance() or QApplication([])
-    namespace = {
-        f"sample_small_{axis}": AsyncEpicsMotor(f"TEST:{axis}") for axis in ("x", "y")
-    }
+    namespace = {"sample_small": SampleSmall("TEST:", name="sample-small")}
     shell = InteractiveShell.instance()
     for name, motor in namespace.items():
         monkeypatch.setitem(shell.user_ns, name, motor)
     re = RunEngine({}, call_returns_result=True)
     model = RunEngineClient()
     model._allowed_devices = {
-        name: {"classname": "Motor", "is_movable": True} for name in namespace
+        "sample_small": {
+            "classname": "SampleSmall",
+            "components": {
+                axis: {"classname": "Motor", "is_movable": True} for axis in ("x", "y")
+            },
+        }
     }
-    dynamic = DynamicDeviceSelector(list(namespace))
-    single = QtDeviceSelector(model, device_type="movable")
+    dynamic = DynamicDeviceSelector(["sample_small.x", "sample_small.y"])
+    single = QtDeviceSelector(model, device_type="movable", include_components=True)
     form = QtPlanWidget(model if remote_form else re, move_motor)
     available = QtAvailableDevices(re, namespace=namespace)
-    remote = QtAvailableDevices(model, [(name, AsyncEpicsMotor) for name in namespace])
+    remote = QtAvailableDevices(model, [("sample_small", SampleSmall)])
     widgets = [dynamic, single, form, available, remote]
     try:
         for name, _, widget, _ in form._scalar_fields:
@@ -49,7 +52,7 @@ def test_sample_small_labels_preserve_device_identifiers(monkeypatch, remote_for
             field["widget"] for field in form._device_fields if field["name"] == "motor"
         )
         for axis in ("x", "y"):
-            name, label = f"sample_small_{axis}", f"Sample Small {axis.upper()}"
+            name, label = f"sample_small.{axis}", f"Sample Small {axis.upper()}"
             for selector in (combo, single._combo, dynamic._rows[0]["combo"]):
                 index = selector.findData(name)
                 assert index >= 0
@@ -59,9 +62,8 @@ def test_sample_small_labels_preserve_device_identifiers(monkeypatch, remote_for
             kwargs, device_keys = form._collect_inputs()
             assert kwargs["motor"] == name
             assert "motor" in device_keys
-            assert label in available._status_labels
-            assert label in remote._status_labels
-            assert remote._status_labels[label].text() == "Connected"
+        assert "Sample Small" in available._status_labels
+        assert remote._status_labels["Sample Small"].text() == "Connected"
     finally:
         for widget in widgets:
             widget.close()
