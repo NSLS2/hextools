@@ -26,7 +26,7 @@ from ophyd_async.core import (
     init_devices,
     set_mock_value,
 )
-from ophyd_async.epics.adcore import NDPluginFileIO
+from ophyd_async.epics.adcore import NDPluginFileIO, NDProcessFilterType, NDProcessIO
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
@@ -517,6 +517,65 @@ async def test_tomo_flyscan(
     assert await rig.rot_motor.velocity.get_value() == FlyRig.INITIAL_VELOCITY
 
 
+# Nghia's scan 21 (2026-10-27) averaged with Sum: the IOC had been left on it.
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({}, NDProcessFilterType.AVERAGE),
+        ({"filter_type": "Sum"}, NDProcessFilterType.SUM),
+        (
+            {"filter_type": NDProcessFilterType.RECURSIVE_AVG},
+            NDProcessFilterType.RECURSIVE_AVG,
+        ),
+    ],
+)
+async def test_tomo_flyscan_sets_the_proc_filter_type(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[..., KinetixDetector],
+    fly_rig: Callable[..., FlyRig],
+    open_fe_shutter: tuple[Shutter, Shutter],
+    kwargs: dict[str, Any],
+    expected: NDProcessFilterType,
+):
+    cam = kinetix_det_factory(1, with_proc=True)
+    proc = cam.get_plugin("proc", NDProcessIO)
+    set_mock_value(proc.filter_type, NDProcessFilterType.DIFFERENCE)
+    rig = fly_rig([cam])
+    docs, cache = _doc_cache()
+
+    RE(
+        rig.flyscan(
+            [cam], open_fe_shutter, num_projections=5, exposure_time=0.01, **kwargs
+        ),
+        cache,  # type: ignore
+    )
+
+    assert docs["stop"][0]["exit_status"] == "success"
+    assert await proc.filter_type.get_value() == expected
+    assert docs["start"][0]["filter_type"] == expected.value
+
+
+def test_tomo_flyscan_rejects_an_unknown_filter_type(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[..., KinetixDetector],
+    fly_rig: Callable[..., FlyRig],
+    open_fe_shutter: tuple[Shutter, Shutter],
+):
+    cam = kinetix_det_factory(1, with_proc=True)
+    rig = fly_rig([cam])
+
+    with pytest.raises(ValueError, match="Median"):
+        RE(
+            rig.flyscan(
+                [cam],
+                open_fe_shutter,
+                num_projections=5,
+                exposure_time=0.01,
+                filter_type="Median",
+            )
+        )
+
+
 async def test_tomo_flyscan_arms_only_after_run_up(
     RE: RunEngine,
     kinetix_det_factory: Callable[[int], KinetixDetector],
@@ -860,6 +919,7 @@ def test_tomo_flyscan_loop_forwards_flyscan_arguments(
             exposure_time=0.2,
             acquire_period=0.3,
             images_to_average=2,
+            filter_type=NDProcessFilterType.SUM,
             start=10,
             stop=190,
             num_iterations=3,
@@ -877,6 +937,7 @@ def test_tomo_flyscan_loop_forwards_flyscan_arguments(
         "exposure_time": 0.2,
         "acquire_period": 0.3,
         "images_to_average": 2,
+        "filter_type": NDProcessFilterType.SUM,
         "start": 10,
         "stop": 190,
         "use_shutter": False,
@@ -1229,6 +1290,7 @@ def test_tomo_nd_step_scan_forwards_flyscan_arguments(
             exposure_time=0.2,
             acquire_period=0.3,
             images_to_average=2,
+            filter_type=NDProcessFilterType.SUM,
             use_shutter=False,
             sample_name="rock",
             time_based=False,
@@ -1242,6 +1304,7 @@ def test_tomo_nd_step_scan_forwards_flyscan_arguments(
         "exposure_time": 0.2,
         "acquire_period": 0.3,
         "images_to_average": 2,
+        "filter_type": NDProcessFilterType.SUM,
         "use_shutter": False,
         "sample_name": "rock",
         "time_based": False,

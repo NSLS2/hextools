@@ -19,6 +19,7 @@ from ophyd_async.core import (
     DetectorTrigger,
     TriggerInfo,
 )
+from ophyd_async.epics.adcore import NDProcessFilterType
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.fastcs.panda import HDFPanda
 
@@ -26,6 +27,7 @@ from hextools.detectors import (
     FRAME_PERIOD_MARGIN,
     enable_preview_mode,
     set_plugin_queue_sizes,
+    set_proc_filter_type,
 )
 from hextools.motors import SampleTower
 from hextools.photon_delivery_system import Shutter
@@ -149,6 +151,7 @@ def tomo_flyscan(
     exposure_time: float,
     acquire_period: float | None = None,
     images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
@@ -175,6 +178,8 @@ def tomo_flyscan(
         exposure_time + some margin.
     images_to_average : int
         The number of images to average for each projection.
+    filter_type : NDProcessFilterType, optional
+        How the Proc plugin combines the averaged images. Default Average.
     start : float
         The starting angle for the tomography fly scan.
     stop : float
@@ -197,6 +202,7 @@ def tomo_flyscan(
     md : dict[str, Any] | None
         Extra metadata for the run's start document.
     """
+    filter_type = NDProcessFilterType(filter_type)
     panda = ensure_available(HDFPanda, panda=panda)
     rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
@@ -212,6 +218,7 @@ def tomo_flyscan(
         "start_position": start,
         "stop_position": stop,
         "images_to_average": images_to_average,
+        "filter_type": filter_type.value,
         "plan_name": "tomo_flyscan",
         # TODO: Allow Spec objects directly in tiled_specs
         "tiled_specs": [
@@ -291,6 +298,7 @@ def tomo_flyscan(
 
         # Arm the PandA and detectors only once the motor is at its run-up position,
         # so no frames are captured before kickoff.
+        yield from set_proc_filter_type(detectors, filter_type)
         yield from bps.prepare(single_axis_panda_flyer, flyer_info, group="arm")
         for det in detectors:
             yield from bps.prepare(det, det_trigger_info, group="arm")
@@ -362,6 +370,7 @@ def tomo_nd_step_scan(
     exposure_time: float,
     acquire_period: float | None = None,
     images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     start: float = 0,
     stop: float = 180,
     num_repeats: int = 1,
@@ -405,6 +414,8 @@ def tomo_nd_step_scan(
         the exposure time.
     images_to_average : int, optional
         The number of images to average for each acquisition.
+    filter_type : NDProcessFilterType, optional
+        How the Proc plugin combines the averaged images. Default Average.
     start : float, optional
         The starting angle for the rotation motor.
     stop : float, optional
@@ -532,6 +543,7 @@ def tomo_nd_step_scan(
                         exposure_time=exposure_time,
                         acquire_period=acquire_period,
                         images_to_average=images_to_average,
+                        filter_type=filter_type,
                         start=stop if reverse else start,
                         stop=start if reverse else stop,
                         use_shutter=use_shutter,
@@ -580,6 +592,7 @@ def tomo_flyscan_loop(
     exposure_time: float,
     acquire_period: float | None = None,
     images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     start: float = 0,
     stop: float = 180,
     num_iterations: int = 1,
@@ -613,6 +626,8 @@ def tomo_flyscan_loop(
         determined automatically.
     images_to_average : int, optional
         The number of images to average for each projection. Default is 1.
+    filter_type : NDProcessFilterType, optional
+        How the Proc plugin combines the averaged images. Default Average.
     start : float, optional
         The starting angle for the tomography scan. Default is 0.
     stop : float, optional
@@ -661,6 +676,7 @@ def tomo_flyscan_loop(
             exposure_time=exposure_time,
             acquire_period=acquire_period,
             images_to_average=images_to_average,
+            filter_type=filter_type,
             start=start,
             stop=stop,
             num_repeats=num_iterations,
@@ -692,6 +708,7 @@ def tomo_1d_step_scan(
     exposure_time: float,
     acquire_period: float | None = None,
     images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
@@ -732,6 +749,8 @@ def tomo_1d_step_scan(
         determined by the exposure time.
     images_to_average : int, optional
         The number of images to average for each acquisition.
+    filter_type : NDProcessFilterType, optional
+        How the Proc plugin combines the averaged images. Default Average.
     start : float, optional
         The starting angle for the rotation motor.
     stop : float, optional
@@ -778,6 +797,7 @@ def tomo_1d_step_scan(
             exposure_time=exposure_time,
             acquire_period=acquire_period,
             images_to_average=images_to_average,
+            filter_type=filter_type,
             start=start,
             stop=stop,
             use_shutter=use_shutter,
@@ -812,6 +832,7 @@ def tomo_2d_step_scan(
     exposure_time: float,
     acquire_period: float | None = None,
     images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
@@ -860,6 +881,8 @@ def tomo_2d_step_scan(
         as fast as possible.
     images_to_average : int, default 1
         The number of images to average for each acquisition.
+    filter_type : NDProcessFilterType, optional
+        How the Proc plugin combines the averaged images. Default Average.
     start : float, default 0
         The starting angle for the tomography scan.
     stop : float, default 180
@@ -909,6 +932,7 @@ def tomo_2d_step_scan(
             exposure_time=exposure_time,
             acquire_period=acquire_period,
             images_to_average=images_to_average,
+            filter_type=filter_type,
             start=start,
             stop=stop,
             use_shutter=use_shutter,

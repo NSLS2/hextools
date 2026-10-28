@@ -4,12 +4,12 @@ import bluesky.preprocessors as bpp
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from ophyd_async.core import DetectorTrigger, TriggerInfo
-from ophyd_async.epics.adcore import ContAcqDetector
+from ophyd_async.epics.adcore import ContAcqDetector, NDProcessFilterType
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.fastcs.panda import HDFPanda
 
 from hextools.detectors import FRAME_PERIOD_MARGIN, PhantomDetector
-from hextools.detectors.utils import enable_preview_mode
+from hextools.detectors.utils import enable_preview_mode, set_proc_filter_type
 from hextools.photon_delivery_system import Shutter
 from hextools.photon_delivery_system.shutter import (
     ensure_shutter_closed,
@@ -27,6 +27,7 @@ def take_radiograph(
     external_trigger: bool = True,
     time_gap: float = 0.0,
     images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     sample_name: str | None = None,
     description: str | None = None,
     use_shutter: bool = True,
@@ -50,6 +51,8 @@ def take_radiograph(
         number of images to acquire in each acquisition
     images_to_average : int
         The number of images to average for each saved image.
+    filter_type : NDProcessFilterType, optional
+        How the Proc plugin combines the averaged images. Default Average.
     external_trigger : bool
         pace frames with the PandA: each burst arms the PandA and the cameras,
         then raises BITS.B, which starts PULSE1 (``num_images`` x
@@ -73,6 +76,7 @@ def take_radiograph(
     panda : HDFPanda
         the PandA that triggers the cameras when ``external_trigger`` is set
     """
+    filter_type = NDProcessFilterType(filter_type)
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     bits = None
@@ -105,6 +109,8 @@ def take_radiograph(
             yield from ensure_shutter_open(fe_shutter)
             yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
 
+        yield from set_proc_filter_type(detectors, filter_type)
+
         if (
             external_trigger
             and panda is not None
@@ -126,6 +132,7 @@ def take_radiograph(
         # Attach additional metadata
         _md = {
             "plan_name": "take_radiograph",
+            "filter_type": filter_type.value,
         }
         if sample_name is not None:
             _md["sample_name"] = sample_name

@@ -1,16 +1,24 @@
 """Bluesky profile for the 27-ID-1 HEX beamline at NSLS-II."""
 
 import os
-from pathlib import PurePath, PureWindowsPath
+from pathlib import (
+    Path,  # noqa: F401 - operator namespace
+    PurePath,
+    PureWindowsPath,
+)
 
+from bluesky import plan_stubs as bps  # noqa: F401 - operator namespace
+from bluesky import plans as bp  # noqa: F401 - operator namespace
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.magics import BlueskyMagics
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
+    call_in_bluesky_event_loop,  # noqa: F401 - operator namespace
 )
 from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
+from bluesky.utils import ProgressBarManager  # noqa: F401 - operator namespace
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
@@ -22,15 +30,20 @@ from ophyd_async.epics.adcore import (
     NDStatsIO,
     PluginSignalDataLogic,
 )
+from ophyd_async.epics.adkinetix import KinetixDetector  # noqa: F401 - operator namespace
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.sim import SimMotor
 from tiled.client import from_uri, simple
 
-from hextools.detectors.germ import GeRMDetector
+from hextools.detectors.germ import (
+    GeRMDetector,
+    GeRMStatsDataLogic,  # noqa: F401 - operator namespace
+)
 from hextools.detectors.kinetix import kinetix_factory
 from hextools.detectors.phantom import PhantomDetector
 from hextools.edxd import *
+from hextools.edxd import edxd_grid_scan  # noqa: F401 - operator namespace
 from hextools.log import *
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
 from hextools.motors import (
@@ -40,6 +53,7 @@ from hextools.motors import (
     FOV_20_40_mm_Camera,
     OpticsTable,
     SampleTower,
+    move_motor,  # noqa: F401 - operator namespace
 )
 from hextools.photon_delivery_system import *
 from hextools.suspenders import SuspendFloorUnlessOpsMode
@@ -55,6 +69,8 @@ from hextools.utils import (
     is_running_in_ci,
     print_proposal_info,
     print_version_info,
+    reset_scan_id,  # noqa: F401 - operator namespace
+    show_docs,  # noqa: F401 - operator namespace
 )
 
 # Adjust the default timeout for ophyd async to 60s
@@ -184,13 +200,15 @@ else:
 
 with auto_init_devices(timeout=2.0):
     # Shutters (Front-end and photon)
-    fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
+    fe_shutter = PPSShutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon-shutter")
 
     # Slits
     a_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="a-slits")
     f_slits = Slits("XF:27IDF-OP:1{Slt:2-Ax:", name="f-slits")
-    edxd_slits = Slits("XF:27ID1F-OP:1{Slt:CMT-Ax:", name="edxd-slits")
+    edxd_slits = Slits("XF:27IDF-OP:1{Slt:CMT-Ax:", name="edxd-slits")
+    # Front-end Slit1: its Y axis picks a fixed aperture
+    fe_slit1 = FrontEndSlit("FE:C27A-OP{Slt:1-Ax:Y}", name="fe-slit1")
 
     # Storage ring information
     storage_ring = NSLS2StorageRing()
@@ -321,6 +339,7 @@ RE.install_suspender(
 sd = bpp.SupplementalData(
     baseline=[
         storage_ring.beam_current,
+        fe_slit1,
         a_slits,
         f_slits,
         sample_tower,

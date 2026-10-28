@@ -98,7 +98,17 @@ from hextools.motors import (
     SampleTower,
     move_motor,
 )
-from hextools.photon_delivery_system import DCLM, Shutter, Slits, change_energy
+from hextools.photon_delivery_system import (
+    DCLM,
+    FrontEndSlit,
+    PPSShutter,
+    Shutter,
+    Slits,
+    change_energy,
+    move_slits,
+    set_fe_slit1_aperture,
+    set_filters,
+)
 from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.settings import (
     apply_device_settings,
@@ -134,10 +144,11 @@ def default_plan_history_file() -> Path:
 
 # Names must match those defined in the profile / Queue Server namespace.
 EXPECTED_DEVICES: list[tuple[str, type]] = [
-    ("fe_shutter", Shutter),
+    ("fe_shutter", PPSShutter),
     ("photon_shutter", Shutter),
     ("a_slits", Slits),
     ("f_slits", Slits),
+    ("fe_slit1", FrontEndSlit),
     ("storage_ring", NSLS2StorageRing),
     ("dclm", DCLM),
     ("optics_table", OpticsTable),
@@ -431,6 +442,11 @@ class QtBeamlineView(QWidget):
         # IPython vs. Queue Server).
         plan_tabs = QTabWidget()
         plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
+        plan_tabs.addTab(QtPlanWidget(re_client, move_slits), "Slits")
+        plan_tabs.addTab(
+            QtPlanWidget(re_client, set_fe_slit1_aperture), "Frontend Aperture"
+        )
+        plan_tabs.addTab(QtPlanWidget(re_client, set_filters), "Filters")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
         plan_tabs.addTab(QtPlanWidget(re_client, reset_scan_id), "Reset Scan ID")

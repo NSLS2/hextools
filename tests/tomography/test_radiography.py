@@ -11,7 +11,7 @@ from ophyd_async.core import (
     init_devices,
     set_mock_value,
 )
-from ophyd_async.epics.adcore import NDPluginFileIO
+from ophyd_async.epics.adcore import NDPluginFileIO, NDProcessFilterType, NDProcessIO
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.epics.core import epics_signal_rw
 from ophyd_async.fastcs.panda import DatasetTable, HDFPanda, PandaHdf5DatasetType
@@ -210,3 +210,45 @@ def test_external_trigger_without_a_panda_fails_before_arming(
             )
         )
     assert not get_mock_put(ktx.driver.acquire).called
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({}, NDProcessFilterType.AVERAGE),
+        ({"filter_type": "Sum"}, NDProcessFilterType.SUM),
+    ],
+)
+async def test_averaged_radiograph_sets_the_proc_filter_type(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[..., KinetixDetector],
+    two_shutters: tuple[Shutter, Shutter],
+    kwargs: dict[str, Any],
+    expected: NDProcessFilterType,
+):
+    fe_shutter, photon_shutter = two_shutters
+    ktx = kinetix_det_factory(1, with_proc=True)
+    proc = ktx.get_plugin("proc", NDProcessIO)
+    set_mock_value(proc.filter_type, NDProcessFilterType.DIFFERENCE)
+    docs: dict[str, list[dict[str, Any]]] = {}
+
+    def cache_docs(name: str, doc: dict[str, Any]):
+        docs.setdefault(name, []).append(doc)
+
+    RE(
+        take_radiograph(
+            [ktx],
+            0.01,
+            num_images=2,
+            images_to_average=3,
+            external_trigger=False,
+            use_shutter=False,
+            fe_shutter=fe_shutter,
+            photon_shutter=photon_shutter,
+            **kwargs,
+        ),
+        cache_docs,  # type: ignore
+    )
+
+    assert await proc.filter_type.get_value() == expected
+    assert docs["start"][0]["filter_type"] == expected.value

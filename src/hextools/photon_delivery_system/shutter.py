@@ -3,6 +3,8 @@
 import asyncio
 import random
 from collections.abc import Callable, Hashable
+from functools import partial
+from typing import cast
 
 from bluesky import plan_stubs as bps
 from bluesky.protocols import Reading, Subscribable
@@ -12,6 +14,7 @@ from ophyd_async.core import (
     DeviceMock,
     StrictEnum,
     callback_on_mock_execute,
+    callback_on_mock_put,
     default_mock_class,
     set_mock_value,
     wait_for_value,
@@ -19,10 +22,12 @@ from ophyd_async.core import (
 from ophyd_async.epics.core import (
     EpicsDevice,
     epics_signal_r,
+    epics_signal_rw,
     epics_triggerable_command,
 )
 
 DEFAULT_SHUTTER_TIMEOUT = 10
+INTERLOCK_ACK_TIMEOUT = 10
 
 
 class ShutterStatus(StrictEnum):
@@ -139,6 +144,70 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
         """
         translator = self._sub_translators.pop(function)
         self.status.clear_sub(translator)
+
+
+class MockPPSShutter(MockShutter):
+    """Mock PPS shutter whose interlock is acknowledged as soon as it is asked."""
+
+    async def connect(self, device: "Shutter") -> None:
+        await super().connect(device)
+        if not isinstance(device, PPSShutter):
+            return
+        acknowledged = device.interlock_acknowledged
+        set_mock_value(acknowledged, True)
+        callback_on_mock_put(
+            device.interlock_ack,
+            lambda value, **_: set_mock_value(acknowledged, value),
+        )
+
+
+@default_mock_class(MockPPSShutter)
+class PPSShutter(Shutter):
+    """PPS shutter whose interlock must be acknowledged after it trips.
+
+    Attributes
+    ----------
+    interlock_ack : EpicsSignalRW[bool]
+        Writing True acknowledges the interlock (the AcK button on the PPS screen).
+    interlock_acknowledged : EpicsSignalR[bool]
+        True once the interlock is acknowledged.
+    """
+
+    def __init__(self, prefix: str, name: str = ""):
+        self.interlock_ack = epics_signal_rw(bool, f"{prefix}Intlk:Ack-Sel")
+        self.interlock_acknowledged = epics_signal_r(bool, f"{prefix}Intlk:Ack-Sts")
+        super().__init__(prefix, name=name)
+
+
+def acknowledge_interlock(shutter: PPSShutter):
+    """Acknowledge a PPS shutter's interlock, unless it is already acknowledged.
+
+    Parameters
+    ----------
+    shutter : PPSShutter
+        The shutter whose interlock to acknowledge.
+    """
+    if (yield from bps.rd(shutter.interlock_acknowledged)):
+        return
+    yield from bps.mv(shutter.interlock_ack, True)
+    # bluesky annotates this as Status, but the RunEngine returns futures.
+    acknowledged = cast(
+        list[asyncio.Future[None]],
+        (
+            yield from bps.wait_for(
+                [
+                    partial(
+                        wait_for_value,
+                        shutter.interlock_acknowledged,
+                        True,
+                        timeout=INTERLOCK_ACK_TIMEOUT,
+                    )
+                ]
+            )
+        ),
+    )
+    for future in acknowledged:
+        future.result()
 
 
 def ensure_shutter_state(
