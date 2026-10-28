@@ -180,3 +180,30 @@ async def test_objective_change_that_never_starts_moving_fails(RE: RunEngine):
 
     with pytest.raises(RuntimeError, match="stopped"):
         await asyncio.wait_for(camera.set(CameraObjective.LEFT_4MM), timeout=5)
+
+
+# Copilot on #118 (f07a001): a stop() that came before the objective put did not
+# prevent it, so the selector could start moving after being stopped.
+@pytest.mark.parametrize("ticks_before_stop", [0, 1, 2, 3])
+async def test_no_objective_command_is_sent_after_stop(
+    RE: RunEngine, ticks_before_stop: int
+):
+    camera = _mock_camera()
+    set_mock_value(camera._obj_selector_home_sts, HomeStatus.HOMED)
+    set_mock_value(camera.obj_selector.motor_done_move, 1)
+    command = get_mock_put(camera.objective)
+    motor_stop = get_mock_put(camera.obj_selector.motor_stop)
+
+    status = camera.set(CameraObjective.LEFT_4MM)
+    for _ in range(ticks_before_stop):
+        await asyncio.sleep(0)
+    commands_before_stop = command.call_count
+    await camera.stop()
+
+    with pytest.raises(RuntimeError, match="stopped"):
+        await asyncio.wait_for(status, timeout=5)
+    if command.call_count > commands_before_stop:
+        # A command already in flight is followed by a motor stop.
+        motor_stop.assert_called_once()
+    else:
+        assert command.call_count == commands_before_stop

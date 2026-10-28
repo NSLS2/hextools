@@ -176,8 +176,7 @@ class FOV_2_4_mm_Camera(  # noqa: N801
         self._arrival_grace = 2.0
         self._start_timeout = 5.0
 
-    @AsyncStatus.wrap
-    async def set(self, value: CameraObjective | str):
+    def set(self, value: CameraObjective | str) -> AsyncStatus:
         """Move the camera to the specified objective.
 
         Parameters
@@ -190,6 +189,11 @@ class FOV_2_4_mm_Camera(  # noqa: N801
         RuntimeError
             If the camera objective selector is not homed.
         """
+        # Reset on the call, not in the task, so a stop() at any later point is honored.
+        self._stop_requested = asyncio.Event()
+        return AsyncStatus(self._set(value))
+
+    async def _set(self, value: CameraObjective | str):
         if await self._obj_selector_home_sts.get_value() != HomeStatus.HOMED:
             raise RuntimeError(
                 "Camera objective selector is not homed. "
@@ -214,13 +218,16 @@ class FOV_2_4_mm_Camera(  # noqa: N801
             at_objective = self._at_right_objective
         else:
             at_objective = self._at_left_objective
-        self._stop_requested = asyncio.Event()
         stopped = AsyncStatus(self._stop_requested.wait())
         watch = asyncio.create_task(self._reached(at_objective, stopped))
-        # Let the watch subscribe first, so a move that ends during the put is seen.
-        await asyncio.sleep(0)
         try:
-            await self.objective.set(value)
+            # Let the watch subscribe first, so a move that ends during the put is seen.
+            await asyncio.sleep(0)
+            if not self._stop_requested.is_set():
+                await self.objective.set(value)
+                if self._stop_requested.is_set():
+                    # stop() came while the command was in flight, maybe before motion.
+                    await self.obj_selector.motor_stop.set(1)
             reached = await watch
         finally:
             watch.cancel()
