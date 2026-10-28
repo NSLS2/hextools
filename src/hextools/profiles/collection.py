@@ -174,13 +174,13 @@ path_provider = HEXPathProvider(
 
 with auto_init_devices(timeout=2.0):
     # Shutters (Front-end and photon)
-    fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
+    fe_shutter = PPSShutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon-shutter")
 
     # Slits
     a_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="a-slits")
     f_slits = Slits("XF:27IDF-OP:1{Slt:2-Ax:", name="f-slits")
-    edxd_slits = Slits("XF:27ID1F-OP:1{Slt:CMT-Ax:", name="edxd-slits")
+    edxd_slits = Slits("XF:27IDF-OP:1{Slt:CMT-Ax:", name="edxd-slits")
     # Front-end Slit1: its Y axis picks a fixed aperture
     fe_slit1 = FrontEndSlit("FE:C27A-OP{Slt:1-Ax:Y}", name="fe-slit1")
 
