@@ -181,6 +181,8 @@ with auto_init_devices(timeout=2.0):
     a_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="a-slits")
     f_slits = Slits("XF:27IDF-OP:1{Slt:2-Ax:", name="f-slits")
     edxd_slits = Slits("XF:27ID1F-OP:1{Slt:CMT-Ax:", name="edxd-slits")
+    # Front-end Slit1: its Y axis picks a fixed aperture
+    fe_slit1 = FrontEndSlit("FE:C27A-OP{Slt:1-Ax:Y}", name="fe-slit1")
 
     # Storage ring information
     storage_ring = NSLS2StorageRing()
@@ -307,6 +309,7 @@ RE.install_suspender(
 sd = bpp.SupplementalData(
     baseline=[
         storage_ring.beam_current,
+        fe_slit1,
         a_slits,
         f_slits,
         sample_tower,

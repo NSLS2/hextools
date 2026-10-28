@@ -98,10 +98,12 @@ from hextools.motors import (
 )
 from hextools.photon_delivery_system import (
     DCLM,
+    FrontEndSlit,
     Shutter,
     Slits,
     change_energy,
     move_slits,
+    set_fe_slit1_aperture,
     set_filters,
 )
 from hextools.photon_delivery_system.dclm import change_beam_mode
@@ -135,6 +137,7 @@ EXPECTED_DEVICES: list[tuple[str, type]] = [
     ("photon_shutter", Shutter),
     ("a_slits", Slits),
     ("f_slits", Slits),
+    ("fe_slit1", FrontEndSlit),
     ("storage_ring", NSLS2StorageRing),
     ("dclm", DCLM),
     ("optics_table", OpticsTable),
@@ -401,6 +404,7 @@ class QtBeamlineView(QWidget):
         plan_tabs = QTabWidget()
         plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
         plan_tabs.addTab(QtPlanWidget(re_client, move_slits), "Slits")
+        plan_tabs.addTab(QtPlanWidget(re_client, set_fe_slit1_aperture), "Slit Control")
         plan_tabs.addTab(QtPlanWidget(re_client, set_filters), "Filters")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")

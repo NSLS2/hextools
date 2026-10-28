@@ -16,6 +16,7 @@ OPERATOR_NAMES = [
     "bpp",
     "move_motor",
     "move_slits",
+    "set_fe_slit1_aperture",
     "set_filters",
     "edxd_grid_scan",
     "GeRMStatsDataLogic",
