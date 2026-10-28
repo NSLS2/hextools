@@ -8,10 +8,13 @@ from bluesky.utils import FailedStatus
 from ophyd_async.core import callback_on_mock_put, init_devices, set_mock_value
 
 from hextools.photon_delivery_system.filters import (
+    SET_FILTERS_NAMES,
+    SETTING_POSITIONS,
     Filter,
     FilterPosition,
     FilterSetting,
     load_filters,
+    set_filters,
 )
 
 _TEST_FILTER_POSITIONS = {
@@ -83,10 +86,10 @@ def test_load_filters_parses_named_and_described_positions():
     positions = filters["filter1_upstream"].positions
     assert positions[FilterPosition.UPPER_LIMIT] == FilterSetting(68.0, None)
     assert positions[FilterPosition.PASS_THROUGH] == FilterSetting(66.6, None)
-    assert positions[FilterPosition.POS_1] == FilterSetting(41.5, "12 mm SiC")
-    assert positions[FilterPosition.POS_2] == FilterSetting(6.5, "9 mm SiC")
-    assert positions[FilterPosition.POS_3] == FilterSetting(-28.5, "6 mm SiC")
-    assert positions[FilterPosition.POS_4] == FilterSetting(-58.0, "3 mm SiC")
+    assert positions[FilterPosition.POS_1] == FilterSetting(41.5, "6 mm Cu")
+    assert positions[FilterPosition.POS_2] == FilterSetting(6.5, "6 mm Al")
+    assert positions[FilterPosition.POS_3] == FilterSetting(-28.5, None)
+    assert positions[FilterPosition.POS_4] == FilterSetting(-58.0, "Bo-Hori.")
     assert positions[FilterPosition.LOWER_LIMIT] == FilterSetting(-63.2, None)
 
 
@@ -130,3 +133,102 @@ def test_load_filters_requires_one_position_per_enum(monkeypatch):
     monkeypatch.setattr(yaml, "safe_load", lambda *_a, **_k: bad_config)
     with pytest.raises(ValueError, match="exactly 7 positions"):
         load_filters()
+
+
+def _set_filters_devices() -> dict[str, Filter]:
+    """The set_filters filters from filters.yml, mocked under the RE loop."""
+    # init_devices connects only devices bound to local names
+    with init_devices(mock=True):
+        filter1_upstream, filter1_downstream, filter2 = (
+            f for f in load_filters() if f.name in SET_FILTERS_NAMES
+        )
+    devices = {
+        "filter1_upstream": filter1_upstream,
+        "filter1_downstream": filter1_downstream,
+        "filter2": filter2,
+    }
+    for device in devices.values():
+        set_mock_value(device.in_position, True)
+        callback_on_mock_put(
+            device.filter_motor.user_setpoint,
+            lambda value, device=device, **_: set_mock_value(
+                device.filter_motor.user_readback, value
+            ),
+        )
+    return devices
+
+
+def test_set_filters_choices_are_each_filters_materials():
+    raw = _raw_filter_config()
+    for name in SET_FILTERS_NAMES:
+        slots = [raw[name]["positions"][f"pos_{i}"] for i in range(1, 5)]
+        materials = [s["description"] for s in slots if isinstance(s, dict)]
+        assert list(SETTING_POSITIONS[name]) == ["pass through", *materials]
+    assert list(SETTING_POSITIONS["filter1_upstream"]) == [
+        "pass through",
+        "6 mm Cu",
+        "6 mm Al",
+        "Bo-Hori.",
+    ]
+    assert "6 mm Al" in SETTING_POSITIONS["filter1_downstream"]
+    assert "1 mm Cu" in SETTING_POSITIONS["filter2"]
+
+
+async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):
+    devices = _set_filters_devices()
+    for device in devices.values():
+        set_mock_value(device.filter_motor.user_readback, 999.0)
+
+    RE(
+        set_filters(
+            filter1_upstream_setting="6 mm Cu",
+            filter2_setting="1 mm Cu",
+            filter1_upstream=devices["filter1_upstream"],
+            filter1_downstream=devices["filter1_downstream"],
+            filter2=devices["filter2"],
+        )
+    )
+
+    positions = {
+        name: await d.filter_motor.user_readback.get_value()
+        for name, d in devices.items()
+    }
+    assert positions == {
+        "filter1_upstream": pytest.approx(41.5),
+        "filter1_downstream": 999.0,
+        "filter2": pytest.approx(-24.8),
+    }
+
+
+async def test_set_filters_sets_all_three(RE: RunEngine):
+    devices = _set_filters_devices()
+
+    RE(
+        set_filters(
+            filter1_upstream_setting="6 mm Cu",
+            filter1_downstream_setting="6 mm Al",
+            filter2_setting="1 mm Cu",
+            filter1_upstream=devices["filter1_upstream"],
+            filter1_downstream=devices["filter1_downstream"],
+            filter2=devices["filter2"],
+        )
+    )
+
+    descriptions = {n: await d.description.get_value() for n, d in devices.items()}
+    assert descriptions == {
+        "filter1_upstream": "6 mm Cu",
+        "filter1_downstream": "6 mm Al",
+        "filter2": "1 mm Cu",
+    }
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({}, "at least one"),
+        ({"filter2_setting": "6 mm Al"}, "not a setting of filter2"),
+    ],
+)
+def test_set_filters_refuses_bad_input(RE: RunEngine, kwargs: dict, match: str):
+    with pytest.raises(ValueError, match=match):
+        RE(set_filters(**kwargs, **_set_filters_devices()))

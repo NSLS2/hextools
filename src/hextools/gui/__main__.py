@@ -102,6 +102,7 @@ from hextools.photon_delivery_system import (
     Slits,
     change_energy,
     move_slits,
+    set_filters,
 )
 from hextools.photon_delivery_system.dclm import change_beam_mode
 from hextools.settings import (
@@ -400,6 +401,7 @@ class QtBeamlineView(QWidget):
         plan_tabs = QTabWidget()
         plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
         plan_tabs.addTab(QtPlanWidget(re_client, move_slits), "Slits")
+        plan_tabs.addTab(QtPlanWidget(re_client, set_filters), "Filters")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
         plan_tabs.addTab(QtPlanWidget(re_client, reset_scan_id), "Reset Scan ID")
