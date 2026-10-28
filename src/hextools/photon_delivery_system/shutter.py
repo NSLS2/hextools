@@ -3,14 +3,13 @@
 import asyncio
 import random
 from collections.abc import Callable, Hashable
-from functools import partial
-from typing import cast
 
 from bluesky import plan_stubs as bps
 from bluesky.protocols import Reading, Subscribable
 from ophyd_async.core import (
     AsyncMovable,
     AsyncStatus,
+    Device,
     DeviceMock,
     StrictEnum,
     callback_on_mock_execute,
@@ -146,68 +145,57 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
         self.status.clear_sub(translator)
 
 
-class MockPPSShutter(MockShutter):
-    """Mock PPS shutter whose interlock is acknowledged as soon as it is asked."""
+class MockInterlockAcknowledge(DeviceMock["InterlockAcknowledge"]):
+    """Mock interlock whose status follows the acknowledge request at once."""
 
-    async def connect(self, device: "Shutter") -> None:
-        await super().connect(device)
-        if not isinstance(device, PPSShutter):
-            return
-        acknowledged = device.interlock_acknowledged
+    async def connect(self, device: "InterlockAcknowledge") -> None:
+        acknowledged = device.acknowledged
         set_mock_value(acknowledged, True)
         callback_on_mock_put(
-            device.interlock_ack,
-            lambda value, **_: set_mock_value(acknowledged, value),
+            device.request, lambda value, **_: set_mock_value(acknowledged, value)
         )
 
 
-@default_mock_class(MockPPSShutter)
+@default_mock_class(MockInterlockAcknowledge)
+class InterlockAcknowledge(Device, AsyncMovable[bool]):
+    """A PPS shutter's interlock acknowledge, the AcK button on the PPS screen.
+
+    Setting True acknowledges the interlock and waits until the PPS reports it
+    acknowledged; nothing is written if it already is.
+
+    Attributes
+    ----------
+    request : EpicsSignalRW[bool]
+        The acknowledge request (``Intlk:Ack-Sel``).
+    acknowledged : EpicsSignalR[bool]
+        Whether the interlock is acknowledged (``Intlk:Ack-Sts``).
+    """
+
+    def __init__(self, prefix: str, name: str = ""):
+        self.request = epics_signal_rw(bool, f"{prefix}Intlk:Ack-Sel")
+        self.acknowledged = epics_signal_r(bool, f"{prefix}Intlk:Ack-Sts")
+        super().__init__(name=name)
+
+    @AsyncStatus.wrap
+    async def set(self, value: bool):
+        if await self.acknowledged.get_value() == value:
+            return
+        await self.request.set(value)
+        await wait_for_value(self.acknowledged, value, timeout=INTERLOCK_ACK_TIMEOUT)
+
+
 class PPSShutter(Shutter):
     """PPS shutter whose interlock must be acknowledged after it trips.
 
     Attributes
     ----------
-    interlock_ack : EpicsSignalRW[bool]
-        Writing True acknowledges the interlock (the AcK button on the PPS screen).
-    interlock_acknowledged : EpicsSignalR[bool]
-        True once the interlock is acknowledged.
+    interlock : InterlockAcknowledge
+        Move it to True to acknowledge the interlock.
     """
 
     def __init__(self, prefix: str, name: str = ""):
-        self.interlock_ack = epics_signal_rw(bool, f"{prefix}Intlk:Ack-Sel")
-        self.interlock_acknowledged = epics_signal_r(bool, f"{prefix}Intlk:Ack-Sts")
+        self.interlock = InterlockAcknowledge(prefix)
         super().__init__(prefix, name=name)
-
-
-def acknowledge_interlock(shutter: PPSShutter):
-    """Acknowledge a PPS shutter's interlock, unless it is already acknowledged.
-
-    Parameters
-    ----------
-    shutter : PPSShutter
-        The shutter whose interlock to acknowledge.
-    """
-    if (yield from bps.rd(shutter.interlock_acknowledged)):
-        return
-    yield from bps.mv(shutter.interlock_ack, True)
-    # bluesky annotates this as Status, but the RunEngine returns futures.
-    acknowledged = cast(
-        list[asyncio.Future[None]],
-        (
-            yield from bps.wait_for(
-                [
-                    partial(
-                        wait_for_value,
-                        shutter.interlock_acknowledged,
-                        True,
-                        timeout=INTERLOCK_ACK_TIMEOUT,
-                    )
-                ]
-            )
-        ),
-    )
-    for future in acknowledged:
-        future.result()
 
 
 def ensure_shutter_state(

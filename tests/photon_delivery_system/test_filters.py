@@ -254,7 +254,7 @@ def _trip_fe_interlock_on_move(filt: Filter, fe_shutter: PPSShutter) -> None:
 
     def move(value, **_):
         set_mock_value(fe_shutter.status, ShutterStatus.CLOSED)
-        set_mock_value(fe_shutter.interlock_acknowledged, False)
+        set_mock_value(fe_shutter.interlock.acknowledged, False)
         set_mock_value(filt.filter_motor.user_readback, value)
 
     callback_on_mock_put(filt.filter_motor.user_setpoint, move)
@@ -279,8 +279,8 @@ async def test_set_filters_acknowledges_the_interlock_and_restores_the_fe_shutte
         )
     )
 
-    get_mock_put(fe_shutter.interlock_ack).assert_called_once()
-    assert await fe_shutter.interlock_acknowledged.get_value()
+    get_mock_put(fe_shutter.interlock.request).assert_called_once()
+    assert await fe_shutter.interlock.acknowledged.get_value()
     expected = ShutterStatus.OPEN if fe_was_open else ShutterStatus.CLOSED
     assert await fe_shutter.status.get_value() == expected
 
@@ -297,7 +297,7 @@ async def test_set_filters_leaves_an_acknowledged_interlock_alone(RE: RunEngine)
         )
     )
 
-    get_mock_put(fe_shutter.interlock_ack).assert_not_called()
+    get_mock_put(fe_shutter.interlock.request).assert_not_called()
 
 
 async def test_filter_move_reports_progress(RE: RunEngine):
@@ -321,9 +321,9 @@ async def test_set_filters_fails_and_keeps_the_fe_shutter_closed_if_ack_never_co
     devices = _set_filters_devices()
     fe_shutter = _fe_shutter(ShutterStatus.OPEN)
     _trip_fe_interlock_on_move(devices["filter2"], fe_shutter)
-    callback_on_mock_put(fe_shutter.interlock_ack, lambda *_, **__: None)
+    callback_on_mock_put(fe_shutter.interlock.request, lambda *_, **__: None)
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises(FailedStatus):
         RE(
             set_filters(
                 filter2_setting="1 mm Cu",
