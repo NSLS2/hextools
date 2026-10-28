@@ -21,7 +21,10 @@ from qtpy.QtCore import QCoreApplication, QEvent, QProcess  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
 import hextools.gui.__main__ as gui_main  # noqa: E402
-from hextools.gui.__main__ import QtDataAcquisitionWindow  # noqa: E402
+import hextools.gui.window as gui_window  # noqa: E402
+from hextools.gui.auto_exporter_view import QtAutoExporterView  # noqa: E402
+from hextools.gui.window import QtDataAcquisitionWindow  # noqa: E402
+from hextools.gui_config import HEX_GUI  # noqa: E402
 
 
 @pytest.fixture
@@ -44,8 +47,9 @@ def _open_window(RE, tmp_path, request):
     """
     QApplication.instance() or QApplication([])
     InteractiveShell.instance()
-    window = QtDataAcquisitionWindow(re_client=RE)
-    exporter = window.qt_widget.auto_exporter
+    window = QtDataAcquisitionWindow(re_client=RE, spec=HEX_GUI)
+    exporter = window.qt_widget.extra_tabs["NXS Export"]
+    assert isinstance(exporter, QtAutoExporterView)
     marker = tmp_path / "sigterm"
     child = (
         "import signal, sys, time\n"
@@ -120,8 +124,8 @@ def test_closing_windows_that_share_a_run_engine(RE, det, first):
     QApplication.instance() or QApplication([])
     InteractiveShell.instance()
     before = _hooks(RE)
-    older = QtDataAcquisitionWindow(re_client=RE)
-    newer = QtDataAcquisitionWindow(re_client=RE)
+    older = QtDataAcquisitionWindow(re_client=RE, spec=HEX_GUI)
+    newer = QtDataAcquisitionWindow(re_client=RE, spec=HEX_GUI)
 
     for window in [older, newer] if first == "older" else [newer, older]:
         window._qt_window.close()
@@ -140,8 +144,10 @@ def test_closing_the_window_can_end_the_ipython_session(RE, monkeypatch, end_ipy
     QApplication.instance() or QApplication([])
     InteractiveShell.instance()
     ended = []
-    monkeypatch.setattr(gui_main, "_end_ipython_session", lambda: ended.append(True))
-    window = QtDataAcquisitionWindow(re_client=RE, end_ipython_on_close=end_ipython)
+    monkeypatch.setattr(gui_window, "_end_ipython_session", lambda: ended.append(True))
+    window = QtDataAcquisitionWindow(
+        re_client=RE, spec=HEX_GUI, end_ipython_on_close=end_ipython
+    )
 
     window._qt_window.close()
 
@@ -176,9 +182,9 @@ class _KernelShell:
 )
 def test_only_a_terminal_ipython_session_is_ended(monkeypatch, shell, ends):
     ipython = shell()
-    monkeypatch.setattr(gui_main.IPython, "get_ipython", lambda: ipython)
+    monkeypatch.setattr(gui_window.IPython, "get_ipython", lambda: ipython)
 
-    gui_main._end_ipython_session()
+    gui_window._end_ipython_session()
 
     assert ipython.asked == ([True] if ends else [])
 
@@ -206,10 +212,10 @@ def test_a_waiting_prompt_is_woken_to_exit(monkeypatch, prompt_running):
     app = _PromptApp(prompt_running)
     monkeypatch.setattr(ipython, "pt_app", SimpleNamespace(app=app))
     loop = _Loop()
-    monkeypatch.setattr(gui_main.IPython, "get_ipython", lambda: ipython)
-    monkeypatch.setattr(gui_main.asyncio, "get_running_loop", lambda: loop)
+    monkeypatch.setattr(gui_window.IPython, "get_ipython", lambda: ipython)
+    monkeypatch.setattr(gui_window.asyncio, "get_running_loop", lambda: loop)
 
-    gui_main._end_ipython_session()
+    gui_window._end_ipython_session()
 
     assert ipython.asked == [True]
     expected = [(app.exit, ("",))] if prompt_running else []
@@ -236,6 +242,7 @@ def test_hex_gui_ends_ipython_on_close_unless_asked_to_keep_it(monkeypatch, argv
     gui_main.main()
 
     (config,) = configs
-    assert f"launch_local_viewer(end_ipython_on_close={end})" in (
-        config.InteractiveShellApp.exec_lines
-    )
+    assert (
+        f"launch_local_viewer(load_spec('hextools.gui_config:HEX_GUI'),"
+        f" end_ipython_on_close={end})"
+    ) in config.InteractiveShellApp.exec_lines

@@ -51,7 +51,6 @@ shell.run_line_magic(
 from bluesky import plans as bp  # noqa: E402
 from ntnda_qt_viewer import NTNDAViewerWidget  # noqa: E402
 
-from hextools.gui.__main__ import launch_local_viewer  # noqa: E402
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor  # noqa: E402
 from hextools.gui.live_re_md_viewer import QtProposalInfo  # noqa: E402
 from hextools.gui.misc import QtTabbedDetectorsWidget, QtWeatherWidget  # noqa: E402
@@ -59,9 +58,11 @@ from hextools.gui.plan_status import QtLiveTable, QtPlanStatus  # noqa: E402
 from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
 from hextools.gui.re_execution_controls import QtReExecutionControls  # noqa: E402
 from hextools.gui.shutter_status import QtShutterStatus  # noqa: E402
+from hextools.gui.window import launch_local_viewer  # noqa: E402
+from hextools.gui_config import HEX_GUI  # noqa: E402
 from hextools.motors import move_motor  # noqa: E402
 
-window = launch_local_viewer()
+window = launch_local_viewer(HEX_GUI)
 qwin = window._qt_window  # noqa: SLF001
 qwin.resize(1700, 1000)
 qwin.show()
