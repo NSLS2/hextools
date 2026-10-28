@@ -92,6 +92,7 @@ from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui.theme_switch import QtThemeAction
 from hextools.machine import NSLS2StorageRing
 from hextools.motors import (
+    AsyncEpicsMotor,
     FOV_2_4_mm_Camera,
     FOV_20_40_mm_Camera,
     OpticsTable,
@@ -153,6 +154,8 @@ EXPECTED_DEVICES: list[tuple[str, type]] = [
     ("dclm", DCLM),
     ("optics_table", OpticsTable),
     ("sample_tower", SampleTower),
+    ("sample_small_x", AsyncEpicsMotor),
+    ("sample_small_y", AsyncEpicsMotor),
     ("panda", HDFPanda),
     ("kinetix1", KinetixDetector),
     ("kinetix2", KinetixDetector),

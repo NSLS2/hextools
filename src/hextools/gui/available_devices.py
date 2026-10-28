@@ -23,6 +23,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from hextools.gui.device_sources import device_display_name
+
 _DEVICE_BASES: list[type] = []
 try:
     from ophyd_async.core import Device as _AsyncDevice
@@ -76,7 +78,9 @@ def _discover_devices(namespace: Mapping[str, Any]) -> list[tuple[str, str, Any]
         obj = devices[key]
         primary = next((n for n in names if n == getattr(obj, "name", None)), names[0])
         others = [n for n in names if n != primary]
-        label = f"{primary} ({', '.join(others)})" if others else primary
+        label = device_display_name(primary)
+        if others:
+            label = f"{label} ({', '.join(others)})"
         entries.append((label, type(obj).__name__, obj))
     return sorted(entries, key=lambda entry: entry[0])
 
@@ -154,7 +158,7 @@ class QtAvailableDevices(QWidget):
         if self._is_qserver:
             return [
                 (
-                    name,
+                    device_display_name(name),
                     dtype.__name__,
                     lambda n=name, t=dtype: self._qserver_connected(n, t),
                 )
