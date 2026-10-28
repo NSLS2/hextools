@@ -5,13 +5,13 @@ import pytest
 from bluesky import plan_stubs as bps
 from bluesky.utils import Msg
 
-from hextools.utils import nl_msg_hook
-from hextools.utils.nl_msg_hook import (
+from hextools.gui.narrator import (
     GroupLabeler,
     MsgHookNarrator,
     StreamNarrator,
     describe_message,
     narrate_stream,
+    nl_msg_hook,
 )
 
 AUTO_GROUP_1 = "a1b2c3d4-e5f6-4718-a93a-4b5c6d7e8f90"
@@ -412,9 +412,9 @@ def log_records():
     logger.setLevel(previous_level)
 
 
-def test_hook_logs_at_info_to_hextools_logger_by_default():
+def test_hook_logs_at_info_to_bluesky_logger_by_default():
     hook = MsgHookNarrator(serialize=False)
-    assert hook._logger is logging.getLogger("hextools")
+    assert hook._logger is logging.getLogger("bluesky")
     assert hook._level == logging.INFO
 
 
