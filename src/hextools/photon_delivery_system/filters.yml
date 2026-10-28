@@ -14,6 +14,7 @@
 #                        lower_limit. Each value is either:
 #                          - a number: the motor position (no description), or
 #                          - a mapping: {position: <number>, description: <text>}.
+# Materials: 27-ID commissioning wiki, "FOE Filters" table (AJ, 2026-10-27).
 filters:
   filter1_upstream:
     motor_pv: XF:27IDA-OP:1{Fltr:1-Ax:Yu}Mtr
@@ -21,10 +22,10 @@ filters:
     positions:
       upper_limit: 68.0
       pass_through: 66.6
-      pos_1: {position: 41.5, description: 12 mm SiC}
-      pos_2: {position: 6.5, description: 9 mm SiC}
-      pos_3: {position: -28.5, description: 6 mm SiC}
-      pos_4: {position: -58.0, description: 3 mm SiC}
+      pos_1: {position: 41.5, description: 6 mm Cu}
+      pos_2: {position: 6.5, description: 6 mm Al}
+      pos_3: -28.5
+      pos_4: {position: -58.0, description: Bo-Hori.}
       lower_limit: -63.2
 
   filter1_downstream:
@@ -35,8 +36,8 @@ filters:
       pass_through: 60.3
       pos_1: {position: 35.3, description: 4 mm Cu}
       pos_2: {position: 0.3, description: 2 mm Cu}
-      pos_3: {position: -34.7, description: 24 mm SiC}
-      pos_4: {position: -69.7, description: 12 mm SiC}
+      pos_3: {position: -34.7, description: 6 mm Al}
+      pos_4: {position: -69.7, description: Bo-Ver.}
       lower_limit: -73.5
 
   filter2:

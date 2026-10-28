@@ -139,6 +139,13 @@ RE(set_fe_slit1_aperture(SlitAperture.FULLY_OPEN))   # 24 x 4.55 mm
 
 Every filter defined in the filter configuration file is placed in the
 namespace by name (e.g. `filter1_upstream`) and can be moved with `bps.mv`.
+Filter 1 upstream, filter 1 downstream and filter 2 can be set together by material;
+a filter left out does not move:
+
+```python
+RE(set_filters(filter1_upstream_setting="6 mm Cu", filter2_setting="1 mm Cu"))
+RE(set_filters(filter1_downstream_setting="pass through"))
+```
 
 To see what a device contains, print its tree:
 
