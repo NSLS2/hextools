@@ -50,7 +50,7 @@ pixi run start                 # real hardware
 pixi run start-mock            # simulated devices
 
 # GUI
-pixi run hex-gui               # real hardware, plans run in-process
+pixi run hex-gui               # real hardware, plans run in an IPython session
 pixi run hex-gui-mock          # simulated devices
 
 # Queue Server

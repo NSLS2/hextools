@@ -67,12 +67,11 @@ from hextools.utils import (
 )
 
 
-def _shutters(re, namespace):
+def _shutters(session):
     from hextools.gui.shutter_status import QtShutterStatus
 
     return QtShutterStatus(
-        re,
-        namespace,
+        session,
         device_type=Shutter,
         open_plan=ensure_shutter_open,
         close_plan=ensure_shutter_closed,

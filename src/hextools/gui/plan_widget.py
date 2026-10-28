@@ -13,10 +13,10 @@ to generate input fields:
 
 Device fields are populated and validated through a pluggable
 :class:`~hextools.gui.device_sources.DeviceSource`, so the same widget can check
-inputs against an in-process IPython namespace or the Queue Server's allowed
-devices. Depending on :class:`ExecutionMode`, the submit button either adds a
-:class:`~bluesky_queueserver_api.BPlan` to the queue or runs the plan in this
-process by sending ``RE(plan(...))`` to the IPython shell.
+inputs against the IPython session's namespace or the Queue Server's allowed
+devices. The submit button either adds a
+:class:`~bluesky_queueserver_api.BPlan` to the queue or runs ``RE(plan(...))``
+at the session's prompt.
 """
 
 from __future__ import annotations
@@ -39,13 +39,11 @@ except ImportError:
     AsyncDevice = None  # type: ignore
 
 import docstring_parser
-import IPython
-from bluesky import RunEngine
 from bluesky.utils import RunEngineInterrupted
 from bluesky_queueserver_api import BPlan
 from bluesky_widgets.models.run_engine_client import RunEngineClient
 from bluesky_widgets.qt.threading import FunctionWorker
-from qtpy.QtCore import QEvent, QSize, Qt, QTimer, Signal, Slot
+from qtpy.QtCore import QEvent, QSize, Qt, Signal, Slot
 from qtpy.QtGui import QDoubleValidator, QIntValidator
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -62,13 +60,11 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui._ipython import run_in_ipython, show_plan_error
+from hextools.gui._ipython import show_plan_error
 from hextools.gui.device_selector_widget import DynamicDeviceSelector
-from hextools.gui.device_sources import (
-    NamespaceDeviceSource,
-    QueueServerDeviceSource,
-)
+from hextools.gui.device_sources import QueueServerDeviceSource
 from hextools.gui.errors import unwrap_failed_status as _unwrap_failed_status
+from hextools.gui.session_client import SessionClient, SessionDeviceSource
 
 _NO_SELECTION = "\u2014"  # em dash placeholder for an unset single device
 
@@ -221,37 +217,19 @@ class _VerticalScrollArea(QScrollArea):
 
 
 class QtPlanWidget(QWidget):
-    """Build and run an arbitrary plan, either in-process or via the Queue Server.
+    """Build and run an arbitrary plan, in the IPython session or via the Queue Server.
 
     Parameters
     ----------
-    model : bluesky_widgets.models.run_engine_client.RunEngineClient or None
-        The Queue Server client model (e.g. ``viewer.run_engine``). Required for
-        :attr:`ExecutionMode.QUEUESERVER`; may be ``None`` when running
-        in-process.
+    re_client : SessionClient or RunEngineClient
+        The IPython session, or the Queue Server client model. Decides where
+        devices are looked up and where the plan runs.
     plan : Callable
         The plan function whose signature drives the generated form. Its
-        ``__name__`` is used both as the Queue Server plan name and, for
-        in-process execution, as the callable looked up in the IPython
-        namespace.
+        ``__name__`` is used both as the Queue Server plan name and as the
+        callable looked up in the session's namespace.
     parent : QWidget, optional
         Parent widget.
-    execution_mode : ExecutionMode or str, optional
-        Whether the submit button adds the plan to the Queue Server
-        (:attr:`ExecutionMode.QUEUESERVER`, the default) or runs it in this
-        process via ``RE(plan(...))`` (:attr:`ExecutionMode.IN_PROCESS`).
-    device_source : DeviceSource, optional
-        Source used to populate and validate device fields. Defaults to a
-        :class:`~hextools.gui.device_sources.QueueServerDeviceSource` wrapping
-        ``model`` in queueserver mode, or a
-        :class:`~hextools.gui.device_sources.NamespaceDeviceSource` in
-        in-process mode.
-    namespace : Mapping[str, object], optional
-        Namespace used for in-process validation/execution. Defaults to the
-        active IPython ``user_ns``. Ignored when ``device_source`` is given.
-    re_name : str, optional
-        Name of the ``RunEngine`` object in the namespace for in-process
-        execution. Default ``"RE"``.
     title : str, optional
         Group box title. Default: derived from the plan name.
     """
@@ -272,13 +250,7 @@ class QtPlanWidget(QWidget):
         if isinstance(re_client, RunEngineClient):
             self._device_source = QueueServerDeviceSource(re_client)
         else:
-            ipython = IPython.get_ipython()
-            if ipython is None:
-                raise RuntimeError(
-                    "Failed to detect ipython instance, "
-                    "required for plan argument validation"
-                )
-            self._device_source = NamespaceDeviceSource(ipython.user_ns)
+            self._device_source = SessionDeviceSource(re_client)
         self._worker = None
         self._scalar_fields: list[tuple[str, type, QWidget, bool]] = []
         self._scalar_list_fields: list[tuple[str, type, QWidget, bool]] = []
@@ -568,7 +540,7 @@ class QtPlanWidget(QWidget):
             )
 
     def _format_plan_call(self, kwargs: dict, device_keys: set[str]) -> str:
-        """Render ``RE(plan(...))`` for in-process execution in the namespace."""
+        """Render ``RE(plan(...))`` to run at the session's prompt."""
         parts = []
         for name, value in kwargs.items():
             if name in device_keys:
@@ -589,8 +561,8 @@ class QtPlanWidget(QWidget):
             self._set_status(str(ex), error=True)
             return
 
-        if isinstance(self._re_client, RunEngine):
-            self._run_in_process(kwargs, device_keys)
+        if isinstance(self._re_client, SessionClient):
+            self._run_in_session(kwargs, device_keys)
         else:
             self._submit_to_queue(kwargs)
 
@@ -608,14 +580,12 @@ class QtPlanWidget(QWidget):
     def _submit_plan(self, item):
         self._re_client.queue_item_add(item=item)
 
-    def _run_in_process(self, kwargs: dict, device_keys: set[str]):
+    def _run_in_session(self, kwargs: dict, device_keys: set[str]):
         code = self._format_plan_call(kwargs, device_keys)
         self._set_status("Running\u2026")
-        # Defer so the click handler returns before IPython executes the cell.
-        QTimer.singleShot(0, lambda: self._execute_cell(code))
+        self._re_client.execute(code, self._on_plan_done)
 
-    def _execute_cell(self, code: str):
-        error = run_in_ipython(code)
+    def _on_plan_done(self, error: BaseException | None):
         if isinstance(error, RunEngineInterrupted):
             self._set_status("Plan paused.")
             show_plan_error(self, "Plan execution failed", error)

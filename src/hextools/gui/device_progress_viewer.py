@@ -3,12 +3,11 @@
 from functools import partial
 from typing import Any
 
-from bluesky import RunEngine
 from bluesky_widgets.models.run_engine_client import RunEngineClient
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
-from ._hook_chain import live_hook, uninstall_hook
+from ._hook_chain import live_hook
 from ._threading import FunctionWorker
 
 
@@ -141,12 +140,13 @@ class _ReDeviceProgressBar(QWidget):
 class _WaitingHookDispatcher:
     """A RunEngine ``waiting_hook`` that forwards watcher updates to a monitor.
 
-    Installed as ``RE.waiting_hook``. Any previously-installed hook (e.g. a
+    Installed as ``RE.waiting_hook`` by the session server, which sends what it
+    receives to the GUI. Any previously-installed hook (e.g. a
     terminal ``ProgressBarManager``) is preserved in ``previous_hook`` and still
     receives every call, so existing behavior keeps working alongside the GUI.
     """
 
-    def __init__(self, monitor: "QtReWaitingHookMonitor", previous_hook=None):
+    def __init__(self, monitor: Any, previous_hook=None):
         self._monitor = monitor
         self.previous = previous_hook
         self.detached = False
@@ -211,19 +211,18 @@ class QtReWaitingHookMonitor(QWidget):
     bars are cleared when the wait completes.
 
     Accepts either a Queue Server ``RunEngineClient`` (progress is streamed from
-    RE Manager) or a raw in-process ``RunEngine`` (the widget installs itself as
-    ``RE.waiting_hook``, chaining to any hook that was already set).
+    RE Manager) or a :class:`~hextools.gui.session_client.SessionClient`
+    (progress is sent by the session's ``RE.waiting_hook``).
     """
 
     signal_progress_update = Signal(object)
     signal_completed = Signal()
 
-    def __init__(self, re_client: RunEngineClient | RunEngine, parent=None):
+    def __init__(self, re_client: Any, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
         self._re_client = re_client
-        self._hook: _WaitingHookDispatcher | None = None
         self._thread = None
 
         # Maps device name -> _ReDeviceProgressBar
@@ -250,7 +249,8 @@ class QtReWaitingHookMonitor(QWidget):
             self._re_client.start_re_progress_monitoring()  # type: ignore
             self._start_thread()
         else:
-            self._install_waiting_hook()
+            self._re_client.progress.connect(self._handle_progress_msg)
+            self._re_client.progress_done.connect(self._on_completed)
 
     # -- Queue Server (RE Manager) path ---------------------------------------
 
@@ -277,22 +277,6 @@ class QtReWaitingHookMonitor(QWidget):
             return
         _, msg = result
         self._handle_progress_msg(msg)
-
-    # -- In-process RunEngine path --------------------------------------------
-
-    def _install_waiting_hook(self):
-        run_engine = self._re_client
-        self._hook = _WaitingHookDispatcher(
-            self, getattr(run_engine, "waiting_hook", None)
-        )
-        run_engine.waiting_hook = self._hook  # type: ignore
-
-    def _uninstall_waiting_hook(self):
-        run_engine = self._re_client
-        if isinstance(run_engine, RunEngineClient) or self._hook is None:
-            return
-        uninstall_hook(run_engine, "waiting_hook", self._hook)
-        self._hook = None
 
     # -- Shared display logic --------------------------------------------------
 
@@ -327,17 +311,11 @@ class QtReWaitingHookMonitor(QWidget):
             bar.deleteLater()
         self._progress_bars = {}
 
-    def closeEvent(self, event):
-        self._uninstall_waiting_hook()
-        super().closeEvent(event)
-
     def __del__(self):
-        """Stop progress monitoring or restore the previous waiting hook."""
+        """Stop Queue Server progress monitoring."""
         try:
             if isinstance(self._re_client, RunEngineClient):
                 # Not in released bluesky-widgets (0.0.18); needs a newer release.
                 self._re_client.stop_re_progress_monitoring()  # type: ignore
-            else:
-                self._uninstall_waiting_hook()
         except Exception:
             pass

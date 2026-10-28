@@ -292,14 +292,14 @@ Technique(
 ```
 
 The GUI wraps each plan in `QtPlanWidget(re_client, plan, title=None)`, which
-takes the RunEngine (in-process mode) or Queue Server client, and the plan
-function. The form's title defaults to the function name in title case.
+takes the IPython session (a `SessionClient`) or the Queue Server client, and the
+plan function. The form's title defaults to the function name in title case.
 
 When the user presses **Run Plan**, the widget:
 
 1. checks every field (required fields filled, numbers valid, devices exist and
    have the right type);
-2. in-process mode: builds the call as text, e.g.
+2. IPython-session mode: builds the call as text, e.g.
    `RE(height_survey(detectors=[kinetix1], start=0.0, stop=5.0, num=11, exposure_time=0.01, use_shutter=True))`,
    and runs it in the IPython session. Devices are passed by their names in the
    session namespace, and **the plan is looked up by its function name**, which
@@ -369,7 +369,7 @@ All of these are fields of `GuiSpec` (see its docstring in
 - **Available Devices tab** — `expected_devices` lists the devices the beamline
   should have, with their types; add new devices there.
 - **Top-row widgets** — `status_widgets` holds factories called as
-  `factory(run_engine, namespace)` in local mode; HEX uses one for its
+  `factory(session)` in IPython-session mode; HEX uses one for its
   shutters box.
 - **Extra tabs** — `extra_tabs` holds `(title, factory)` pairs added after the
   built-in tabs; HEX uses one for NXS Export.
@@ -382,6 +382,28 @@ All of these are fields of `GuiSpec` (see its docstring in
   selected run's uid.
 - **Menus** — `QtDataAcquisitionWindow._build_menus` in
   `src/hextools/gui/window.py`.
+
+### The GUI and the IPython session
+
+The GUI runs in its own process, so a crash in it cannot stop a plan or its
+cleanup. `start_gui()` (in `hextools/gui/session_server.py`) runs in the IPython
+session: it starts a small server on a Unix socket only you can open, then
+launches the GUI. The GUI talks to the session through a `SessionClient`
+(`hextools/gui/session_client.py`), which widgets take where they once took
+the RunEngine:
+
+- **Commands** (Run Plan, Resume, Stop, the shutters, Re-run) are sent as code
+  and run at the session's prompt, echoed in its terminal. Pause goes straight
+  to the RunEngine from the server's thread, since a running plan holds the
+  session's main thread.
+- **What the GUI shows** is sent by the session: RunEngine state, plans started
+  and finished, documents, the narrator's log lines, device progress, the
+  devices in the namespace (with their class hierarchy, so device fields match
+  type hints exactly), `RE.md` and shutter readings.
+
+A widget that needs something new from the session needs a new message in
+both. Never use Qt's blocking `waitFor...` calls in the GUI: PySide6 holds the
+GIL while it waits, which stalls every Python thread in the process.
 
 ### The GUI for another beamline
 

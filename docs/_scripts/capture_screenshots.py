@@ -42,7 +42,7 @@ from qtpy.QtWidgets import (  # noqa: E402
 
 app = QApplication.instance() or QApplication([])
 
-# launch_local_viewer() needs an IPython shell with the profile loaded.
+# The session the GUI attaches to: an IPython shell with the profile loaded.
 shell = InteractiveShell.instance()
 shell.run_line_magic(
     "run", f"-i {REPO / 'src' / 'hextools' / 'profiles' / 'collection.py'}"
@@ -57,12 +57,20 @@ from hextools.gui.misc import QtTabbedDetectorsWidget, QtWeatherWidget  # noqa: 
 from hextools.gui.plan_status import QtLiveTable, QtPlanStatus  # noqa: E402
 from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
 from hextools.gui.re_execution_controls import QtReExecutionControls  # noqa: E402
+from hextools.gui.session_client import SessionClient  # noqa: E402
+from hextools.gui.session_server import SessionServer  # noqa: E402
 from hextools.gui.shutter_status import QtShutterStatus  # noqa: E402
-from hextools.gui.window import launch_local_viewer  # noqa: E402
+from hextools.gui.window import QtDataAcquisitionWindow  # noqa: E402
 from hextools.gui_config import HEX_GUI  # noqa: E402
 from hextools.motors import move_motor  # noqa: E402
 
-window = launch_local_viewer(HEX_GUI)
+# In this one process for the screenshots; hex-gui runs the GUI in its own.
+server = SessionServer(
+    shell.user_ns["RE"], shell.user_ns, logger_name=HEX_GUI.logger_name
+)
+session = SessionClient(server.path)
+session.connect_to_session()
+window = QtDataAcquisitionWindow(re_client=session, spec=HEX_GUI)
 qwin = window._qt_window  # noqa: SLF001
 qwin.resize(1700, 1000)
 qwin.show()

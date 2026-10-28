@@ -6,22 +6,20 @@ devices, proposal system and site all come from the spec (for HEX,
 
 With ``--queueserver-uri`` (or ``QSERVER_HTTP_SERVER_URI``) the GUI connects to a
 QueueServer and submits plans to its queue. Otherwise it starts IPython on a
-profile (``--profile``) with the GUI attached and runs plans in-process via
-``RE(plan(...))``.
+profile (``--profile``) and opens the GUI in its own process, attached to that
+session (:mod:`hextools.gui.session_server`), so a crash in the GUI cannot stop
+a plan or its cleanup.
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
-import atexit
+import logging
 import os
 import time as ttime
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
-import IPython
-from bluesky import RunEngine
 from bluesky_widgets.models.run_engine_client import RunEngineClient
 from bluesky_widgets.qt.run_engine_client import (
     QLabel,
@@ -32,9 +30,8 @@ from bluesky_widgets.qt.run_engine_client import (
 from bluesky_widgets.qt.run_engine_client import (
     QtReExecutionControls as QtReExecutionControlsRemote,
 )
-from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from qtpy import shiboken
-from qtpy.QtCore import QObject, Qt, QTimer, Signal
+from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -47,15 +44,12 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui._hook_chain import install_hook, uninstall_hook
 from hextools.gui._theme import apply_bnl_theme, saved_theme, set_settings_scope
 from hextools.gui.available_devices import QtAvailableDevices
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor
 from hextools.gui.live_re_md_viewer import QtProposalInfo
 from hextools.gui.misc import QtTabbedDetectorsWidget, QtWeatherWidget
-from hextools.gui.narrator import MsgHookNarrator
 from hextools.gui.plan_status import (
-    PlanMonitor,
     QtPlanExecutionView,
     QtPlanHistory,
     QtPlanLogView,
@@ -64,13 +58,16 @@ from hextools.gui.plan_status import (
 from hextools.gui.plan_widget import QtPlanWidget
 from hextools.gui.re_execution_controls import QtReExecutionControls
 from hextools.gui.scan_browser import QtScanBrowser
+from hextools.gui.session_client import SessionClient
 from hextools.gui.spec import GuiSpec, Technique, load_spec
 from hextools.gui.theme_switch import QtThemeAction
 
 from ._event_loop import get_our_app_name, gui_qt
 from ._threading import wait_for_workers_to_quit
 
-RunEngineClientT = TypeVar("RunEngineClientT", bound=RunEngineClient | RunEngine)
+logger = logging.getLogger(__name__)
+
+RunEngineClientT = TypeVar("RunEngineClientT", bound=RunEngineClient | SessionClient)
 
 
 def _patch_setchecked_checkstate():
@@ -103,7 +100,7 @@ class QtTechniqueView(QWidget):
 
     def __init__(
         self,
-        re_client: RunEngineClient | RunEngine,
+        re_client: RunEngineClient | SessionClient,
         technique: Technique,
         *args,
         **kwargs,
@@ -123,7 +120,7 @@ class QtTechniqueView(QWidget):
 
         if technique.plans:
             # Each tab validates and runs its plan per the active execution mode
-            # (in-process IPython vs. Queue Server).
+            # (the IPython session vs. Queue Server).
             plan_tabs = QTabWidget()
             for label, plan in technique.plans:
                 plan_tabs.addTab(QtPlanWidget(re_client, plan), label)
@@ -151,36 +148,25 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         vbox = QVBoxLayout()
 
         # Shared top row: queue/plan controls (Queue Server only) and RE
-        # metadata. In-process mode reads metadata from the local RunEngine.
+        # metadata.
         controls = QHBoxLayout()
-        if isinstance(re_client, RunEngineClient):
+        session = re_client if isinstance(re_client, SessionClient) else None
+        if session is None:
             controls.addWidget(QtReQueueControls(re_client))
             controls.addWidget(QtReExecutionControlsRemote(re_client))
             controls.addWidget(QtReRunningPlan(re_client))
         else:
-            controls.addWidget(QtReExecutionControls(local=True))
+            controls.addWidget(QtReExecutionControls(session=session))
         self.proposal_info = QtProposalInfo(re_client, proposals=spec.proposals)
         controls.addWidget(self.proposal_info)
         if spec.site is not None:
             controls.addWidget(QtWeatherWidget(spec.site))
-        ipython = IPython.get_ipython()
-        user_ns = ipython.user_ns if ipython is not None else {}
-        self._plan_monitor = (
-            PlanMonitor(
-                re_client,
-                narrator=MsgHookNarrator(logger=spec.logger_name),
-                namespace=user_ns,
-                parent=self,
-            )
-            if isinstance(re_client, RunEngine)
-            else None
-        )
-        if self._plan_monitor is not None:
-            controls.addWidget(QtPlanStatus(self._plan_monitor, spec.logger_name))
+        if session is not None:
+            controls.addWidget(QtPlanStatus(session, spec.logger_name))
         controls.addStretch()
-        if isinstance(re_client, RunEngine) and ipython is not None:
+        if session is not None:
             for factory in spec.status_widgets:
-                controls.addWidget(factory(re_client, user_ns))
+                controls.addWidget(factory(session))
         vbox.addLayout(controls)
 
         # Technique tabs, then the built-in tabs, then the beamline's extra tabs.
@@ -196,26 +182,23 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             self._re_client, list(spec.expected_devices)
         )
         tabs.addTab(self._available_devices, "Available Devices")
-        if self._plan_monitor is not None:
-            execution_view = QtPlanExecutionView(self._plan_monitor, spec.logger_name)
-            tiled_client = user_ns.get("tiled_reading_client") or user_ns.get("c")
-            if tiled_client is not None and isinstance(re_client, RunEngine):
+        self.scan_browser = None
+        self.plan_history = None
+        if session is not None:
+            execution_view = QtPlanExecutionView(session, spec.logger_name)
+            tiled_client = _tiled_client(session.tiled)
+            if tiled_client is not None:
                 self.scan_browser = QtScanBrowser(
-                    tiled_client, list(spec.run_specs), re_client
+                    tiled_client, list(spec.run_specs), session
                 )
                 execution_view.add_tab(self.scan_browser, "Scan Browser")
-            else:
-                self.scan_browser = None
             tabs.addTab(execution_view, "Plan Execution")
             self.plan_history = QtPlanHistory(
-                self._plan_monitor,
+                session,
                 history_file=os.environ.get(spec.plan_history_env) or None,
             )
             tabs.addTab(self.plan_history, "History")
-            tabs.addTab(QtPlanLogView(self._plan_monitor, spec.logger_name), "Log")
-        else:
-            self.plan_history = None
-            self.scan_browser = None
+            tabs.addTab(QtPlanLogView(session, spec.logger_name), "Log")
         self.extra_tabs: dict[str, QWidget] = {}
         for title, factory in spec.extra_tabs:
             widget = factory()
@@ -232,30 +215,18 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
 
         self.setLayout(vbox)
 
-    def closeEvent(self, event):
-        if self._plan_monitor is not None:
-            self._plan_monitor.detach()
-        super().closeEvent(event)
 
+def _tiled_client(info: dict[str, Any] | None):
+    """Open the session's Tiled catalog; None if it has none or it can't be reached."""
+    if not info:
+        return None
+    from tiled.client import from_uri
 
-class _StateSignal(QObject):
-    changed = Signal()
-
-
-def _end_ipython_session() -> None:
-    """Make the attached IPython shell exit, without waiting for a keypress."""
-    ipython = IPython.get_ipython()
-    # Only a terminal session; a Jupyter kernel's shell has ask_exit too, and
-    # is left running.
-    if not isinstance(ipython, TerminalInteractiveShell):
-        return
-    ipython.ask_exit()
-    pt_app = getattr(ipython, "pt_app", None)
-    if pt_app is None or not pt_app.app.is_running:
-        return
-    # Qt runs inside prompt_toolkit's input hook, which only returns when its
-    # event loop is woken; call_soon_threadsafe wakes it.
-    asyncio.get_running_loop().call_soon_threadsafe(pt_app.app.exit, "")
+    try:
+        return from_uri(info["uri"], api_key=info.get("api_key"))
+    except Exception:
+        logger.exception("Can't open the session's Tiled catalog; no Scan Browser")
+        return None
 
 
 class _MainWindow(QMainWindow):
@@ -296,17 +267,15 @@ class QtDataAcquisitionWindow:
 
     def __init__(
         self,
-        re_client: RunEngineClient | RunEngine,
+        re_client: RunEngineClient | SessionClient,
         spec: GuiSpec,
         *,
         show: bool = True,
-        end_ipython_on_close: bool = False,
     ):
         self.spec = spec
         self.qt_widget = QtTabbedTechniqueSelector(re_client, spec)
 
         self._torn_down = False
-        self._end_ipython_on_close = end_ipython_on_close
         self._qt_window = _MainWindow(on_close=self._teardown)
         self._qt_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self._qt_window.setWindowTitle(spec.title)
@@ -326,8 +295,9 @@ class QtDataAcquisitionWindow:
         self._help = QLabel("")
         self._status_bar.addPermanentWidget(self._help)
         self._build_menus()
-        if isinstance(re_client, RunEngine):
-            self._install_state_hook(re_client)
+        if isinstance(re_client, SessionClient):
+            re_client.state_changed.connect(self._update_re_state)
+            re_client.disconnected.connect(self._on_session_lost)
         else:
             self._re_state_timer = QTimer(self._qt_window)
             self._re_state_timer.timeout.connect(self._update_re_state)
@@ -348,32 +318,25 @@ class QtDataAcquisitionWindow:
         # self.qt_widget.viewer.events.title.connect(self._title_changed)
         # self.qt_widget.viewer.events.palette.connect(self._update_palette)
 
-        # In IPython the session can end with the window still open.
-        atexit.register(self._close_at_exit)
-
         if show:
             self.show()
 
-    def _close_at_exit(self):
-        # IPython is already exiting; don't ask it again.
-        self._end_ipython_on_close = False
+    def _on_session_lost(self):
+        logger.warning("The IPython session ended; closing the GUI")
         self._qt_window.close()
 
     def _teardown(self):
-        """Undo what the GUI attached outside itself: RunEngine hooks, child process."""
+        """Close every widget, so each stops its own timers, threads and processes."""
         if self._torn_down:
             return
         self._torn_down = True
-        atexit.unregister(self._close_at_exit)
-        if isinstance(self._re_client, RunEngine):
-            self._uninstall_state_hook(self._re_client)
         # WA_DeleteOnClose deletes the children without sending them closeEvent.
         for widget in self._qt_window.findChildren(QWidget):
             # Closing one widget can delete others (pyqtgraph deletes its viewport).
             if shiboken.isValid(widget):
                 widget.close()
-        if self._end_ipython_on_close:
-            _end_ipython_session()
+        if isinstance(self._re_client, SessionClient):
+            self._re_client.close()
 
     def _build_menus(self):
         menu_bar = self._qt_window.menuBar()
@@ -387,7 +350,7 @@ class QtDataAcquisitionWindow:
         if self.qt_widget.plan_history is None:
             save_history.setEnabled(False)
             save_history.setToolTip(
-                "Plan history is only recorded when running plans locally."
+                "Plan history is only recorded when attached to an IPython session."
             )
         screenshot = self.file_menu.addAction("Take Screenshot…")
         screenshot.triggered.connect(self._on_take_screenshot)
@@ -461,22 +424,11 @@ class QtDataAcquisitionWindow:
             return
         self._status_bar.showMessage(f"Screenshot saved to {path}", 5000)
 
-    def _install_state_hook(self, re: RunEngine):
-        self._state_signal = _StateSignal(self._qt_window)
-        self._state_signal.changed.connect(self._update_re_state)
-        # Called from the RunEngine's event-loop thread.
-        self._state_hook = install_hook(
-            re, "state_hook", lambda *_: self._state_signal.changed.emit()
-        )
-
-    def _uninstall_state_hook(self, re: RunEngine):
-        uninstall_hook(re, "state_hook", self._state_hook)
-
-    def _update_re_state(self):
+    def _update_re_state(self, *_):
         self._re_state_label.setText(self._re_state_text())
 
     def _re_state_text(self) -> str:
-        if isinstance(self._re_client, RunEngine):
+        if isinstance(self._re_client, SessionClient):
             state = self._re_client.state
         else:
             status = self._re_client.re_manager_status or {}
@@ -563,30 +515,19 @@ class QtDataAcquisitionWindow:
         del self._qt_window
 
 
-def launch_local_viewer(spec: GuiSpec, end_ipython_on_close: bool = False):
-    """Create and return the GUI in in-process (local) mode.
-
-    Intended to be run from within an IPython session that already has the
-    RunEngine (``RE``) and devices loaded, so the plan widget can execute plans
-    via ``RE(plan(...))``. With ``end_ipython_on_close``, closing the window also
-    ends that IPython session (what :func:`run` does, since it started it).
-    """
-    from qtpy.QtWidgets import QApplication
-
-    # IPython's Qt event loop hook runs after startup, so create the
-    # QApplication now to build widgets safely.
-    app = QApplication.instance() or QApplication([])
-    set_settings_scope(*spec.settings_scope)
-    apply_bnl_theme(app, saved_theme())
-    re = IPython.get_ipython().user_ns.get("RE", None)
-    if not isinstance(re, RunEngine):
-        raise RuntimeError(
-            "RE not found in IPython user namespace or is not a RunEngine instance."
-        )
-
-    return QtDataAcquisitionWindow(
-        re_client=re, spec=spec, end_ipython_on_close=end_ipython_on_close
-    )
+def run_client(argv: list[str] | None = None):
+    """Run the GUI process that :func:`.session_server.start_gui` starts."""
+    parser = argparse.ArgumentParser(description="Data-acquisition GUI process")
+    parser.add_argument("--connect", required=True, help="The session's socket")
+    parser.add_argument("spec_ref", help='The GuiSpec, as "module:NAME"')
+    args = parser.parse_args(argv)
+    spec = load_spec(args.spec_ref)
+    with gui_qt(spec.title):
+        set_settings_scope(*spec.settings_scope)
+        apply_bnl_theme(theme=saved_theme())
+        session = SessionClient(args.connect)
+        session.connect_to_session()
+        QtDataAcquisitionWindow(re_client=session, spec=spec)
 
 
 def run(spec_ref: str, argv: list[str] | None = None):
@@ -603,9 +544,9 @@ def run(spec_ref: str, argv: list[str] | None = None):
     mode.add_argument(
         "--profile",
         default=spec.default_profile,
-        help="Profile to load when running acquisition in-process. If set (or if"
-        " no QueueServer is given), start IPython on this profile with the GUI"
-        " attached, running plans via RE(plan(...)).",
+        help="Profile to start IPython on when no QueueServer is given. The GUI"
+        " opens in its own process attached to that session, running plans there"
+        " via RE(plan(...)).",
     )
     mock_vars = " ".join(f"{k}={v}" for k, v in spec.mock_environment.items())
     parser.add_argument(
@@ -632,7 +573,7 @@ def run(spec_ref: str, argv: list[str] | None = None):
     if args.mock:
         os.environ.update(spec.mock_environment)
     if args.history_file:
-        # An env var, so it reaches the GUI built later inside the IPython session.
+        # An env var, so it reaches the GUI process the session starts.
         os.environ[spec.plan_history_env] = args.history_file
 
     os.environ.update(spec.environment)
@@ -659,15 +600,14 @@ def run(spec_ref: str, argv: list[str] | None = None):
         os.environ["MPLBACKEND"] = "qtagg"
 
         config = Config()
+        # The session keeps Qt for matplotlib and to run the GUI's commands.
         config.InteractiveShellApp.gui = "qt"
-        # Run the profile first (defining RE and devices), then attach the GUI.
+        # Run the profile first (defining RE and devices), then open the GUI.
         # exec_lines run in order, before any command-line files.
         config.InteractiveShellApp.exec_lines = [
             f"get_ipython().run_line_magic('run', {f'-i {profile_path}'!r})",
-            "from hextools.gui.spec import load_spec",
-            "from hextools.gui.window import launch_local_viewer",
-            f"launch_local_viewer(load_spec({spec_ref!r}),"
-            f" end_ipython_on_close={not args.keep_ipython})",
+            "from hextools.gui.session_server import start_gui",
+            f"start_gui({spec_ref!r}, end_session_on_close={not args.keep_ipython});",
         ]
         config.TerminalIPythonApp.display_banner = False
         start_ipython(argv=[], config=config)

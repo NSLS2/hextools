@@ -25,7 +25,9 @@ def show_plan_error(parent: QWidget, title: str, error: BaseException) -> None:
         QMessageBox.warning(parent, "Plan paused", PAUSED_MESSAGE)
     else:
         cause = _unwrap_failed_status(error)
-        QMessageBox.critical(parent, title, f"{type(cause).__name__}: {cause}")
+        # A SessionError carries the type of the error raised in the session.
+        name = getattr(cause, "type_name", type(cause).__name__)
+        QMessageBox.critical(parent, title, f"{name}: {cause}")
 
 
 def run_in_ipython(code: str) -> BaseException | None:

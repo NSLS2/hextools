@@ -6,8 +6,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("qtpy")
 pytest.importorskip("bluesky_widgets")
 
-from bluesky import RunEngine  # noqa: E402
-from IPython.core.interactiveshell import InteractiveShell  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
@@ -30,10 +28,11 @@ from hextools.tomography.radiography import take_radiograph  # noqa: E402
         take_radiograph,
     ],
 )
-def test_plan_form_offers_the_proc_filter_type_defaulting_to_average(plan):
+def test_plan_form_offers_the_proc_filter_type_defaulting_to_average(
+    plan, session_client
+):
     app = QApplication.instance() or QApplication([])
-    InteractiveShell.instance()
-    widget = QtPlanWidget(RunEngine({}, call_returns_result=True), plan)
+    widget = QtPlanWidget(session_client, plan)
     try:
         combos = {name: combo for name, combo, _ in widget._enum_fields}
         combo = combos["filter_type"]

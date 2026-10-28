@@ -4,18 +4,18 @@ The **HEX Data Acquisition** GUI generates a form for each beamline plan,
 shows live detector images, and tracks every plan you run. It can run plans in
 two ways:
 
-- **In-process (local) mode** — the default. The GUI starts an IPython session
-  on the [collection profile](profile.md) and attaches itself to it. Plans run
-  in that session's RunEngine, exactly as if you had typed `RE(plan(...))` at
-  the prompt.
+- **IPython-session mode** — the default. `hex-gui` starts an IPython session
+  on the [collection profile](profile.md) and opens the GUI in its own process,
+  attached to that session. Plans run in the session's RunEngine, exactly as if
+  you had typed `RE(plan(...))` at the prompt.
 - **Queue Server mode** — the GUI connects to a Bluesky Queue Server over HTTP
   and *submits* plans to its queue instead of running them itself.
 
 ## Starting the GUI
 
 ```bash
-pixi run hex-gui          # in-process mode, real hardware
-pixi run hex-gui-mock     # in-process mode, simulated devices
+pixi run hex-gui          # IPython-session mode, real hardware
+pixi run hex-gui-mock     # IPython-session mode, simulated devices
 ```
 
 The `hex-gui` task runs `python -m hextools.gui`, which accepts these options:
@@ -23,15 +23,26 @@ The `hex-gui` task runs `python -m hextools.gui`, which accepts these options:
 | Option                    | Meaning                                                                                  |
 | ------------------------- | ---------------------------------------------------------------------------------------- |
 | `--mock`                  | Use simulated devices (sets `HEXTOOLS_RUNNING_IN_CI=YES`).                               |
-| `--profile NAME`          | Profile to load in in-process mode (default `collection`).                               |
+| `--profile NAME`          | Profile to start the IPython session on (default `collection`).                         |
 | `--queueserver-uri URI`   | Run in Queue Server mode against the HTTP server at `URI` (e.g. `http://localhost:60610`). |
 | `--history-file PATH`     | JSON file to save plan history to, and reload it from on startup. Also settable with `HEXTOOLS_PLAN_HISTORY_FILE`. |
+| `--keep-ipython`          | Keep the IPython session open when the GUI window is closed.                            |
 
-In in-process mode the terminal you started the GUI from becomes a normal
+In IPython-session mode the terminal you started the GUI from becomes a normal
 IPython prompt connected to the same session. You can keep typing commands
 there while the GUI is open; plans run from the GUI are echoed in the terminal
 with a `[GUI]` prefix and added to the IPython history, so you can recall and
-edit them with the up arrow.
+edit them with the up arrow. Live plots are drawn in the GUI while it is open,
+and in their own windows when it is not.
+
+### If the GUI crashes
+
+The GUI runs in a separate process from the session, so a crash in it (for
+example running out of memory showing images) cannot stop a running plan or
+its cleanup. The terminal says the GUI exited unexpectedly and where its
+output was saved; type `restart_gui()` at the prompt to open it again, even
+while a plan is running. Closing the window normally also ends the session,
+unless you started it with `--keep-ipython`.
 
 ## Window layout
 

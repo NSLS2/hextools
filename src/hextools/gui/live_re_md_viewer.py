@@ -1,12 +1,11 @@
 """Qt widgets that display live Run Engine metadata.
 
-Two sources of RE metadata are supported, sharing a common base class that owns
-the UI and polling loop:
+Two sources of RE metadata are supported by the same widget:
 
-* :class:`QtReMetadataMonitor` polls the Queue Server ``re_metadata`` API. Use
-  this when driving the beamline through the Queue Server.
-* :class:`QtReMetadataMonitorLocal` reads ``RE.md`` from a RunEngine obtained
-  from the IPython namespace. Use this when running acquisition in-process.
+* the Queue Server's ``re_metadata`` API, when driving the beamline through the
+  Queue Server;
+* the IPython session's ``RE.md``, which the session sends the GUI whenever it
+  changes (:class:`~hextools.gui.session_client.SessionClient`).
 
 Display is best effort: a missing key, a closed environment, an absent
 RunEngine, or a failed request renders as a placeholder rather than raising.
@@ -17,7 +16,6 @@ from __future__ import annotations
 from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 
-from bluesky import RunEngine
 from bluesky_widgets.models.run_engine_client import RunEngineClient
 from bluesky_widgets.qt.threading import FunctionWorker
 from qtpy.QtCore import Qt, QTimer, Signal, Slot
@@ -38,11 +36,14 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from hextools.gui.session_client import SessionClient
 from hextools.gui.spec import ProposalBackend
 
 RunEngineMetadata = MutableMapping[str, Any]
 
 _PLACEHOLDER = "\u2014"  # em dash
+# Keys a proposal switch sets in RE.md.
+_PROPOSAL_KEYS = ("data_session", "username", "start_datetime", "proposal")
 
 
 class QtReMetadataMonitor(QWidget):
@@ -68,7 +69,7 @@ class QtReMetadataMonitor(QWidget):
 
     def __init__(
         self,
-        re: RunEngineClient | RunEngine,
+        re: RunEngineClient | SessionClient,
         keys: Sequence[str] | dict[str, str],
         parent: QWidget | None = None,
         *,
@@ -123,12 +124,12 @@ class QtReMetadataMonitor(QWidget):
             if not response.get("success", False):
                 return {}
             return response.get("re_metadata") or {}
-        elif isinstance(self._re, RunEngine):
-            return self._re.md
+        elif isinstance(self._re, SessionClient):
+            return dict(self._re.md)
 
         raise RuntimeError(
             "RE Metadata Viewer widget must be initialized with a RunEngineClient "
-            "or RunEngine instance."
+            "or SessionClient."
         )
 
     def _start_worker(self):
@@ -176,7 +177,7 @@ class QtProposalInfo(QtReMetadataMonitor):
 
     def __init__(
         self,
-        re: RunEngineClient | RunEngine,
+        re: RunEngineClient | SessionClient,
         parent: QWidget | None = None,
         *,
         proposals: ProposalBackend | None = None,
@@ -208,8 +209,11 @@ class QtProposalInfo(QtReMetadataMonitor):
         backend = self._proposals
         if backend is None:
             raise RuntimeError("No proposal system is configured for this GUI.")
-        if isinstance(self._re, RunEngine):
-            return backend.switch_proposal(proposal, username, password, md=self._re.md)
+        if isinstance(self._re, SessionClient):
+            # The changes reach the session's RE.md in _on_switch_returned.
+            return backend.switch_proposal(
+                proposal, username, password, md=dict(self._re.md)
+            )
         client = self._re._client  # noqa: SLF001
         # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
         response = client.re_metadata()  # type: ignore
@@ -220,8 +224,7 @@ class QtProposalInfo(QtReMetadataMonitor):
         md = dict(response.get("re_metadata") or {})
         updated = backend.switch_proposal(proposal, username, password, md=md)
         if not backend.md_is_shared():
-            keys = ("data_session", "username", "start_datetime", "proposal")
-            changes = {k: updated[k] for k in keys if k in updated}
+            changes = {k: updated[k] for k in _PROPOSAL_KEYS if k in updated}
             client.script_upload(f"RE.md.update({changes!r})")
         return updated
 
@@ -245,15 +248,33 @@ class QtProposalInfo(QtReMetadataMonitor):
         self._change_button.setEnabled(True)
         self._change_button.setText("Change Proposal…")
 
-    def _on_switch_returned(self, _md):
+    def _on_switch_returned(self, updated):
+        session = self._re
+        backend = self._proposals
+        if (
+            isinstance(session, SessionClient)
+            and backend is not None
+            and not backend.md_is_shared()
+        ):
+            changes = {k: updated[k] for k in _PROPOSAL_KEYS if k in updated}
+            session.execute(
+                f"{session.re_name}.md.update({changes!r})", self._on_md_updated
+            )
+            return
         self._reset_button()
         self._start_worker()
 
-    def _on_switch_errored(self, error: Exception):
+    def _on_md_updated(self, error: BaseException | None):
+        if error is not None:
+            self._on_switch_errored(error)
+            return
         self._reset_button()
-        QMessageBox.critical(
-            self, "Couldn't change proposal", f"{type(error).__name__}: {error}"
-        )
+        self._start_worker()
+
+    def _on_switch_errored(self, error: BaseException):
+        self._reset_button()
+        name = getattr(error, "type_name", type(error).__name__)
+        QMessageBox.critical(self, "Couldn't change proposal", f"{name}: {error}")
 
 
 class QtChangeProposalDialog(QDialog):

@@ -1,24 +1,23 @@
-"""Plan execution controls with an optional local-RunEngine mode.
+"""Plan execution controls for the Queue Server or an IPython session.
 
 :class:`QtReExecutionControls` extends the bluesky-widgets execution-controls
-widget (Pause/Resume/Stop/Abort/Halt). In the default (Queue Server) mode it
-behaves exactly like the upstream widget, driven by ``model.events``. When
-``local`` is True it drives an in-process RunEngine directly: the buttons call
-``RE.request_pause``/``resume``/``stop``/``abort``/``halt``, button enablement
-tracks ``RE.state`` via a poll timer, and the Queue-Server-only ``Ctrl-C``
-button is hidden.
+widget (Pause/Resume/Stop/Abort/Halt). Given a Queue Server model it behaves
+exactly like the upstream widget. Given a
+:class:`~hextools.gui.session_client.SessionClient` it drives the session's
+RunEngine: Pause is sent straight to the RunEngine, while Resume, Stop, Abort
+and Halt run as ``RE.resume()`` etc. at the session's prompt, where they show
+in the terminal. Button enablement follows the session's RunEngine state, and
+the Queue-Server-only ``Ctrl-C`` button is hidden.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from bluesky_widgets.qt.run_engine_client import (
     QtReExecutionControls as _QtReExecutionControls,
 )
-from qtpy.QtCore import QTimer
 
-from hextools.gui._ipython import run_in_ipython
+from hextools.gui._ipython import show_plan_error
+from hextools.gui.session_client import SessionClient
 
 
 class _NullSignal:
@@ -37,150 +36,84 @@ class _NullModel:
 
 
 class QtReExecutionControls(_QtReExecutionControls):
-    """bluesky-widgets plan execution controls with an optional local-RE mode.
+    """bluesky-widgets plan execution controls, also for an IPython session.
 
     Parameters
     ----------
     model : object, optional
-        The Queue Server client model. Ignored when ``local`` is True.
+        The Queue Server client model. Ignored when ``session`` is given.
     parent : QWidget, optional
         Parent widget.
-    local : bool, optional
-        Drive an in-process RunEngine instead of the Queue Server.
-    re : object, optional
-        A RunEngine instance to control (local mode only). If omitted, resolved
-        by name from ``namespace``.
-    re_name : str, optional
-        Name of the RunEngine in the namespace. Default ``"RE"``.
-    namespace : Mapping[str, object], optional
-        Namespace to resolve ``re_name`` from. Defaults to the IPython
-        ``user_ns``.
-    poll_period : float, optional
-        Interval between ``RE.state`` reads, in seconds. Default: 0.5.
+    session : SessionClient, optional
+        Drive this session's RunEngine instead of the Queue Server.
     """
 
     def __init__(
-        self,
-        model=None,
-        parent=None,
-        *,
-        local: bool = False,
-        re=None,
-        re_name: str = "RE",
-        namespace: Mapping[str, object] | None = None,
-        poll_period: float = 0.5,
+        self, model=None, parent=None, *, session: SessionClient | None = None
     ):
-        self._local = local
-        self._re = re
-        self._re_name = re_name
-        self._namespace = namespace
-        self._timer = None
-        self._resume_pending = False
-
-        super().__init__(_NullModel() if local else model, parent)
-
-        if not local:
+        self._session = session
+        self._command_pending = False
+        super().__init__(_NullModel() if session is not None else model, parent)
+        if session is None:
             return
-
-        # Kernel interrupt is a Queue Server concept; hide it in local mode.
+        # Kernel interrupt is a Queue Server concept; hide it here.
         self._pb_kernel_interrupt.setVisible(False)
+        session.state_changed.connect(self._update_buttons)
+        self._update_buttons()
 
-        self._timer = QTimer(self)
-        self._timer.setInterval(int(poll_period * 1000))
-        self._timer.timeout.connect(self._poll_local_state)
-        self._timer.start()
-        self._poll_local_state()
-
-    def _resolve_re(self):
-        if self._re is not None:
-            return self._re
-        namespace = self._namespace
-        if namespace is None:
-            namespace = _ipython_namespace()
-        return namespace.get(self._re_name)
-
-    def _poll_local_state(self):
-        run_engine = self._resolve_re()
-        state = getattr(run_engine, "state", None) if run_engine is not None else None
+    def _update_buttons(self, *_):
+        state = self._session.state if self._session is not None else None
         running = state == "running"
         paused = state == "paused"
+        idle_for_commands = paused and not self._command_pending
         self._pb_plan_pause_deferred.setEnabled(running)
         self._pb_plan_pause_immediate.setEnabled(running)
-        self._pb_plan_resume.setEnabled(paused and not self._resume_pending)
-        self._pb_plan_stop.setEnabled(paused)
-        self._pb_plan_abort.setEnabled(paused)
-        self._pb_plan_halt.setEnabled(paused)
+        self._pb_plan_resume.setEnabled(idle_for_commands)
+        self._pb_plan_stop.setEnabled(idle_for_commands)
+        self._pb_plan_abort.setEnabled(idle_for_commands)
+        self._pb_plan_halt.setEnabled(idle_for_commands)
 
-    def _call_re(self, method, *args, **kwargs):
-        run_engine = self._resolve_re()
-        if run_engine is None:
+    def _run(self, method: str):
+        session = self._session
+        if session is None or self._command_pending:
             return
-        try:
-            getattr(run_engine, method)(*args, **kwargs)
-        except Exception as ex:  # noqa: BLE001 - mirror upstream best-effort behavior
-            print(f"Exception: {ex}")
+        # A second click before the first returns would queue another command.
+        self._command_pending = True
+        self._update_buttons()
+        session.execute(f"{session.re_name}.{method}()", self._on_done)
+
+    def _on_done(self, error: BaseException | None):
+        self._command_pending = False
+        self._update_buttons()
+        if error is not None:
+            show_plan_error(self, "Plan failed", error)
 
     def _pb_plan_pause_deferred_clicked(self):
-        if not self._local:
+        if self._session is None:
             return super()._pb_plan_pause_deferred_clicked()
-        self._call_re("request_pause", True)
+        self._session.request_pause(defer=True)
 
     def _pb_plan_pause_immediate_clicked(self):
-        if not self._local:
+        if self._session is None:
             return super()._pb_plan_pause_immediate_clicked()
-        self._call_re("request_pause", False)
+        self._session.request_pause(defer=False)
 
     def _pb_plan_resume_clicked(self):
-        if not self._local:
+        if self._session is None:
             return super()._pb_plan_resume_clicked()
-        run_engine = self._resolve_re()
-        if run_engine is None or self._resume_pending:
-            return
-        # A second click before resume() returns would queue another resume().
-        self._resume_pending = True
-        self._pb_plan_resume.setEnabled(False)
-        # resume() installs a SIGINT handler, which only the main thread may do,
-        # so run it after this click returns, never on a worker thread.
-        QTimer.singleShot(0, lambda: self._resume_on_main_thread(run_engine))
-
-    def _resume_on_main_thread(self, run_engine):
-        try:
-            if _ipython_namespace().get(self._re_name) is run_engine:
-                run_in_ipython(f"{self._re_name}.resume()")
-            else:
-                self._call_re("resume")
-        finally:
-            self._resume_pending = False
+        self._run("resume")
 
     def _pb_plan_stop_clicked(self):
-        if not self._local:
+        if self._session is None:
             return super()._pb_plan_stop_clicked()
-        self._call_re("stop")
+        self._run("stop")
 
     def _pb_plan_abort_clicked(self):
-        if not self._local:
+        if self._session is None:
             return super()._pb_plan_abort_clicked()
-        self._call_re("abort")
+        self._run("abort")
 
     def _pb_plan_halt_clicked(self):
-        if not self._local:
+        if self._session is None:
             return super()._pb_plan_halt_clicked()
-        self._call_re("halt")
-
-    def closeEvent(self, event):
-        if self._timer is not None:
-            self._timer.stop()
-        super().closeEvent(event)
-
-
-def _ipython_namespace() -> Mapping[str, object]:
-    """Return the active IPython ``user_ns``, or an empty mapping if none."""
-    try:
-        from IPython.core.getipython import get_ipython
-
-        ipython = get_ipython()
-    except Exception:  # pragma: no cover - IPython always present in this env
-        return {}
-    if ipython is None:
-        return {}
-    return ipython.user_ns
+        self._run("halt")

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import Any
 
-from bluesky import RunEngine
 from qtpy.QtCore import QDate, QPoint, Qt
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -100,12 +99,11 @@ class QtScanBrowser(QWidget):
 
     _COLUMNS = ["Time", "Scan ID", "UID"]
 
-    def __init__(
-        self, tiled_client: Any, specs: list[Spec], re: RunEngine, parent=None
-    ):
+    def __init__(self, tiled_client: Any, specs: list[Spec], re: Any, parent=None):
         super().__init__(parent)
         self._client = tiled_client
         self._specs = list(specs)
+        # Anything with the session's RE.md as ``md``, e.g. a SessionClient.
         self._re = re
         self._callbacks: dict[str, list[tuple[str, ScanCallback]]] = {}
         self._runs: list[RunSummary] = []

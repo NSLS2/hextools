@@ -79,8 +79,9 @@ class GuiSpec:
     run_specs : sequence
         Tiled specs offered by the Scan Browser.
     status_widgets : sequence of callables
-        Extra boxes for the top row in local mode, each built as
-        ``factory(run_engine, namespace)``.
+        Extra boxes for the top row when attached to an IPython session, each
+        built as ``factory(session)`` from a
+        :class:`~hextools.gui.session_client.SessionClient`.
     extra_tabs : sequence of (title, callable)
         Extra tabs after the built-in ones, each built as ``factory()``.
     proposals : ProposalBackend, optional
