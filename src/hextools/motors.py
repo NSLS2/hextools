@@ -1,13 +1,18 @@
 """Motion stages and related utility functions for the HEX beamline."""
 
+import asyncio
+from typing import Any
+
 import bluesky.plan_stubs as bps
 from ophyd_async.core import (
     AsyncMovable,
     AsyncStatus,
+    SignalR,
     StandardReadable,
     StrictEnum,
     default_mock_class,
     derived_signal_r,
+    observe_signals_value,
     wait_for_value,
 )
 from ophyd_async.core import (
@@ -167,9 +172,11 @@ class FOV_2_4_mm_Camera(  # noqa: N801
         self._at_left_objective = epics_signal_r(
             bool, prefix + "ObjSel}AtLeftObj", name="at_left_objective"
         )
+        self._stop_requested = asyncio.Event()
+        self._arrival_grace = 2.0
+        self._start_timeout = 5.0
 
-    @AsyncStatus.wrap
-    async def set(self, value: CameraObjective | str):
+    def set(self, value: CameraObjective | str) -> AsyncStatus:
         """Move the camera to the specified objective.
 
         Parameters
@@ -182,6 +189,11 @@ class FOV_2_4_mm_Camera(  # noqa: N801
         RuntimeError
             If the camera objective selector is not homed.
         """
+        # Reset on the call, not in the task, so a stop() at any later point is honored.
+        self._stop_requested = asyncio.Event()
+        return AsyncStatus(self._set(value))
+
+    async def _set(self, value: CameraObjective | str):
         if await self._obj_selector_home_sts.get_value() != HomeStatus.HOMED:
             raise RuntimeError(
                 "Camera objective selector is not homed. "
@@ -202,12 +214,62 @@ class FOV_2_4_mm_Camera(  # noqa: N801
                 "one of its names."
             )
 
-        await self.objective.set(value)
         if value == CameraObjective.RIGHT_2MM:
-            rb_check = self._at_right_objective
+            at_objective = self._at_right_objective
         else:
-            rb_check = self._at_left_objective
-        await wait_for_value(rb_check, True, timeout=None)
+            at_objective = self._at_left_objective
+        stopped = AsyncStatus(self._stop_requested.wait())
+        watch = asyncio.create_task(self._reached(at_objective, stopped))
+        try:
+            # Let the watch subscribe first, so a move that ends during the put is seen.
+            await asyncio.sleep(0)
+            if not self._stop_requested.is_set():
+                await self.objective.set(value)
+                if self._stop_requested.is_set():
+                    # stop() came while the command was in flight, maybe before motion.
+                    await self.obj_selector.motor_stop.set(1)
+            reached = await watch
+        finally:
+            watch.cancel()
+            stopped.task.cancel()
+        if not reached:
+            raise RuntimeError(
+                f"{self.name} objective selector stopped before reaching {value.value}"
+            )
+
+    async def _reached(self, at_objective: SignalR[bool], stopped: AsyncStatus) -> bool:
+        """Whether the selector reaches the objective before it stops moving."""
+        dmov = self.obj_selector.motor_done_move
+        signals: list[SignalR[Any]] = [at_objective, dmov]
+        moved = False
+        try:
+            async with asyncio.timeout(self._start_timeout) as start_deadline:
+                async for signal, reading in observe_signals_value(
+                    *signals, done_status=stopped
+                ):
+                    if signal is at_objective and reading:
+                        return True
+                    if signal is dmov:
+                        if not reading:
+                            moved = True
+                            start_deadline.reschedule(None)
+                        elif moved:
+                            break
+        except TimeoutError:
+            return bool(await at_objective.get_value())
+        if stopped.done:
+            return bool(await at_objective.get_value())
+        # AtLeftObj/AtRightObj can update just after the motor reports done.
+        try:
+            await wait_for_value(at_objective, True, timeout=self._arrival_grace)
+        except TimeoutError:
+            return False
+        return True
+
+    async def stop(self, success: bool = False):
+        """Stop the objective selector, which the IOC moves to the chosen objective."""
+        self._stop_requested.set()
+        await self.obj_selector.stop()
 
 
 class FOV_20_40_mm_Camera(StandardReadable, EpicsDevice):  # noqa: N801

@@ -1,5 +1,6 @@
 """Double crystal Laue monochromator (DCLM) device and energy change plan."""
 
+import asyncio
 from collections.abc import Callable
 from functools import partial
 from typing import Final
@@ -189,6 +190,12 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
         ]
         async for update in forward_watcher_updates(statuses, self.name, combine=False):
             yield update
+
+    async def stop(self, success: bool = False):
+        """Stop the motors a beam-mode change moves."""
+        await asyncio.gather(
+            self.xtal1_vertical_trans.stop(), self.cooled_beam_stop.stop()
+        )
 
 
 def change_beam_mode(
