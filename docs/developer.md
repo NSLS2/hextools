@@ -308,6 +308,41 @@ When the user presses **Run Plan**, the widget:
    queue. The plan must be loaded in the Queue Server worker's namespace and be
    allowed for the user group in the Queue Server's permissions.
 
+The GUI can connect to a Queue Server over its HTTP API (`--queueserver-uri`) or
+directly to its 0MQ API (`--queueserver-zmq-control-addr`, optionally with
+`--queueserver-zmq-info-addr`). Direct 0MQ is useful for a local Queue Server and
+does not add an HTTP server. The worker's startup profile, plans/devices
+allowlist, permissions and Redis configuration must be set up for the beamline;
+the endpoint flags alone do not configure or launch a worker:
+
+```bash
+# Start QueueServer separately with your existing worker/profile configuration,
+# binding its control and info endpoints to 127.0.0.1:60615 and :60625.
+
+# In another terminal, in the same Pixi environment as the GUI:
+pixi run -e gui hex-gui \
+  --queueserver-zmq-control-addr tcp://127.0.0.1:60615 \
+  --queueserver-zmq-info-addr tcp://127.0.0.1:60625
+```
+
+In the GUI, choose **Connect** in the Queue Server panel to start status
+monitoring and enable queue controls.
+
+This prototype supplies the connection and queue-submission path, not a
+QueueServer manager or beamline-specific worker configuration. The worker's
+plans/devices allowlist, permissions and Redis configuration must be set up
+separately. Closing or crashing the GUI
+does not stop the separately started worker. Stop it explicitly using the
+Queue Server's own controls after confirming no plan is running; this GUI does
+not terminate a worker or an active plan.
+
+Queue Server mode does not yet read live ophyd values or report device
+connection state. The Available Devices tab says **Allowed** when a device is
+present in the worker's allowed-device list; that is permission/configuration
+information, not proof that its hardware is connected. Mock devices created in
+the GUI process do not share state with a separate Queue Server worker, so
+`--mock` is not a cross-process hardware-status simulation.
+
 (form-fields)=
 ### How parameters become form fields
 

@@ -28,6 +28,7 @@ from hextools.motors import (
     FOV_2_4_mm_Camera,
     FOV_20_40_mm_Camera,
     OpticsTable,
+    SampleSmall,
     SampleTower,
     move_motor,
 )
@@ -174,6 +175,7 @@ HEX_GUI = GuiSpec(
         ("dclm", DCLM),
         ("optics_table", OpticsTable),
         ("sample_tower", SampleTower),
+        ("sample_small", SampleSmall),
         ("panda", HDFPanda),
         ("kinetix1", KinetixDetector),
         ("kinetix2", KinetixDetector),

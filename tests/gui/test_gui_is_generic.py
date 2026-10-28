@@ -47,6 +47,8 @@ def test_hex_spec_loads_and_names_callable_plans():
     ]
     for technique in spec.techniques:
         assert all(callable(plan) for _, plan in technique.plans)
+    expected_devices = dict(spec.expected_devices)
+    assert expected_devices["sample_small"].__name__ == "SampleSmall"
 
 
 def test_load_spec_refuses_something_that_is_not_a_spec():

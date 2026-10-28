@@ -4,10 +4,10 @@ Nothing here is specific to one beamline: the techniques, plans, cameras,
 devices, proposal system and site all come from the spec (for HEX,
 ``hextools.gui_config.HEX_GUI``). :func:`run` is the command-line entry point.
 
-With ``--queueserver-uri`` (or ``QSERVER_HTTP_SERVER_URI``) the GUI connects to a
-QueueServer and submits plans to its queue. Otherwise it starts IPython on a
-profile (``--profile``) with the GUI attached and runs plans in-process via
-``RE(plan(...))``.
+With ``--queueserver-uri`` (or ``QSERVER_HTTP_SERVER_URI``) or
+``--queueserver-zmq-control-addr`` the GUI connects to a QueueServer and submits
+plans to its queue. Otherwise it starts IPython on a profile (``--profile``)
+with the GUI attached and runs plans in-process via ``RE(plan(...))``.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from bluesky import RunEngine
 from bluesky_widgets.models.run_engine_client import RunEngineClient
 from bluesky_widgets.qt.run_engine_client import (
     QLabel,
+    QtReManagerConnection,
     QtRePlanQueue,
     QtReQueueControls,
     QtReRunningPlan,
@@ -154,6 +155,7 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         # metadata. In-process mode reads metadata from the local RunEngine.
         controls = QHBoxLayout()
         if isinstance(re_client, RunEngineClient):
+            controls.addWidget(_QueueServerConnectionMonitor(re_client))
             controls.addWidget(QtReQueueControls(re_client))
             controls.addWidget(QtReExecutionControlsRemote(re_client))
             controls.addWidget(QtReRunningPlan(re_client))
@@ -240,6 +242,18 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
 
 class _StateSignal(QObject):
     changed = Signal()
+
+
+class _QueueServerConnectionMonitor(QtReManagerConnection):
+    """Disconnect status callbacks before the window deletes this monitor."""
+
+    def closeEvent(self, event):
+        self._deactivate_updates = True
+        try:
+            self.model.events.status_changed.disconnect(self.on_update_widgets)
+        except (ValueError, TypeError, RuntimeError):
+            pass
+        super().closeEvent(event)
 
 
 def _end_ipython_session() -> None:
@@ -601,6 +615,18 @@ def run(spec_ref: str, argv: list[str] | None = None):
         " the QueueServer via HTTP and submit plans to its queue.",
     )
     mode.add_argument(
+        "--queueserver-zmq-control-addr",
+        default=None,
+        help="Connect directly to a QueueServer's 0MQ control endpoint, for example"
+        " tcp://127.0.0.1:60615. The worker must already be running.",
+    )
+    parser.add_argument(
+        "--queueserver-zmq-info-addr",
+        default=None,
+        help="Optional QueueServer 0MQ info endpoint (for example"
+        " tcp://127.0.0.1:60625); requires --queueserver-zmq-control-addr.",
+    )
+    mode.add_argument(
         "--profile",
         default=spec.default_profile,
         help="Profile to load when running acquisition in-process. If set (or if"
@@ -629,6 +655,11 @@ def run(spec_ref: str, argv: list[str] | None = None):
 
     args = parser.parse_args(argv)
 
+    if args.queueserver_zmq_info_addr and not args.queueserver_zmq_control_addr:
+        parser.error(
+            "--queueserver-zmq-info-addr requires --queueserver-zmq-control-addr"
+        )
+
     if args.mock:
         os.environ.update(spec.mock_environment)
     if args.history_file:
@@ -637,11 +668,18 @@ def run(spec_ref: str, argv: list[str] | None = None):
 
     os.environ.update(spec.environment)
 
-    if args.queueserver_uri:
+    if args.queueserver_uri or args.queueserver_zmq_control_addr:
         with gui_qt(spec.title):
             set_settings_scope(*spec.settings_scope)
             apply_bnl_theme(theme=saved_theme())
-            re_client = RunEngineClient(http_server_uri=args.queueserver_uri)
+            re_client = (
+                RunEngineClient(http_server_uri=args.queueserver_uri)
+                if args.queueserver_uri
+                else RunEngineClient(
+                    zmq_control_addr=args.queueserver_zmq_control_addr,
+                    zmq_info_addr=args.queueserver_zmq_info_addr,
+                )
+            )
             QtDataAcquisitionWindow(re_client=re_client, spec=spec)
     else:
         from IPython import start_ipython

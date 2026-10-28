@@ -63,7 +63,7 @@ def test_sample_small_labels_preserve_device_identifiers(monkeypatch, remote_for
             assert kwargs["motor"] == name
             assert "motor" in device_keys
         assert "Sample Small" in available._status_labels
-        assert remote._status_labels["Sample Small"].text() == "Connected"
+        assert remote._status_labels["Sample Small"].text() == "Allowed"
     finally:
         for widget in widgets:
             widget.close()
