@@ -9,9 +9,10 @@ import bluesky.plan_stubs as bps
 import yaml
 from ophyd_async.core import (
     AsyncMovable,
-    AsyncStatus,
     StandardReadable,
+    WatchableAsyncStatus,
     derived_signal_r,
+    forward_watcher_updates,
     wait_for_value,
 )
 from ophyd_async.core import StandardReadableFormat as Format
@@ -19,6 +20,7 @@ from ophyd_async.epics.core import EpicsDevice, epics_signal_r
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 from ..utils import ensure_available
+from .shutter import PPSShutter, ShutterStatus, acknowledge_interlock
 
 
 @dataclass
@@ -100,7 +102,7 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
         )
         return closest[1].description or closest[0].name.lower().replace("_", " ")
 
-    @AsyncStatus.wrap
+    @WatchableAsyncStatus.wrap
     async def set(self, value: FilterPosition):
         """Set the filter to the specified position.
 
@@ -115,7 +117,9 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
                 f"Defined positions are: {list(self.positions.keys())}"
             )
 
-        await self.filter_motor.set(self.positions[value].position)
+        move = self.filter_motor.set(self.positions[value].position)
+        async for update in forward_watcher_updates([move], self.name, combine=False):
+            yield update
         await wait_for_value(self.in_position, True, timeout=10)
 
     async def stop(self, success: bool = False):
@@ -223,12 +227,17 @@ def set_filters(
     filter1_upstream: Filter | None = None,
     filter1_downstream: Filter | None = None,
     filter2: Filter | None = None,
+    fe_shutter: PPSShutter | None = None,
 ):
     """Set filter 1 upstream, filter 1 downstream and filter 2 by material.
 
     Each setting is one of that filter's materials from ``filters.yml`` (for
     example ``"6 mm Cu"``) or ``"pass through"``. A filter with no setting does
     not move; the others move together.
+
+    Moving a filter closes the front-end shutter through its interlock. Once the
+    filters are in position the interlock is acknowledged, and the front-end
+    shutter is reopened if it was open before.
 
     Parameters
     ----------
@@ -240,6 +249,8 @@ def set_filters(
         Material for filter 2.
     filter1_upstream, filter1_downstream, filter2 : Filter, optional
         The filter devices. If None, taken from the session namespace.
+    fe_shutter : PPSShutter, optional
+        The front-end shutter. If None, taken from the session namespace.
 
     Raises
     ------
@@ -263,4 +274,9 @@ def set_filters(
         args += [ensure_available(Filter, **{name: device}), choices[str(setting)]]
     if not args:
         raise ValueError("Choose a setting for at least one filter.")
+    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
+    fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
     yield from bps.mv(*args)
+    yield from acknowledge_interlock(fe_shutter)
+    if fe_was_open:
+        yield from bps.mv(fe_shutter, True)

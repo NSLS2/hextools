@@ -5,7 +5,12 @@ import pytest
 import yaml
 from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
-from ophyd_async.core import callback_on_mock_put, init_devices, set_mock_value
+from ophyd_async.core import (
+    callback_on_mock_put,
+    get_mock_put,
+    init_devices,
+    set_mock_value,
+)
 
 from hextools.photon_delivery_system.filters import (
     SET_FILTERS_NAMES,
@@ -16,6 +21,7 @@ from hextools.photon_delivery_system.filters import (
     load_filters,
     set_filters,
 )
+from hextools.photon_delivery_system.shutter import PPSShutter, ShutterStatus
 
 _TEST_FILTER_POSITIONS = {
     FilterPosition.PASS_THROUGH: FilterSetting(0.0, "pass through"),
@@ -158,6 +164,13 @@ def _set_filters_devices() -> dict[str, Filter]:
     return devices
 
 
+def _fe_shutter(status: ShutterStatus = ShutterStatus.CLOSED) -> PPSShutter:
+    with init_devices(mock=True):
+        fe_shutter = PPSShutter("TEST:FE:", name="fe_shutter")
+    set_mock_value(fe_shutter.status, status)
+    return fe_shutter
+
+
 def test_set_filters_choices_are_each_filters_materials():
     raw = _raw_filter_config()
     for name in SET_FILTERS_NAMES:
@@ -186,6 +199,7 @@ async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):
             filter1_upstream=devices["filter1_upstream"],
             filter1_downstream=devices["filter1_downstream"],
             filter2=devices["filter2"],
+            fe_shutter=_fe_shutter(),
         )
     )
 
@@ -211,6 +225,7 @@ async def test_set_filters_sets_all_three(RE: RunEngine):
             filter1_upstream=devices["filter1_upstream"],
             filter1_downstream=devices["filter1_downstream"],
             filter2=devices["filter2"],
+            fe_shutter=_fe_shutter(),
         )
     )
 
@@ -232,3 +247,66 @@ async def test_set_filters_sets_all_three(RE: RunEngine):
 def test_set_filters_refuses_bad_input(RE: RunEngine, kwargs: dict, match: str):
     with pytest.raises(ValueError, match=match):
         RE(set_filters(**kwargs, **_set_filters_devices()))
+
+
+def _trip_fe_interlock_on_move(filt: Filter, fe_shutter: PPSShutter) -> None:
+    """A filter move closes the FE shutter and drops its interlock acknowledge."""
+
+    def move(value, **_):
+        set_mock_value(fe_shutter.status, ShutterStatus.CLOSED)
+        set_mock_value(fe_shutter.interlock_acknowledged, False)
+        set_mock_value(filt.filter_motor.user_readback, value)
+
+    callback_on_mock_put(filt.filter_motor.user_setpoint, move)
+
+
+@pytest.mark.parametrize("fe_was_open", [True, False])
+async def test_set_filters_acknowledges_the_interlock_and_restores_the_fe_shutter(
+    RE: RunEngine, monkeypatch, fe_was_open: bool
+):
+    monkeypatch.setattr("random.uniform", lambda *_: 0.0)
+    devices = _set_filters_devices()
+    fe_shutter = _fe_shutter(
+        ShutterStatus.OPEN if fe_was_open else ShutterStatus.CLOSED
+    )
+    _trip_fe_interlock_on_move(devices["filter2"], fe_shutter)
+
+    RE(
+        set_filters(
+            filter2_setting="1 mm Cu",
+            filter2=devices["filter2"],
+            fe_shutter=fe_shutter,
+        )
+    )
+
+    get_mock_put(fe_shutter.interlock_ack).assert_called_once()
+    assert await fe_shutter.interlock_acknowledged.get_value()
+    expected = ShutterStatus.OPEN if fe_was_open else ShutterStatus.CLOSED
+    assert await fe_shutter.status.get_value() == expected
+
+
+async def test_set_filters_leaves_an_acknowledged_interlock_alone(RE: RunEngine):
+    devices = _set_filters_devices()
+    fe_shutter = _fe_shutter()
+
+    RE(
+        set_filters(
+            filter2_setting="1 mm Cu",
+            filter2=devices["filter2"],
+            fe_shutter=fe_shutter,
+        )
+    )
+
+    get_mock_put(fe_shutter.interlock_ack).assert_not_called()
+
+
+async def test_filter_move_reports_progress(RE: RunEngine):
+    filt = _set_filters_devices()["filter2"]
+    names: list[str] = []
+
+    status = filt.set(FilterPosition.POS_1)
+    status.watch(lambda **kw: names.append(kw["name"]))  # type: ignore
+    await status
+
+    assert names
+    assert names[-1] == filt.filter_motor.name

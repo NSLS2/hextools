@@ -4,8 +4,10 @@ from .dclm import DCLM, change_beam_mode, change_energy
 from .fe_slit import FrontEndSlit, SlitAperture, set_fe_slit1_aperture
 from .filters import Filter, FilterPosition, load_filters, set_filters
 from .shutter import (
+    PPSShutter,
     Shutter,
     ShutterStatus,
+    acknowledge_interlock,
     ensure_shutter_closed,
     ensure_shutter_open,
     ensure_shutter_state,
@@ -14,6 +16,8 @@ from .slits import Slits, move_slits
 
 __all__ = [
     "Shutter",
+    "PPSShutter",
+    "acknowledge_interlock",
     "ShutterStatus",
     "Filter",
     "load_filters",
