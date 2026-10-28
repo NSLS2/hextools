@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
+from types import FunctionType
 from typing import Any
 
 from bluesky import RunEngine
@@ -106,8 +107,9 @@ class QtShutterStatus(QWidget):
         ``user_ns``. Aliases of the same device are shown once.
     device_type : type
         Devices shown; each must be subscribable with a truthy reading when open.
-    open_plan, close_plan : callable
-        Plans run as ``RE(plan(device, **plan_kwargs))`` to toggle a device.
+    open_plan, close_plan : function
+        Plans run as ``RE(plan(device, **plan_kwargs))`` to toggle a device,
+        looked up in ``namespace`` by their ``__name__``.
     plan_kwargs : mapping, optional
         Extra keyword arguments for both plans.
     title : str, optional
@@ -120,8 +122,8 @@ class QtShutterStatus(QWidget):
         namespace: Mapping[str, Any],
         *,
         device_type: type,
-        open_plan: Callable[..., Any],
-        close_plan: Callable[..., Any],
+        open_plan: FunctionType,
+        close_plan: FunctionType,
         plan_kwargs: Mapping[str, Any] | None = None,
         title: str = "Shutters",
         parent=None,
