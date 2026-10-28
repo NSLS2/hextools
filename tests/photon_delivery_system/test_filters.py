@@ -310,3 +310,26 @@ async def test_filter_move_reports_progress(RE: RunEngine):
 
     assert names
     assert names[-1] == filt.filter_motor.name
+
+
+async def test_set_filters_fails_and_keeps_the_fe_shutter_closed_if_ack_never_comes(
+    RE: RunEngine, monkeypatch
+):
+    monkeypatch.setattr(
+        "hextools.photon_delivery_system.shutter.INTERLOCK_ACK_TIMEOUT", 0.1
+    )
+    devices = _set_filters_devices()
+    fe_shutter = _fe_shutter(ShutterStatus.OPEN)
+    _trip_fe_interlock_on_move(devices["filter2"], fe_shutter)
+    callback_on_mock_put(fe_shutter.interlock_ack, lambda *_, **__: None)
+
+    with pytest.raises(TimeoutError):
+        RE(
+            set_filters(
+                filter2_setting="1 mm Cu",
+                filter2=devices["filter2"],
+                fe_shutter=fe_shutter,
+            )
+        )
+
+    assert await fe_shutter.status.get_value() == ShutterStatus.CLOSED

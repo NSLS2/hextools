@@ -4,6 +4,7 @@ import asyncio
 import random
 from collections.abc import Callable, Hashable
 from functools import partial
+from typing import cast
 
 from bluesky import plan_stubs as bps
 from bluesky.protocols import Reading, Subscribable
@@ -189,16 +190,24 @@ def acknowledge_interlock(shutter: PPSShutter):
     if (yield from bps.rd(shutter.interlock_acknowledged)):
         return
     yield from bps.mv(shutter.interlock_ack, True)
-    yield from bps.wait_for(
-        [
-            partial(
-                wait_for_value,
-                shutter.interlock_acknowledged,
-                True,
-                timeout=INTERLOCK_ACK_TIMEOUT,
+    # bluesky annotates this as Status, but the RunEngine returns futures.
+    acknowledged = cast(
+        list[asyncio.Future[None]],
+        (
+            yield from bps.wait_for(
+                [
+                    partial(
+                        wait_for_value,
+                        shutter.interlock_acknowledged,
+                        True,
+                        timeout=INTERLOCK_ACK_TIMEOUT,
+                    )
+                ]
             )
-        ]
+        ),
     )
+    for future in acknowledged:
+        future.result()
 
 
 def ensure_shutter_state(

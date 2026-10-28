@@ -99,6 +99,7 @@ from hextools.motors import (
 from hextools.photon_delivery_system import (
     DCLM,
     FrontEndSlit,
+    PPSShutter,
     Shutter,
     Slits,
     change_energy,
@@ -133,7 +134,7 @@ PLAN_HISTORY_FILE_ENV = "HEXTOOLS_PLAN_HISTORY_FILE"
 
 # Names must match those defined in the profile / Queue Server namespace.
 EXPECTED_DEVICES: list[tuple[str, type]] = [
-    ("fe_shutter", Shutter),
+    ("fe_shutter", PPSShutter),
     ("photon_shutter", Shutter),
     ("a_slits", Slits),
     ("f_slits", Slits),
