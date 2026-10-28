@@ -13,7 +13,8 @@ Engineering X-ray scattering) beamline at NSLS-II. It provides:
   RunEngine, connects every device and sends data to
   [Tiled](https://blueskyproject.io/tiled);
 - the **HEX Data Acquisition GUI**, a Qt application that generates a form for
-  each plan and runs it either in-process or through the Bluesky Queue Server.
+  each plan and runs it either in an IPython session or through the Bluesky
+  Queue Server.
 
 ```{toctree}
 :maxdepth: 2

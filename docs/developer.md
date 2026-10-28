@@ -258,32 +258,48 @@ and the GUI's Scan Browser find runs of a given kind. To add one:
 
 ## Adding a plan to the GUI
 
-The GUI lives in `src/hextools/gui/`. Each technique tab (Beamline, Tomography,
-EDXD, ...) is a class in `src/hextools/gui/__main__.py` with a column of plan
-tabs. Each plan tab is a `QtPlanWidget`, which builds its form from the plan's
-signature, so adding a plan is usually one line.
+The GUI is in two parts:
+
+- `src/hextools/gui/` is the generic GUI. It knows nothing about HEX and does
+  not import the rest of `hextools` (`tests/gui/test_gui_is_generic.py`
+  enforces this).
+- `src/hextools/gui_config.py` is the HEX configuration: a `GuiSpec` called
+  `HEX_GUI` listing the technique tabs, their plans and cameras, the expected
+  devices, the shutters box, the proposal system and the site.
+
+`python -m hextools.gui` builds the GUI from `HEX_GUI`. Each technique tab
+(Beamline, Tomography, EDXD, ...) is a `Technique` in that spec, with a column
+of plan tabs. Each plan tab is a `QtPlanWidget`, which builds its form from the
+plan's signature, so adding a plan is usually one line.
 
 ### Adding a plan tab
 
-Import the plan at the top of `__main__.py` and add a tab to the technique's
-`plan_tabs`, e.g. in `QtTomographyView.__init__`:
+Import the plan in `gui_config.py` and add a `(label, plan)` pair to the
+technique's `plans`:
 
 ```python
 from hextools.tomography.survey import height_survey
 ...
-plan_tabs.addTab(QtPlanWidget(re_client, tomo_flyscan), "Flyscan")
-plan_tabs.addTab(QtPlanWidget(re_client, height_survey), "Height Survey")
+Technique(
+    "Tomography",
+    plans=[
+        ("Flyscan", tomo_flyscan),
+        ("Height Survey", height_survey),
+        ...
+    ],
+    ...
+)
 ```
 
-`QtPlanWidget(re_client, plan, title=None)` takes the RunEngine (in-process
-mode) or Queue Server client, and the plan function. The form's title defaults
-to the function name in title case; pass `title=` to override it.
+The GUI wraps each plan in `QtPlanWidget(re_client, plan, title=None)`, which
+takes the IPython session (a `SessionClient`) or the Queue Server client, and the
+plan function. The form's title defaults to the function name in title case.
 
 When the user presses **Run Plan**, the widget:
 
 1. checks every field (required fields filled, numbers valid, devices exist and
    have the right type);
-2. in-process mode: builds the call as text, e.g.
+2. IPython-session mode: builds the call as text, e.g.
    `RE(height_survey(detectors=[kinetix1], start=0.0, stop=5.0, num=11, exposure_time=0.01, use_shutter=True))`,
    and runs it in the IPython session. Devices are passed by their names in the
    session namespace, and **the plan is looked up by its function name**, which
@@ -329,54 +345,99 @@ def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = Non
 
 ### Adding a technique tab
 
-To add a new technique, create a view class next to the existing ones and add
-it to `QtTabbedTechniqueSelector`:
+Add a `Technique` to `HEX_GUI.techniques` in `gui_config.py`:
 
 ```python
-class QtImagingView(QWidget):
-    """Imaging view: live camera and imaging plans."""
-
-    def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        top = QHBoxLayout()
-
-        detectors = QtTabbedDetectorsWidget(re_client)
-        detectors.add_detector("kinetix1", "XF:27ID1-BI{Kinetix-Det:1}")
-        top.addWidget(detectors, stretch=3)
-
-        plan_tabs = QTabWidget()
-        plan_tabs.addTab(QtPlanWidget(re_client, height_survey), "Height Survey")
-        top.addWidget(plan_tabs, stretch=1)
-
-        vbox = QVBoxLayout()
-        vbox.addLayout(top, stretch=1)
-        self.setLayout(vbox)
+Technique(
+    "Imaging",
+    plans=[("Height Survey", height_survey)],
+    detectors=[DetectorView("kinetix1", "XF:27ID1-BI{Kinetix-Det:1}")],
+    combined=[("Dual Cam", ["kinetix1", "kinetix3"])],
+),
 ```
 
-and in `QtTabbedTechniqueSelector.__init__`:
-
-```python
-self._imaging = QtImagingView(self._re_client)
-tabs.addTab(self._imaging, "Imaging")
-```
-
-`QtTabbedDetectorsWidget.add_detector(name, prefix)` adds a live viewer for the
-device called `name` in the session, reading images from the PV Access prefix
-`prefix`. It is only shown if the device exists, so the GUI still starts when a
-detector is missing. `add_combined(label, [names])` adds a side-by-side view
-of several detectors.
+Each `DetectorView(name, prefix)` adds a live viewer for the device called
+`name` in the session, reading images from the PV Access prefix `prefix`. It is
+only shown if the device exists, so the GUI still starts when a detector is
+missing. Each `combined` entry adds a side-by-side view of several detectors.
 
 ### Other extension points
 
-- **Available Devices tab** — `EXPECTED_DEVICES` in `__main__.py` lists the
-  devices the beamline should have, with their types; add new devices there.
-- **Scan Browser actions** — `QtScanBrowser.add_callback(spec, label, callback)`
-  adds a button (and right-click action) for runs of a given spec. `callback`
-  is called with the selected run's uid.
-- **Top-row widgets** — `QtTabbedTechniqueSelector.__init__` builds the shared
-  top row; add widgets to `controls`.
-- **Menus** — `QtDataAcquisitionWindow._build_menus`.
+All of these are fields of `GuiSpec` (see its docstring in
+`src/hextools/gui/spec.py`):
+
+- **Available Devices tab** — `expected_devices` lists the devices the beamline
+  should have, with their types; add new devices there.
+- **Top-row widgets** — `status_widgets` holds factories called as
+  `factory(session)` in IPython-session mode; HEX uses one for its
+  shutters box.
+- **Extra tabs** — `extra_tabs` holds `(title, factory)` pairs added after the
+  built-in tabs; HEX uses one for NXS Export.
+- **Proposals** — `proposals` connects Proposal Info's **Change Proposal** to
+  the facility's proposal system. Without it, that button is hidden.
+- **Date, time and weather** — `site`; the box is omitted without one.
+- **Scan Browser** — `run_specs` lists the Tiled specs it offers.
+  `QtScanBrowser.add_callback(spec, label, callback)` adds a button (and
+  right-click action) for runs of a given spec; `callback` is called with the
+  selected run's uid.
+- **Menus** — `QtDataAcquisitionWindow._build_menus` in
+  `src/hextools/gui/window.py`.
+
+### The GUI and the IPython session
+
+The GUI runs in its own process, so a crash in it cannot stop a plan or its
+cleanup. `start_gui()` (in `hextools/gui/session_server.py`) runs in the IPython
+session: it starts a small server on a Unix socket only you can open, then
+launches the GUI. The GUI talks to the session through a `SessionClient`
+(`hextools/gui/session_client.py`), which widgets take where they once took
+the RunEngine:
+
+- **Commands** (Run Plan, Resume, Stop, the shutters, Re-run) are sent as code
+  and run at the session's prompt, echoed in its terminal. Pause goes straight
+  to the RunEngine from the server's thread, since a running plan holds the
+  session's main thread.
+- **What the GUI shows** is sent by the session: RunEngine state, plans started
+  and finished, documents, the narrator's log lines, device progress, the
+  devices in the namespace (with their class hierarchy, so device fields match
+  type hints exactly), `RE.md` and shutter readings.
+
+A widget that needs something new from the session needs a new message in
+both. Never use Qt's blocking `waitFor...` calls in the GUI: PySide6 holds the
+GIL while it waits, which stalls every Python thread in the process.
+
+### The GUI for another beamline
+
+Another beamline's tools package writes its own spec and launches the same GUI
+with it, e.g. a `pdftools/gui_config.py` (the plan and PV names here are
+placeholders):
+
+```python
+from hextools.gui.spec import DetectorView, GuiSpec, Technique
+from pdftools.plans import pdf_count
+
+PDF_GUI = GuiSpec(
+    name="PDF",
+    techniques=[
+        Technique(
+            "PDF",
+            plans=[("Count", pdf_count)],
+            detectors=[DetectorView("pe1", "XF:28ID1-ES{Det:PE1}")],
+        ),
+    ],
+    logger_name="pdftools",
+)
+```
+
+and a short `pdftools/gui/__main__.py`:
+
+```python
+from hextools.gui.window import run
+
+run("pdftools.gui_config:PDF_GUI")
+```
+
+Fields left out keep their defaults: no shutters box, no extra tabs, no Change
+Proposal, no weather box.
 
 ## Updating the documentation
 

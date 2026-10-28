@@ -1,12 +1,11 @@
 """Qt widgets that display live Run Engine metadata.
 
-Two sources of RE metadata are supported, sharing a common base class that owns
-the UI and polling loop:
+Two sources of RE metadata are supported by the same widget:
 
-* :class:`QtReMetadataMonitor` polls the Queue Server ``re_metadata`` API. Use
-  this when driving the beamline through the Queue Server.
-* :class:`QtReMetadataMonitorLocal` reads ``RE.md`` from a RunEngine obtained
-  from the IPython namespace. Use this when running acquisition in-process.
+* the Queue Server's ``re_metadata`` API, when driving the beamline through the
+  Queue Server;
+* the IPython session's ``RE.md``, which the session sends the GUI whenever it
+  changes (:class:`~hextools.gui.session_client.SessionClient`).
 
 Display is best effort: a missing key, a closed environment, an absent
 RunEngine, or a failed request renders as a placeholder rather than raising.
@@ -17,7 +16,6 @@ from __future__ import annotations
 from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 
-from bluesky import RunEngine
 from bluesky_widgets.models.run_engine_client import RunEngineClient
 from bluesky_widgets.qt.threading import FunctionWorker
 from qtpy.QtCore import Qt, QTimer, Signal, Slot
@@ -38,16 +36,14 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.utils import (
-    get_proposal_info,
-    is_running_in_ci,
-    list_proposals,
-    switch_proposal,
-)
+from hextools.gui.session_client import SessionClient
+from hextools.gui.spec import ProposalBackend
 
 RunEngineMetadata = MutableMapping[str, Any]
 
 _PLACEHOLDER = "\u2014"  # em dash
+# Keys a proposal switch sets in RE.md.
+_PROPOSAL_KEYS = ("data_session", "username", "start_datetime", "proposal")
 
 
 class QtReMetadataMonitor(QWidget):
@@ -73,7 +69,7 @@ class QtReMetadataMonitor(QWidget):
 
     def __init__(
         self,
-        re: RunEngineClient | RunEngine,
+        re: RunEngineClient | SessionClient,
         keys: Sequence[str] | dict[str, str],
         parent: QWidget | None = None,
         *,
@@ -128,12 +124,12 @@ class QtReMetadataMonitor(QWidget):
             if not response.get("success", False):
                 return {}
             return response.get("re_metadata") or {}
-        elif isinstance(self._re, RunEngine):
-            return self._re.md
+        elif isinstance(self._re, SessionClient):
+            return dict(self._re.md)
 
         raise RuntimeError(
             "RE Metadata Viewer widget must be initialized with a RunEngineClient "
-            "or RunEngine instance."
+            "or SessionClient."
         )
 
     def _start_worker(self):
@@ -174,13 +170,17 @@ class QtReMetadataMonitor(QWidget):
 
 
 class QtProposalInfo(QtReMetadataMonitor):
-    """Widget to display proposal information from the RunEngine metadata."""
+    """Widget to display proposal information from the RunEngine metadata.
+
+    With a ``proposals`` backend it also offers Change Proposal.
+    """
 
     def __init__(
         self,
-        re: RunEngineClient | RunEngine,
+        re: RunEngineClient | SessionClient,
         parent: QWidget | None = None,
         *,
+        proposals: ProposalBackend | None = None,
         poll_period: float = 1.0,
     ):
 
@@ -197,15 +197,23 @@ class QtProposalInfo(QtReMetadataMonitor):
             parent=parent,
             title="Proposal Info",
         )
+        self._proposals = proposals
         self._switch_worker = None
         self._change_button = QPushButton("Change Proposal…")
         self._change_button.clicked.connect(self.change_proposal)
+        self._change_button.setVisible(proposals is not None)
         self._group_layout.addStretch(1)
         self._group_layout.addWidget(self._change_button)
 
     def _switch(self, proposal: int, username: str, password: str):
-        if isinstance(self._re, RunEngine):
-            return switch_proposal(proposal, username, password, md=self._re.md)
+        backend = self._proposals
+        if backend is None:
+            raise RuntimeError("No proposal system is configured for this GUI.")
+        if isinstance(self._re, SessionClient):
+            # The changes reach the session's RE.md in _on_switch_returned.
+            return backend.switch_proposal(
+                proposal, username, password, md=dict(self._re.md)
+            )
         client = self._re._client  # noqa: SLF001
         # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
         response = client.re_metadata()  # type: ignore
@@ -214,20 +222,17 @@ class QtProposalInfo(QtReMetadataMonitor):
                 response.get("msg") or "Couldn't read the RunEngine metadata."
             )
         md = dict(response.get("re_metadata") or {})
-        updated = switch_proposal(proposal, username, password, md=md)
-        if is_running_in_ci():
-            # Outside mock mode RE.md is Redis-backed, so the switch already reached
-            # the worker.
-            keys = ("data_session", "username", "start_datetime", "proposal")
-            changes = {k: updated[k] for k in keys if k in updated}
+        updated = backend.switch_proposal(proposal, username, password, md=md)
+        if not backend.md_is_shared():
+            changes = {k: updated[k] for k in _PROPOSAL_KEYS if k in updated}
             client.script_upload(f"RE.md.update({changes!r})")
         return updated
 
     def change_proposal(self):
         """Open the dialog to pick a proposal and sign in, then switch to it."""
-        if self._switch_worker is not None:
+        if self._switch_worker is not None or self._proposals is None:
             return
-        dialog = QtChangeProposalDialog(self)
+        dialog = QtChangeProposalDialog(self._proposals, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         proposal, username, password = dialog.values()
@@ -243,22 +248,41 @@ class QtProposalInfo(QtReMetadataMonitor):
         self._change_button.setEnabled(True)
         self._change_button.setText("Change Proposal…")
 
-    def _on_switch_returned(self, _md):
+    def _on_switch_returned(self, updated):
+        session = self._re
+        backend = self._proposals
+        if (
+            isinstance(session, SessionClient)
+            and backend is not None
+            and not backend.md_is_shared()
+        ):
+            changes = {k: updated[k] for k in _PROPOSAL_KEYS if k in updated}
+            session.execute(
+                f"{session.re_name}.md.update({changes!r})", self._on_md_updated
+            )
+            return
         self._reset_button()
         self._start_worker()
 
-    def _on_switch_errored(self, error: Exception):
+    def _on_md_updated(self, error: BaseException | None):
+        if error is not None:
+            self._on_switch_errored(error)
+            return
         self._reset_button()
-        QMessageBox.critical(
-            self, "Couldn't change proposal", f"{type(error).__name__}: {error}"
-        )
+        self._start_worker()
+
+    def _on_switch_errored(self, error: BaseException):
+        self._reset_button()
+        name = getattr(error, "type_name", type(error).__name__)
+        QMessageBox.critical(self, "Couldn't change proposal", f"{name}: {error}")
 
 
 class QtChangeProposalDialog(QDialog):
     """Pick a beamline proposal, see its details, and sign in to switch to it."""
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, proposals: ProposalBackend, parent: QWidget | None = None):
         super().__init__(parent)
+        self._backend = proposals
         self.setWindowTitle("Change Proposal")
         self.setMinimumWidth(420)
         self._list_worker = None
@@ -325,7 +349,7 @@ class QtChangeProposalDialog(QDialog):
         vbox.addWidget(sign_in_box)
         vbox.addWidget(self._buttons)
 
-        self._list_worker = FunctionWorker(list_proposals)
+        self._list_worker = FunctionWorker(self._backend.list_proposals)
         self._list_worker.returned.connect(self._on_proposals_listed)
         self._list_worker.errored.connect(self._on_proposals_errored)
         self._list_worker.start()
@@ -372,7 +396,7 @@ class QtChangeProposalDialog(QDialog):
         if not text.isdigit():
             return
         self._title.setText("Loading\u2026")
-        worker = FunctionWorker(get_proposal_info, text)
+        worker = FunctionWorker(self._backend.get_proposal_info, text)
         worker.returned.connect(lambda info, number=text: self._on_info(number, info))
         worker.errored.connect(
             lambda error, number=text: self._on_info_error(number, error)

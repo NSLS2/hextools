@@ -3,16 +3,15 @@
 from typing import Any
 
 from bluesky_widgets.models.run_engine_client import RunEngineClient
-from IPython.core.getipython import get_ipython
 from ntnda_qt_viewer import NTNDAViewerWidget
 from qtpy.QtCore import Signal, Slot
 from qtpy.QtWidgets import QHBoxLayout, QTabWidget, QWidget
 
 from hextools.gui.device_sources import (
     DeviceSource,
-    NamespaceDeviceSource,
     QueueServerDeviceSource,
 )
+from hextools.gui.session_client import SessionDeviceSource
 
 
 class QtTabbedDetectorsWidget(QTabWidget):
@@ -23,8 +22,8 @@ class QtTabbedDetectorsWidget(QTabWidget):
 
     Parameters
     ----------
-    re_client : RunEngineClient or RunEngine
-        Queue Server client, or the in-process RunEngine. Determines where
+    re_client : RunEngineClient or SessionClient
+        Queue Server client, or the IPython session. Determines where
         device availability is checked.
     """
 
@@ -92,8 +91,7 @@ class QtTabbedDetectorsWidget(QTabWidget):
     def _make_source(re_client) -> DeviceSource:
         if isinstance(re_client, RunEngineClient):
             return QueueServerDeviceSource(re_client)
-        ipython = get_ipython()
-        return NamespaceDeviceSource(ipython.user_ns if ipython is not None else {})
+        return SessionDeviceSource(re_client)
 
     def _on_devices_changed(self, event=None):
         # May fire from the Queue Server polling thread; marshal onto the GUI thread.

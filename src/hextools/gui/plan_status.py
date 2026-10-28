@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from bluesky import RunEngine
 from bluesky.callbacks.best_effort import BestEffortCallback, hinted_fields
@@ -42,10 +42,14 @@ from qtpy.QtWidgets import (
 )
 
 from hextools.gui._hook_chain import install_hook, uninstall_hook
-from hextools.gui._ipython import run_in_ipython, show_plan_error
+from hextools.gui._ipython import show_plan_error
 from hextools.gui.device_sources import _walk_namespace
 from hextools.gui.log_watcher import LogWatcher, level_color
-from hextools.utils.nl_msg_hook import MsgHookNarrator, nl_msg_hook
+from hextools.gui.narrator import MsgHookNarrator, nl_msg_hook
+
+if TYPE_CHECKING:
+    # session_client imports PlanRecord from here.
+    from hextools.gui.session_client import SessionClient
 
 _NO_PLAN = "\u2014"  # em dash
 _NOT_APPLICABLE = "N/A"
@@ -107,6 +111,8 @@ class PlanRecord:
     arguments: str
     rerunnable: bool
     func: Callable | None = None
+    #: ``module:qualname`` of ``func``; kept when ``func`` can't be imported here.
+    function: str | None = None
     scan_ids: list = field(default_factory=list)
     uids: list[str] = field(default_factory=list)
     exit_status: str | None = None
@@ -118,7 +124,7 @@ class PlanRecord:
         return f"{self.name}({self.arguments})"
 
     def to_json(self) -> dict[str, Any]:
-        func = None
+        func = self.function
         if self.func is not None:
             func = f"{self.func.__module__}:{self.func.__qualname__}"  # type: ignore
         return {
@@ -135,12 +141,14 @@ class PlanRecord:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> PlanRecord:
-        func = _import_function(data.get("function"))
+        reference = data.get("function")
         return cls(
             name=data["name"],
             arguments=data["arguments"],
-            rerunnable=bool(data.get("rerunnable")) and func is not None,
-            func=func,
+            # The session resolves the function; the GUI may not be able to import it.
+            rerunnable=bool(data.get("rerunnable")) and bool(reference),
+            func=_import_function(reference),
+            function=reference,
             scan_ids=list(data.get("scan_ids") or []),
             uids=list(data.get("uids") or []),
             exit_status=data.get("exit_status"),
@@ -394,7 +402,7 @@ class QtPlanStatus(QWidget):
     plan and the current run's scan id are shown too, updating with each new run.
     """
 
-    def __init__(self, monitor: PlanMonitor, logger_name: str, parent=None):
+    def __init__(self, monitor: SessionClient, logger_name: str, parent=None):
         super().__init__(parent)
         self._plan = QLabel(_NO_PLAN)
         self._inner_plan = QLabel(_NO_PLAN)
@@ -637,14 +645,14 @@ class QtLiveTable(QWidget):
 
 
 class QtPlanProgressView(QWidget):
-    """Live table of the running plan, with the BestEffortCallback's plots beside it.
+    """Live table of the running plan, with live plots beside it.
 
-    Any ``BestEffortCallback`` in the session namespace is redirected to draw its
-    figures here instead of in separate windows. The plot side stays hidden
-    until a figure is created.
+    The plots come from a ``BestEffortCallback`` of this widget's own, fed the
+    session's documents; the session's own one stops plotting while a GUI is
+    attached. The plot side stays hidden until a figure is created.
     """
 
-    def __init__(self, monitor: PlanMonitor, parent=None):
+    def __init__(self, monitor: SessionClient, parent=None):
         super().__init__(parent)
         self._table = QtLiveTable()
 
@@ -661,11 +669,21 @@ class QtPlanProgressView(QWidget):
         vbox.setContentsMargins(0, 0, 0, 0)
         vbox.addWidget(self._splitter)
 
+        # The session's terminal already prints the table and baseline.
+        self._bec = BestEffortCallback(
+            fig_factory=self._make_figure, table_enabled=False
+        )
+        self._bec.disable_baseline()
         monitor.document.connect(self._table.on_document)
+        monitor.document.connect(self._on_document)
         monitor.plan_started.connect(self._clear_plots)
-        for obj in monitor.namespace.values():
-            if isinstance(obj, BestEffortCallback):
-                obj._fig_factory = self._make_figure  # noqa: SLF001
+
+    @Slot(str, object)
+    def _on_document(self, name: str, doc: dict):
+        try:
+            self._bec(name, doc)
+        except Exception:
+            logger.exception("Live plot failed on a %s document", name)
 
     def _make_figure(self, name: str) -> Figure:
         # The BEC is a QtAwareCallback, so this is called on the GUI thread.
@@ -694,7 +712,7 @@ class QtPlanExecutionView(QWidget):
     Records are those logged to ``logger_name``.
     """
 
-    def __init__(self, monitor: PlanMonitor, logger_name, parent=None):
+    def __init__(self, monitor: SessionClient, logger_name, parent=None):
         super().__init__(parent)
         self._call = QLabel("No plan has run yet.")
         self._call.setFont(_monospace_font())
@@ -764,7 +782,7 @@ class QtPlanLogView(QWidget):
 
     _MAX_LINES = 20000
 
-    def __init__(self, monitor: PlanMonitor, logger_name: str, parent=None):
+    def __init__(self, monitor: SessionClient, logger_name: str, parent=None):
         super().__init__(parent)
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
@@ -795,8 +813,8 @@ class QtPlanHistory(QWidget):
 
     Parameters
     ----------
-    monitor : PlanMonitor
-        Source of finished plans.
+    monitor : SessionClient
+        Source of finished plans, and where re-runs are sent.
     history_file : str or Path, optional
         JSON file the history is saved to after every plan. If it already
         exists, its plans are loaded into the table on startup.
@@ -806,7 +824,10 @@ class QtPlanHistory(QWidget):
     _ARGUMENTS_COLUMN = 3
 
     def __init__(
-        self, monitor: PlanMonitor, history_file: str | Path | None = None, parent=None
+        self,
+        monitor: SessionClient,
+        history_file: str | Path | None = None,
+        parent=None,
     ):
         super().__init__(parent)
         self._monitor = monitor
@@ -944,23 +965,9 @@ class QtPlanHistory(QWidget):
                 self, "RunEngine busy", "Wait for the current plan to finish."
             )
             return
-        namespace = self._monitor.namespace
-        existing = namespace.get(record.name)
-        if existing is None:
-            namespace[record.name] = record.func  # type: ignore
-        elif existing is not record.func:
-            QMessageBox.warning(
-                self,
-                "Name conflict",
-                f"'{record.name}' in the session refers to a different object than the "
-                "plan that originally ran, so it won't be re-run.",
-            )
-            return
-        code = f"RE({record.call})"
-        # Defer so the click handler returns before IPython executes the cell.
-        QTimer.singleShot(0, lambda: self._execute(code))
+        # The session checks its namespace still names this plan's function.
+        self._monitor.rerun(record, self._on_rerun_done)
 
-    def _execute(self, code: str):
-        error = run_in_ipython(code)
+    def _on_rerun_done(self, error: BaseException | None):
         if error is not None:
             show_plan_error(self, "Re-run failed", error)

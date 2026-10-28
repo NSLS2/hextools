@@ -1,18 +1,17 @@
 """Qt widget listing beamline devices and their connection status.
 
-In local (in-process) mode every ``ophyd.Device`` or ``ophyd_async`` ``Device``
-in the IPython namespace is listed, and counts as connected only once it has
-actually connected. In Queue Server mode a fixed list of expected devices is
-shown, each connected if the server reports it among its allowed devices or plans.
+In IPython-session mode every ``ophyd.Device`` or ``ophyd_async`` ``Device``
+in the session's namespace is listed, and counts as connected only once it has
+actually connected; the session reports both. In Queue Server mode a fixed list
+of expected devices is shown, each connected if the server reports it among its
+allowed devices or plans.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
-import IPython
-from bluesky import RunEngine
 from bluesky_widgets.models.run_engine_client import RunEngineClient
 from qtpy.QtCore import QTimer, Signal, Slot
 from qtpy.QtWidgets import (
@@ -39,7 +38,7 @@ except ImportError:  # pragma: no cover
 
 _CONNECTED_STYLE = "color: #2e7d32; font-weight: bold;"
 _DISCONNECTED_STYLE = "color: #c62828; font-weight: bold;"
-_LOCAL_POLL_MS = 2000
+_SESSION_POLL_MS = 2000
 
 
 def _is_connected(obj: Any) -> bool:
@@ -86,33 +85,26 @@ class QtAvailableDevices(QWidget):
 
     Parameters
     ----------
-    re_client : RunEngineClient or RunEngine
-        Queue Server client model, or the in-process RunEngine.
+    re_client : RunEngineClient or SessionClient
+        Queue Server client model, or the IPython session.
     devices : Sequence[tuple[str, type]], optional
         ``(name, type)`` pairs of the devices expected to be available. Only used
-        in Queue Server mode; local mode discovers devices from the namespace.
-    namespace : Mapping[str, object], optional
-        Namespace searched in local mode. Defaults to the IPython ``user_ns``.
+        in Queue Server mode; the session reports the devices it has.
     """
 
     _signal_refresh = Signal()
 
     def __init__(
         self,
-        re_client: RunEngineClient | RunEngine,
+        re_client: Any,
         devices: Sequence[tuple[str, type]] = (),
         *,
-        namespace: Mapping[str, Any] | None = None,
         parent=None,
     ):
         super().__init__(parent)
         self._re_client = re_client
         self._devices = list(devices)
         self._is_qserver = isinstance(re_client, RunEngineClient)
-        if namespace is None and not self._is_qserver:
-            ip = IPython.get_ipython()
-            namespace = ip.user_ns if ip is not None else {}
-        self._namespace = namespace or {}
         self._rows: list[tuple[str, str]] = []
         self._status_labels: dict[str, QLabel] = {}
 
@@ -129,10 +121,11 @@ class QtAvailableDevices(QWidget):
             events.allowed_devices_changed.connect(self._on_model_changed)  # type: ignore
             events.allowed_plans_changed.connect(self._on_model_changed)  # type: ignore
         else:
-            # Polling also picks up devices created or deleted at the IPython prompt.
+            # Polling also picks up devices connecting, and ones created or
+            # deleted at the IPython prompt.
             self._timer = QTimer(self)
             self._timer.timeout.connect(self._refresh)
-            self._timer.start(_LOCAL_POLL_MS)
+            self._timer.start(_SESSION_POLL_MS)
 
         self._refresh()
 
@@ -148,22 +141,6 @@ class QtAvailableDevices(QWidget):
         if isinstance(info, dict):
             return info.get("classname") in (None, dtype.__name__)
         return name in allowed_plans
-
-    def _entries(self) -> list[tuple[str, str, Callable[[], bool]]]:
-        """``(label, type name, is-connected check)`` for each row to show."""
-        if self._is_qserver:
-            return [
-                (
-                    name,
-                    dtype.__name__,
-                    lambda n=name, t=dtype: self._qserver_connected(n, t),
-                )
-                for name, dtype in self._devices
-            ]
-        return [
-            (label, type_name, lambda o=obj: _is_connected(o))
-            for label, type_name, obj in _discover_devices(self._namespace)
-        ]
 
     def _rebuild(self, rows: list[tuple[str, str]]):
         grid = QGridLayout()
@@ -185,13 +162,23 @@ class QtAvailableDevices(QWidget):
 
     @Slot()
     def _refresh(self):
-        entries = self._entries()
-        rows = [(label, type_name) for label, type_name, _ in entries]
+        if self._is_qserver:
+            self._show(
+                [
+                    (name, dtype.__name__, self._qserver_connected(name, dtype))
+                    for name, dtype in self._devices
+                ]
+            )
+        else:
+            self._re_client.device_status(self._show)
+
+    def _show(self, entries: Sequence[Sequence[Any]]):
+        """Show ``(label, type name, connected)`` rows."""
+        rows = [(str(label), str(type_name)) for label, type_name, _ in entries]
         if rows != self._rows:
             self._rebuild(rows)
-        for label, _, is_connected in entries:
-            connected = is_connected()
-            status = self._status_labels[label]
+        for label, _, connected in entries:
+            status = self._status_labels[str(label)]
             status.setText("Connected" if connected else "Disconnected")
             status.setStyleSheet(_CONNECTED_STYLE if connected else _DISCONNECTED_STYLE)
 

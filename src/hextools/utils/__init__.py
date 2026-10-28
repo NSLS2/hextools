@@ -31,7 +31,6 @@ from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
 from rich.console import Console
 
-from .nl_msg_hook import nl_msg_hook as nl_msg_hook
 from .path_providers import (
     StartDocAwareFilenameProvider as StartDocAwareFilenameProvider,
 )
