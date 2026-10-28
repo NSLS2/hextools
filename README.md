@@ -13,6 +13,12 @@ definitions for motors and detectors used at the HEX beamline, including:
 - **Motors** — Filters, slits, monochromators, mirrors, and sample stages
 - **Detectors** — GeRM and Phantom camera support
 
+The collection profile exposes `sample_small_x` and `sample_small_y` as ordinary
+ophyd-async motors. The GUI displays them as **Sample Small X** and **Sample Small Y**
+while plan submission retains their Python identifiers. Their motor records are
+`XF:27IDF-OP:1{MC:3-Ax:SampleSX}Mtr` and
+`XF:27IDF-OP:1{MC:3-Ax:SampleSY}Mtr`, respectively (from the legacy HEX MCF3 screen).
+
 ## Installation
 
 ```bash

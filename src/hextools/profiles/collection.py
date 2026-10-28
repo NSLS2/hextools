@@ -46,6 +46,7 @@ from hextools.edxd import edxd_grid_scan  # noqa: F401 - operator namespace
 from hextools.log import *
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
 from hextools.motors import (
+    AsyncEpicsMotor,
     CollimatorTable,
     EDXDTable,
     FOV_2_4_mm_Camera,
@@ -225,6 +226,13 @@ with auto_init_devices(timeout=2.0):
     # Sample tower
     sample_tower = SampleTower("XF:27IDF-OP:1{SMPL:1-Ax:", name="sample-tower")
     rot_motor = sample_tower.ry2
+
+    sample_small_x = AsyncEpicsMotor(
+        "XF:27IDF-OP:1{MC:3-Ax:SampleSX}Mtr", name="sample-small-x"
+    )
+    sample_small_y = AsyncEpicsMotor(
+        "XF:27IDF-OP:1{MC:3-Ax:SampleSY}Mtr", name="sample-small-y"
+    )
 
     # EDXD Table
     edxd_table = EDXDTable("XF:27IDF-OP:1{EDXD:1-Ax:", name="edxd-table")

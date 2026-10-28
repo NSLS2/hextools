@@ -52,6 +52,14 @@ _DEVICE_BASES = tuple(_BASES)
 _SIGNAL_TYPES = tuple(_SIGNAL_BASES)
 
 
+def device_display_name(name: str) -> str:
+    """Return an operator label without changing a device's namespace path."""
+    return {
+        "sample_small_x": "Sample Small X",
+        "sample_small_y": "Sample Small Y",
+    }.get(name, name)
+
+
 def _iter_children(name: str, obj: Any) -> Iterator[tuple[str, Any]]:
     """Yield ``(path, child)`` for each direct child device of ``obj``.
 

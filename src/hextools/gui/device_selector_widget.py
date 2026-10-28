@@ -28,6 +28,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from hextools.gui.device_sources import device_display_name
+
 _NO_SELECTION = "\u2014"  # em dash
 
 
@@ -169,7 +171,7 @@ class DynamicDeviceSelector(QWidget):
         combo.clear()
         for name in self._options:
             if name not in others:
-                combo.addItem(name, userData=name)
+                combo.addItem(device_display_name(name), userData=name)
         index = combo.findData(current)
         if index < 0 and combo.count():
             index = 0
@@ -376,7 +378,7 @@ class QtDeviceSelector(_DeviceSelectorBase):
         if self._allow_empty:
             self._combo.addItem(_NO_SELECTION, userData=None)
         for name in names:
-            self._combo.addItem(name, userData=name)
+            self._combo.addItem(device_display_name(name), userData=name)
         if previous is not None:
             index = self._combo.findData(previous)
             if index >= 0:

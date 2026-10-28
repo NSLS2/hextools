@@ -67,6 +67,7 @@ from hextools.gui.device_selector_widget import DynamicDeviceSelector
 from hextools.gui.device_sources import (
     NamespaceDeviceSource,
     QueueServerDeviceSource,
+    device_display_name,
 )
 from hextools.log import _unwrap_failed_status
 
@@ -478,7 +479,7 @@ class QtPlanWidget(QWidget):
                 combo.clear()
                 combo.addItem(_NO_SELECTION, None)
                 for name in options:
-                    combo.addItem(name, name)
+                    combo.addItem(device_display_name(name), name)
                 index = combo.findData(current)
                 combo.setCurrentIndex(index if index >= 0 else 0)
                 combo.blockSignals(False)
