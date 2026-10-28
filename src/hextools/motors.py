@@ -174,6 +174,7 @@ class FOV_2_4_mm_Camera(  # noqa: N801
         )
         self._stop_requested = asyncio.Event()
         self._arrival_grace = 2.0
+        self._start_timeout = 5.0
 
     @AsyncStatus.wrap
     async def set(self, value: CameraObjective | str):
@@ -209,41 +210,46 @@ class FOV_2_4_mm_Camera(  # noqa: N801
                 "one of its names."
             )
 
-        self._stop_requested = asyncio.Event()
-        await self.objective.set(value)
         if value == CameraObjective.RIGHT_2MM:
-            rb_check = self._at_right_objective
+            at_objective = self._at_right_objective
         else:
-            rb_check = self._at_left_objective
-        await self._wait_until_at(rb_check, value)
-
-    async def _wait_until_at(
-        self, at_objective: SignalR[bool], value: CameraObjective
-    ) -> None:
-        """Wait until the selector reaches the objective, or fail if it stops short."""
+            at_objective = self._at_left_objective
+        self._stop_requested = asyncio.Event()
         stopped = AsyncStatus(self._stop_requested.wait())
+        watch = asyncio.create_task(self._reached(at_objective, stopped))
+        # Let the watch subscribe first, so a move that ends during the put is seen.
+        await asyncio.sleep(0)
         try:
-            if await self._reached(at_objective, stopped):
-                return
+            await self.objective.set(value)
+            reached = await watch
         finally:
+            watch.cancel()
             stopped.task.cancel()
-        raise RuntimeError(
-            f"{self.name} objective selector stopped before reaching {value.value}"
-        )
+        if not reached:
+            raise RuntimeError(
+                f"{self.name} objective selector stopped before reaching {value.value}"
+            )
 
     async def _reached(self, at_objective: SignalR[bool], stopped: AsyncStatus) -> bool:
+        """Whether the selector reaches the objective before it stops moving."""
+        dmov = self.obj_selector.motor_done_move
+        signals: list[SignalR[Any]] = [at_objective, dmov]
         moved = False
-        signals: list[SignalR[Any]] = [at_objective, self.obj_selector.motor_done_move]
-        async for signal, reading in observe_signals_value(
-            *signals, done_status=stopped
-        ):
-            if signal is at_objective and reading:
-                return True
-            if signal is self.obj_selector.motor_done_move:
-                if not reading:
-                    moved = True
-                elif moved:
-                    break
+        try:
+            async with asyncio.timeout(self._start_timeout) as start_deadline:
+                async for signal, reading in observe_signals_value(
+                    *signals, done_status=stopped
+                ):
+                    if signal is at_objective and reading:
+                        return True
+                    if signal is dmov:
+                        if not reading:
+                            moved = True
+                            start_deadline.reschedule(None)
+                        elif moved:
+                            break
+        except TimeoutError:
+            return bool(await at_objective.get_value())
         if stopped.done:
             return bool(await at_objective.get_value())
         # AtLeftObj/AtRightObj can update just after the motor reports done.

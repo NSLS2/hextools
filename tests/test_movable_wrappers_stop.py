@@ -10,6 +10,7 @@ from bluesky.utils import maybe_await
 from ophyd_async.core import (
     AsyncStatus,
     Device,
+    callback_on_mock_put,
     get_mock_put,
     init_devices,
     set_mock_value,
@@ -26,9 +27,14 @@ from hextools.photon_delivery_system.filters import (
 from hextools.photon_delivery_system.slits import Slits
 
 
-def _slits() -> tuple[Device, list[Motor]]:
+def _mock_slits() -> Slits:
     with init_devices(mock=True):
         slits = Slits("TEST:SLT:", 1)  # type: ignore
+    return slits
+
+
+def _slits() -> tuple[Device, list[Motor]]:
+    slits = _mock_slits()
     return slits, [slits.inboard, slits.outboard, slits.bottom, slits.top]
 
 
@@ -117,3 +123,60 @@ async def test_objective_reported_just_after_the_move_ends_completes_the_set(
 
     await asyncio.wait_for(status, timeout=5)
     assert status.success
+
+
+async def test_stop_in_the_gap_phase_fails_the_slits_move_before_the_centers(
+    RE: RunEngine,
+):
+    slits = _mock_slits()
+    blades = [slits.inboard, slits.outboard, slits.bottom, slits.top]
+    for blade in blades:
+        set_mock_value(blade.velocity, 1.0)
+        set_mock_value(blade.acceleration_time, 0.0)
+    status = slits.set((4.0, 1.0, 4.0, 1.0))
+    await asyncio.sleep(0.2)
+
+    await slits.stop()
+
+    with pytest.raises(RuntimeError, match="stopped"):
+        await asyncio.wait_for(status, timeout=5)
+    for blade in blades:
+        assert get_mock_put(blade.user_setpoint).call_count == 1
+
+
+def _move_on_objective_put(camera: FOV_2_4_mm_Camera, arrive: bool) -> None:
+    def move(value, **_):
+        set_mock_value(camera.obj_selector.motor_done_move, 0)
+        set_mock_value(camera._at_left_objective, arrive)
+        set_mock_value(camera.obj_selector.motor_done_move, 1)
+
+    callback_on_mock_put(camera.objective, move)
+
+
+# Copilot on #118: a move that ends before the objective put completes was
+# never seen moving, so set() waited forever.
+@pytest.mark.parametrize("arrive", [True, False])
+async def test_objective_move_that_ends_before_its_put_completes(
+    RE: RunEngine, arrive: bool
+):
+    camera = _mock_camera()
+    camera._arrival_grace = 0.1
+    set_mock_value(camera._obj_selector_home_sts, HomeStatus.HOMED)
+    _move_on_objective_put(camera, arrive)
+
+    status = camera.set(CameraObjective.LEFT_4MM)
+
+    if arrive:
+        await asyncio.wait_for(status, timeout=5)
+    else:
+        with pytest.raises(RuntimeError, match="stopped"):
+            await asyncio.wait_for(status, timeout=5)
+
+
+async def test_objective_change_that_never_starts_moving_fails(RE: RunEngine):
+    camera = _mock_camera()
+    camera._start_timeout = 0.1
+    set_mock_value(camera._obj_selector_home_sts, HomeStatus.HOMED)
+
+    with pytest.raises(RuntimeError, match="stopped"):
+        await asyncio.wait_for(camera.set(CameraObjective.LEFT_4MM), timeout=5)
