@@ -1,13 +1,18 @@
 """Motion stages and related utility functions for the HEX beamline."""
 
+import asyncio
+from typing import Any
+
 import bluesky.plan_stubs as bps
 from ophyd_async.core import (
     AsyncMovable,
     AsyncStatus,
+    SignalR,
     StandardReadable,
     StrictEnum,
     default_mock_class,
     derived_signal_r,
+    observe_signals_value,
     wait_for_value,
 )
 from ophyd_async.core import (
@@ -167,6 +172,8 @@ class FOV_2_4_mm_Camera(  # noqa: N801
         self._at_left_objective = epics_signal_r(
             bool, prefix + "ObjSel}AtLeftObj", name="at_left_objective"
         )
+        self._stop_requested = asyncio.Event()
+        self._arrival_grace = 2.0
 
     @AsyncStatus.wrap
     async def set(self, value: CameraObjective | str):
@@ -202,15 +209,53 @@ class FOV_2_4_mm_Camera(  # noqa: N801
                 "one of its names."
             )
 
+        self._stop_requested = asyncio.Event()
         await self.objective.set(value)
         if value == CameraObjective.RIGHT_2MM:
             rb_check = self._at_right_objective
         else:
             rb_check = self._at_left_objective
-        await wait_for_value(rb_check, True, timeout=None)
+        await self._wait_until_at(rb_check, value)
+
+    async def _wait_until_at(
+        self, at_objective: SignalR[bool], value: CameraObjective
+    ) -> None:
+        """Wait until the selector reaches the objective, or fail if it stops short."""
+        stopped = AsyncStatus(self._stop_requested.wait())
+        try:
+            if await self._reached(at_objective, stopped):
+                return
+        finally:
+            stopped.task.cancel()
+        raise RuntimeError(
+            f"{self.name} objective selector stopped before reaching {value.value}"
+        )
+
+    async def _reached(self, at_objective: SignalR[bool], stopped: AsyncStatus) -> bool:
+        moved = False
+        signals: list[SignalR[Any]] = [at_objective, self.obj_selector.motor_done_move]
+        async for signal, reading in observe_signals_value(
+            *signals, done_status=stopped
+        ):
+            if signal is at_objective and reading:
+                return True
+            if signal is self.obj_selector.motor_done_move:
+                if not reading:
+                    moved = True
+                elif moved:
+                    break
+        if stopped.done:
+            return bool(await at_objective.get_value())
+        # AtLeftObj/AtRightObj can update just after the motor reports done.
+        try:
+            await wait_for_value(at_objective, True, timeout=self._arrival_grace)
+        except TimeoutError:
+            return False
+        return True
 
     async def stop(self, success: bool = False):
         """Stop the objective selector, which the IOC moves to the chosen objective."""
+        self._stop_requested.set()
         await self.obj_selector.stop()
 
 
