@@ -304,6 +304,29 @@ def test_push_returns_lines_only_once_finalized():
     assert narrator.flush() == []
 
 
+def test_back_to_back_checkpoints_are_narrated_once():
+    checkpoint = "Marking a checkpoint (a safe point to pause or resume)."
+    lines = narrate_stream(
+        [_msg("checkpoint"), _msg("checkpoint"), _msg("save"), _msg("checkpoint")]
+    )
+    assert lines == [
+        checkpoint,
+        "Saving the collected readings as a data point.",
+        checkpoint,
+    ]
+
+
+def test_count_narrates_one_checkpoint_per_shot(RE):
+    from bluesky import plans as bp
+    from ophyd_async.sim import SimMotor
+
+    emitted: list[str] = []
+    RE.msg_hook = MsgHookNarrator(emit=emitted.append)
+    RE(bp.count([SimMotor(name="m")], num=2))
+    checkpoints = [line for line in emitted if line.startswith("Marking a checkpoint")]
+    assert len(checkpoints) == 2
+
+
 def test_window_splits_batches_spanning_too_long():
     narrator = StreamNarrator(window=10.0)
     out = []
@@ -374,14 +397,19 @@ def test_hook_serializes_raw_msgs_and_emits_lines():
 
 def test_hook_accepts_pre_serialized_messages():
     emitted: list[str] = []
-    hook = MsgHookNarrator(emit=emitted.append, serialize=False)
+    hook = MsgHookNarrator(emit=emitted.append)
     hook(_msg("checkpoint"))
     assert emitted == ["Marking a checkpoint (a safe point to pause or resume)."]
 
 
+def test_hook_rejects_other_message_types():
+    with pytest.raises(TypeError, match="Msg or a dict"):
+        MsgHookNarrator(emit=lambda _: None)(("checkpoint",))  # type: ignore
+
+
 def test_hook_flush_and_due_emit_buffered_lines():
     emitted: list[str] = []
-    hook = MsgHookNarrator(emit=emitted.append, serialize=False, window=10.0)
+    hook = MsgHookNarrator(emit=emitted.append, window=10.0)
     hook(_msg("read", "det", time=0.0))
     hook.due(now=20.0)
     assert emitted == ["Reading the current value of 'det'."]
@@ -413,7 +441,7 @@ def log_records():
 
 
 def test_hook_logs_at_info_to_hextools_logger_by_default():
-    hook = MsgHookNarrator(serialize=False)
+    hook = MsgHookNarrator()
     assert hook._logger is logging.getLogger("hextools")
     assert hook._level == logging.INFO
 
@@ -421,7 +449,7 @@ def test_hook_logs_at_info_to_hextools_logger_by_default():
 @pytest.mark.parametrize("pass_name", [True, False])
 def test_hook_logs_lines_to_given_logger(log_records, pass_name):
     logger, records = log_records
-    hook = MsgHookNarrator(logger=logger.name if pass_name else logger, serialize=False)
+    hook = MsgHookNarrator(logger=logger.name if pass_name else logger)
     hook(_msg("checkpoint"))
     assert [(r.levelno, r.getMessage()) for r in records] == [
         (logging.INFO, "Marking a checkpoint (a safe point to pause or resume).")
@@ -430,7 +458,7 @@ def test_hook_logs_lines_to_given_logger(log_records, pass_name):
 
 def test_hook_log_level_is_configurable(log_records):
     logger, records = log_records
-    hook = MsgHookNarrator(logger=logger, level=logging.DEBUG, serialize=False)
+    hook = MsgHookNarrator(logger=logger, level=logging.DEBUG)
     hook(_msg("checkpoint"))
     assert [r.levelno for r in records] == [logging.DEBUG]
 
@@ -438,7 +466,7 @@ def test_hook_log_level_is_configurable(log_records):
 def test_hook_emit_replaces_logging(log_records):
     logger, records = log_records
     emitted: list[str] = []
-    hook = MsgHookNarrator(emit=emitted.append, logger=logger, serialize=False)
+    hook = MsgHookNarrator(emit=emitted.append, logger=logger)
     hook(_msg("checkpoint"))
     assert emitted == ["Marking a checkpoint (a safe point to pause or resume)."]
     assert records == []
@@ -446,7 +474,7 @@ def test_hook_emit_replaces_logging(log_records):
 
 def test_hook_listeners_receive_lines_and_can_be_removed():
     emitted, heard = [], []
-    hook = MsgHookNarrator(emit=emitted.append, serialize=False)
+    hook = MsgHookNarrator(emit=emitted.append)
     hook.add_listener(heard.append)
     hook(_msg("checkpoint"))
     hook.remove_listener(heard.append)
@@ -462,7 +490,7 @@ def test_hook_ignores_broken_listeners():
     def broken(_line):
         raise RuntimeError("listener bug")
 
-    hook = MsgHookNarrator(emit=emitted.append, serialize=False)
+    hook = MsgHookNarrator(emit=emitted.append)
     hook.add_listener(broken)
     hook.add_listener(heard.append)
     hook(_msg("checkpoint"))

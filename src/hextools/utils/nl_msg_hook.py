@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import Any
 
-from bluesky.utils import msg_to_json_safe_dict
+from bluesky.utils import Msg, msg_to_json_safe_dict
 
 # ----------------------------------------------------------------------------------
 # Small formatting helpers
@@ -448,6 +448,7 @@ class StreamNarrator:
         # id.
         self._pending_group: dict[str, list[dict[str, Any]]] = {}
         self._group_order: list[str] = []  # arrival order of open groups
+        self._last_command: str | None = None
 
     # -- formatting ------------------------------------------------------------
 
@@ -556,6 +557,11 @@ class StreamNarrator:
         t = msg.get("time")
         out: list[str] = []
 
+        previous, self._last_command = self._last_command, command
+        # e.g. bp.count: bps.repeat and one_shot each checkpoint before every shot.
+        if command == "checkpoint" and previous == "checkpoint":
+            return out
+
         if command in _BATCH_PHRASES:
             out.extend(self._flush_all_groups())  # a batch ends any pending group
             value = (msg.get("args") or [None])[0] if command == "prepare" else None
@@ -643,8 +649,7 @@ class StreamNarrator:
 
 
 class MsgHookNarrator:
-    """
-    A bluesky ``RunEngine`` ``msg_hook`` that narrates a plan's activity in English.
+    """A bluesky ``RunEngine`` ``msg_hook`` that narrates a plan's activity in English.
 
     Attach an instance to a RunEngine and it will, for every ``Msg`` the RunEngine
     processes, serialize the message, feed it to a :class:`StreamNarrator`, and log any
@@ -652,9 +657,8 @@ class MsgHookNarrator:
 
         RE.msg_hook = MsgHookNarrator()
 
-    By default the hook consumes *raw* ``Msg`` objects and serializes them itself.
-    If you are feeding it messages that are already serialized (dicts of the documented
-    shape), pass ``serialize=False``.
+    It accepts raw ``Msg`` objects, which it serializes itself, as well as messages
+    that are already serialized (dicts of the documented shape).
 
     Parameters
     ----------
@@ -669,10 +673,6 @@ class MsgHookNarrator:
     window : float, optional
         Maximum span, in seconds, over which same-kind messages are joined (see
         :class:`StreamNarrator`).
-    serialize : bool, optional
-        If True (default), incoming values are treated as raw ``Msg`` objects and
-        serialized via :func:`serialize_msg`. If False, they are assumed to already be
-        serialized dicts.
     """
 
     def __init__(
@@ -683,12 +683,10 @@ class MsgHookNarrator:
         level: int = logging.INFO,
         show_timestamps: bool = False,
         window: float = 60.0,
-        serialize: bool = True,
     ) -> None:
         self._logger = logging.getLogger(logger) if isinstance(logger, str) else logger
         self._level = level
         self._emit = emit if emit is not None else self._log
-        self._serialize = serialize
         self._narrator = StreamNarrator(show_timestamps=show_timestamps, window=window)
         self._listeners: list[Callable[[str], Any]] = []
 
@@ -712,9 +710,14 @@ class MsgHookNarrator:
                 # A broken listener must not fail the running plan.
                 pass
 
-    def __call__(self, msg: Any) -> None:
-        """Consume one message (raw ``Msg`` by default); emit any finalized lines."""
-        record = msg_to_json_safe_dict(msg) if self._serialize else msg
+    def __call__(self, msg: Msg | dict[str, Any]) -> None:
+        """Consume one ``Msg`` or serialized message; emit any finalized lines."""
+        if isinstance(msg, Msg):
+            record = msg_to_json_safe_dict(msg)
+        elif isinstance(msg, dict):
+            record = msg
+        else:
+            raise TypeError(f"Expected a Msg or a dict, got {type(msg).__name__}")
         for line in self._narrator.push(record):
             self._send(line)
 

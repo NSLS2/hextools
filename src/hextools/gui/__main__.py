@@ -18,8 +18,9 @@ import asyncio
 import atexit
 import os
 import time as ttime
+from functools import partial
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 import IPython
 from bluesky import RunEngine
@@ -57,6 +58,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from hextools.detectors.germ import GeRMDetectorMock
 from hextools.detectors.phantom import PhantomDetector
 from hextools.edxd import (
     configure_test_pulses,
@@ -131,6 +133,14 @@ from ._threading import wait_for_workers_to_quit
 RunEngineClientT = TypeVar("RunEngineClientT", bound=RunEngineClient | RunEngine)
 
 PLAN_HISTORY_FILE_ENV = "HEXTOOLS_PLAN_HISTORY_FILE"
+
+
+def default_plan_history_file() -> Path:
+    """``$XDG_STATE_HOME/hextools/plan_history[_mock].json``."""
+    state_home = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
+    name = "plan_history_mock.json" if is_running_in_ci() else "plan_history.json"
+    return Path(state_home) / "hextools" / name
+
 
 # Names must match those defined in the profile / Queue Server namespace.
 EXPECTED_DEVICES: list[tuple[str, type]] = [
@@ -317,6 +327,27 @@ class QtTomographyView(QWidget):
         self.setLayout(vbox)
 
 
+def germ_viewer_options(mock: bool) -> dict[str, Any]:
+    """Options for the live GeRM viewer.
+
+    A mock viewer is in callback mode, so it never subscribes to the real GeRM
+    PV; the mock's frames reach it through ``show_frame``.
+    """
+    options: dict[str, Any] = {
+        "raw_waveform": True,
+        "image_shape": (192, 4096),
+        "colormap": "JET",
+        "roi_suffix_pattern": "1:ROI{}:",
+        "auto_scale_method": "minmax",
+        "log_scale": True,
+        "use_ca": True,
+        "show_profile_lines": True,
+    }
+    if mock:
+        options["push_frame"] = lambda push: None
+    return options
+
+
 class QtEDXDView(QWidget):
     """Energy-dispersive X-ray diffraction view: the live GeRM viewer and EDXD plans."""
 
@@ -326,17 +357,9 @@ class QtEDXDView(QWidget):
 
         top = QHBoxLayout()
         detectors = QtTabbedDetectorsWidget(re_client)
+        mock = isinstance(re_client, RunEngine) and is_running_in_ci()
         detectors.add_detector(
-            "germ",
-            "XF:27ID1-ES{GeRM-Det:1}MCA",
-            raw_waveform=True,
-            image_shape=(192, 4096),
-            colormap="JET",
-            roi_suffix_pattern="1:ROI{}:",
-            auto_scale_method="minmax",
-            log_scale=True,
-            use_ca=True,
-            show_profile_lines=True,
+            "germ", "XF:27ID1-ES{GeRM-Det:1}MCA", **germ_viewer_options(mock=mock)
         )
         top.addWidget(detectors, stretch=3)
 
@@ -359,6 +382,34 @@ class QtEDXDView(QWidget):
         vbox = QVBoxLayout()
         vbox.addLayout(top, stretch=1)
         self.setLayout(vbox)
+
+        self._germ_mock: GeRMDetectorMock | None = None
+        if mock:
+            self._attach_germ_mock(detectors)
+
+    def _attach_germ_mock(self, detectors: QtTabbedDetectorsWidget) -> None:
+        """Show the mock GeRM's frames, gated by the namespace's shutters."""
+        ipython = IPython.get_ipython()
+        user_ns = ipython.user_ns if ipython is not None else {}
+        mock = getattr(user_ns.get("germ"), "_mock", None)
+        if not isinstance(mock, GeRMDetectorMock):
+            return
+        mock.set_shutters(
+            *(
+                shutter
+                for name in ("fe_shutter", "photon_shutter")
+                if isinstance(shutter := user_ns.get(name), Shutter)
+            )
+        )
+        self._show_germ_frame = partial(detectors.show_frame, "germ")
+        mock.register_frame_callback(self._show_germ_frame)
+        self._germ_mock = mock
+
+    def closeEvent(self, event):
+        if self._germ_mock is not None:
+            self._germ_mock.unregister_frame_callback(self._show_germ_frame)
+            self._germ_mock = None
+        super().closeEvent(event)
 
 
 class QtXRDView(QWidget):
@@ -495,7 +546,8 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             tabs.addTab(execution_view, "Plan Execution")
             self.plan_history = QtPlanHistory(
                 self._plan_monitor,
-                history_file=os.environ.get(PLAN_HISTORY_FILE_ENV) or None,
+                history_file=os.environ.get(PLAN_HISTORY_FILE_ENV)
+                or default_plan_history_file(),
             )
             tabs.addTab(self.plan_history, "History")
             tabs.addTab(QtPlanLogView(self._plan_monitor, "hextools"), "Log")
@@ -902,7 +954,9 @@ def main():
         "--history-file",
         default=None,
         help="JSON file to save plan history to as plans finish, and to load it"
-        f" from on startup. Can also be set with {PLAN_HISTORY_FILE_ENV}.",
+        " from on startup (default: ~/.local/state/hextools/plan_history.json,"
+        " or plan_history_mock.json with --mock). Can also be set"
+        f" with {PLAN_HISTORY_FILE_ENV}.",
     )
 
     parser.add_argument(

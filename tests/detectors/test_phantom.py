@@ -330,12 +330,7 @@ async def test_detector_full_stack(
     RE: RunEngine,
     phantom_detector_factory: Callable[[Path], PhantomDetector],
     tiled_client,
-    monkeypatch,
 ):
-
-    monkeypatch.setenv(
-        "OPHYD_ASYNC_PRESERVE_DETECTOR_STATE", "YES"
-    )  # Ensure detector config is preserved across stages
     tmp_path, c = tiled_client
     with init_devices(mock=True):
         phantom = phantom_detector_factory(tmp_path)

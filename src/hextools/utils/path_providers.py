@@ -2,9 +2,11 @@
 
 import logging
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 from nslsii.ophyd_async.providers import TimestampFilenameProvider
+from ophyd_async.core import UUIDFilenameProvider, YMDPathProvider
 
 logger = logging.getLogger("hextools")
 
@@ -65,3 +67,12 @@ class StartDocAwareFilenameProvider(TimestampFilenameProvider):
         self._files_per_datakey[datakey_name] += 1
 
         return f"{prefix}_{filename}"
+
+
+def mock_path_provider(base_directory: str | Path) -> YMDPathProvider:
+    """Path provider for mock detectors: dated folders, a new file name per call.
+
+    Timestamp names repeat within a second, so two short mock runs could write
+    to the same file.
+    """
+    return YMDPathProvider(UUIDFilenameProvider(), base_directory)

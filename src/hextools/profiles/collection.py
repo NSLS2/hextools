@@ -71,9 +71,14 @@ from hextools.utils import (
     reset_scan_id,  # noqa: F401 - operator namespace
     show_docs,  # noqa: F401 - operator namespace
 )
+from hextools.utils.magics import HEXBlueskyMagics
+from hextools.utils.path_providers import mock_path_provider
 
 # Adjust the default timeout for ophyd async to 60s
 DEFAULT_TIMEOUT = 60.0
+
+# Where mock detectors write their files, instead of the proposal directories.
+MOCK_DETECTOR_DATA_DIR = "/tmp/hextools_dets"
 
 # Environment variables for Redis host and ophyd_async detector state preservation
 os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"
@@ -108,6 +113,20 @@ if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
     ipython.xmode = "Minimal"
     autoawait_in_bluesky_event_loop()
 
+    # Configure plots to work interactively
+    from matplotlib import pyplot as plt
+
+    plt.ion()
+
+    # Configure the Bluesky magics with the current RunEngine instance.
+    HEXBlueskyMagics.RE = RE
+    ipython.register_magics(HEXBlueskyMagics)
+
+    # Make tracebacks minimal by default to reduce clutter.
+    # Use %tb verbose to view full traceback.
+    ipython.run_line_magic("xmode", "minimal")
+
+
 # Construct our tiled clients for writing and (in an interactive session) reading.
 # If we're running in CI, we use a simple client for both.
 if not is_running_in_ci():
@@ -118,14 +137,19 @@ if not is_running_in_ci():
     if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
         tiled_reading_client = c = from_uri("https://tiled.nsls2.bnl.gov")["hex"]["raw"]
 else:
-    tiled_writing_client = tiled_reading_client = c = simple()
+    tiled_writing_client = tiled_reading_client = c = simple(
+        readable_storage=MOCK_DETECTOR_DATA_DIR
+    )
 
 
 # Subscribe the tiled writer to the RunEngine
 RE.subscribe(TiledWriter(tiled_writing_client, backup_directory="/tmp/bluesky-docs"))
 
-# Subscribe the best effort callback
+# Subscribe the best effort callback, for its plots. The GUI's live table and plan
+# narration already cover what its table and heading would print.
 bec = BestEffortCallback()
+bec.disable_table()
+bec.disable_heading()
 RE.subscribe(bec)
 
 # Keep track of last dark-flat scan UID
@@ -164,13 +188,16 @@ class HEXPathProvider(NSLS2PathProvider):
 
 
 # Define our global default path provider for the beamline
-path_provider = HEXPathProvider(
-    RE.md,
-    filename_provider=filename_provider,
-    include_scan_id_dir=True,
-    granularity="year",
-    scan_id_padding=5,
-)
+if is_running_in_ci():
+    path_provider = mock_path_provider(MOCK_DETECTOR_DATA_DIR)
+else:
+    path_provider = HEXPathProvider(
+        RE.md,
+        filename_provider=filename_provider,
+        include_scan_id_dir=True,
+        granularity="year",
+        scan_id_padding=5,
+    )
 
 with auto_init_devices(timeout=2.0):
     # Shutters (Front-end and photon)
@@ -268,10 +295,14 @@ with auto_init_devices(timeout=2.0):
 
     # For the Perkin-Elmer detector, we use a separate path provider
     # Since we need to specify the write directory as a windows path.
-    pe_path_provider = NSLS2PathProvider(
-        RE.md,
-        filename_provider=filename_provider,
-        base_write_dir=PureWindowsPath("Z:\\proposals"),
+    pe_path_provider = (
+        path_provider
+        if is_running_in_ci()
+        else NSLS2PathProvider(
+            RE.md,
+            filename_provider=filename_provider,
+            base_write_dir=PureWindowsPath("Z:\\proposals"),
+        )
     )
     perkin_elmer = ContAcqDetector(
         "XF:27ID1-ES{PE-Det:1}",

@@ -18,12 +18,11 @@ pixi install          # solves and installs the default environment
 
 | Environment    | Use it for                                                                 |
 | -------------- | -------------------------------------------------------------------------- |
-| `terminal`     | The IPython command-line session on the beamline (`pixi run start`).       |
-| `gui`          | The HEX Data Acquisition GUI against real hardware (`pixi run hex-gui`).   |
+| `terminal`     | The IPython command-line session (`pixi run start`) and the HEX Data Acquisition GUI (`pixi run hex-gui`) on the beamline. |
 | `qs`           | The Bluesky Queue Server backend and HTTP server.                          |
 | `dev`          | Development tools, plus the terminal and GUI with simulated devices (`pixi run start-mock`, `pixi run hex-gui-mock`). |
 
-Pixi picks the environment that defines a task automatically, so in most cases
+Pixi picks a default environment for each task, so in most cases
 `pixi run <task>` is all you need. Pass `-e <environment>` to choose one
 explicitly.
 
@@ -59,7 +58,7 @@ pixi run qs-server             # HTTP server on localhost:60610
 pixi run qserver-gui           # upstream bluesky-widgets queue monitor
 
 # Development
-pixi run -e py313 tests
-pixi run -e py313 lint
-pixi run -e py313 type-check
+pixi run tests
+pixi run lint
+pixi run type-check
 ```

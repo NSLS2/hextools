@@ -8,12 +8,18 @@ from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.preprocessors import finalize_wrapper
+from tiled.structures.core import Spec
 
 from hextools.detectors.germ import GeRMDetector
 from hextools.motors import CollimatorTable, EDXDTable, SampleTower
 from hextools.photon_delivery_system import Shutter, ensure_shutter_open
 from hextools.photon_delivery_system.shutter import ensure_shutter_closed
+from hextools.specs import EDXD_CALIBRATION_V1, EDXD_SCAN_V1
 from hextools.utils import Steppable, ensure_available
+
+
+def _tiled_specs(spec: Spec) -> list[dict[str, str | None]]:
+    return [{"name": spec.name, "version": spec.version}]
 
 
 def configure_test_pulses(
@@ -87,7 +93,10 @@ def edxd_count(
 
     yield from bps.mv(germ.driver.acquire_time, count_time)
 
-    _md = {"plan_name": "edxd_count"}
+    _md: dict[str, Any] = {
+        "plan_name": "edxd_count",
+        "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
+    }
     if description is not None:
         _md["description"] = description
     yield from bp.count([germ], num=num, md=_md)
@@ -158,8 +167,9 @@ def edxd_scan(
         else:
             germ.save_as_hdf()
 
-        _md = {
+        _md: dict[str, Any] = {
             "plan_name": "edxd_scan",
+            "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
         }
         if description is not None:
             _md["description"] = description
@@ -239,7 +249,10 @@ def edxd_custom_pos_list_grid(
 
         yield from bps.mv(germ.driver.acquire_time, count_time)
 
-        _md: dict[str, Any] = {"plan_name": "edxd_custom_pos_list_grid"}
+        _md: dict[str, Any] = {
+            "plan_name": "edxd_custom_pos_list_grid",
+            "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
+        }
         if description is not None:
             _md["description"] = description
         for i, outer_pos in enumerate(outer_positions_list):
@@ -329,7 +342,10 @@ def edxd_grid_scan(
 
         yield from bps.mv(germ.driver.acquire_time, count_time)
 
-        _md = {"plan_name": "edxd_grid_scan"}
+        _md: dict[str, Any] = {
+            "plan_name": "edxd_grid_scan",
+            "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
+        }
         if description is not None:
             _md["description"] = description
         yield from bp.grid_scan(
@@ -461,7 +477,10 @@ def edxd_calib_scan(
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
 
-    _md = {"plan_name": "edxd_calib_scan"}
+    _md: dict[str, Any] = {
+        "plan_name": "edxd_calib_scan",
+        "tiled_specs": _tiled_specs(EDXD_CALIBRATION_V1),
+    }
     if description is not None:
         _md["description"] = description
 

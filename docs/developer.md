@@ -7,9 +7,9 @@ test it, and how to make it available in the GUI.
 
 ```bash
 pixi install -e dev
-pixi run -e py313 tests        # pytest with coverage
-pixi run -e py313 lint         # pre-commit hooks (ruff, ...)
-pixi run -e py313 type-check   # ty
+pixi run tests                 # pytest with coverage
+pixi run lint                  # pre-commit hooks (ruff, ...)
+pixi run type-check            # ty
 pixi run start-mock            # try your code in a mock IPython session
 pixi run hex-gui-mock          # try it in the GUI
 ```
