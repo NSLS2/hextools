@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 def session_client():
     """A GUI's connection to a session with an empty namespace and its own RunEngine."""
     pytest.importorskip("qtpy")
+    pytest.importorskip("bluesky_widgets")
     from bluesky import RunEngine
     from qtpy.QtWidgets import QApplication
 

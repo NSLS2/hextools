@@ -12,6 +12,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("qtpy")
+pytest.importorskip("bluesky_widgets")
 
 import numpy as np  # noqa: E402
 from bluesky import RunEngine  # noqa: E402
