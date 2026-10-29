@@ -58,24 +58,19 @@ The window has four areas:
 
 Shutter controls wait for actual completion; manual button actions skip the
 extra settling sleep, while acquisition plans retain their settling delays.
-The slow photon shutter and faster front-end shutter do not share a fixed timeout.
+Both shutter status waits currently use ophyd-async's `DEFAULT_TIMEOUT`
+(10 seconds in the locked version); the profile does not override it to 60 seconds.
+This is not a measured hardware timing guarantee for the slow photon shutter.
 After a pause, use the execution controls to resume or abort before actuating
 another shutter. Errors are reported and controls become available when the
 RunEngine returns to idle.
 
-In the local **Beamline → Slits** form, choosing a slit device loads its actual
-horizontal/vertical center and gap into the target fields without blocking the
-GUI. Targets are disabled while reading; a failed read leaves them blank rather
-than displaying another device's values. Select another device and back to retry.
-Switching devices discards late results from the previous selection.
-**Relative** uses zero offsets, not the absolute readbacks; unchecking it reloads
-current positions. These are selection-time snapshots, not continuously updated
-readbacks. Queue Server mode cannot read local devices and keeps optional
-targets blank.
-
-On the EDXD scan and custom-position grid forms, **Save as TIFF** starts checked.
-Uncheck it to request HDF5 instead. This is a GUI default only; the Python plan
-defaults are unchanged.
+The generic plan forms follow each plan's signature and defaults. Slit
+readback-prefilled targets (operator item 5), a specialized **Two theta** label
+(item 9), and checked-by-default TIFF controls (item 11) are deferred pending
+a generic solution. Slit targets remain blank until entered; the tilt argument
+is labelled **Theta**; **Save as TIFF** follows the Python default (`False`).
+There are no device-specific overrides in `QtPlanWidget`.
 
 ### Menus
 
@@ -109,17 +104,17 @@ The GeRM detector's spectra and the energy-dispersive plans (2θ tilt,
 calibration, scan, grid scan, custom position list, count and test pulse
 configuration).
 
-The tilt form labels the existing `theta` argument **Two theta**.
-Every EDXD acquisition plan enables GeRM `stats1.enable_callbacks` and
+GeRM's stats-data lifecycle enables `stats1.enable_callbacks` and
 `stats1.compute_statistics` before acquiring, even if IOC Autosave restored
-them disabled. This does not change the detector's file format or data keys.
+them disabled. This applies to direct detector triggers as well as EDXD plans
+and does not change the detector's file format or data keys.
 
 By default, 1D/grid/custom-grid scans restore their **pre-scan** motor positions
 on success, failure and RunEngine abort, not the first scan point.
 `reset_position=False` (or `reset_positions=False` for the custom grid) opts out.
 Calibration restores its initial sample-tower Z1 position and velocity.
 Pausing leaves a scan at its interrupted position until resumed or terminated;
-intentional moves such as **Two theta** are not scans and retain their targets.
+intentional moves such as the 2θ tilt are not scans and retain their targets.
 RunEngine **Halt** deliberately bypasses plan cleanup and cannot promise a
 position reset. A failed/disconnected motor can also prevent restoration; such
 errors are not suppressed.

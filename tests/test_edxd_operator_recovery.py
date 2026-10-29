@@ -52,16 +52,25 @@ async def test_stats_reenabled_before_acquisition(
     # Autosave can leave either switch off; preparation must not trust that state.
     set_mock_value(germ.stats1.enable_callbacks, EnableDisable.DISABLE)
     set_mock_value(germ.stats1.compute_statistics, False)
-    messages = []
-    RE.msg_hook = messages.append
+    states_at_trigger = []
+
+    def observe_acquisition(reading):
+        if reading[germ.driver.acquire.name]["value"]:
+            states_at_trigger.append(
+                (
+                    get_mock_put(germ.stats1.enable_callbacks).call_args,
+                    get_mock_put(germ.stats1.compute_statistics).call_args,
+                )
+            )
+
+    germ.driver.acquire.subscribe_reading(observe_acquisition)
     _run(RE, _plan(kind, germ, stage, two_shutters, tower))
     assert await germ.stats1.enable_callbacks.get_value() == EnableDisable.ENABLE
     assert await germ.stats1.compute_statistics.get_value() is True
-    first_trigger = next(i for i, m in enumerate(messages) if m.command == "trigger")
-    for signal in (germ.stats1.enable_callbacks, germ.stats1.compute_statistics):
-        assert any(
-            m.command == "set" and m.obj is signal for m in messages[:first_trigger]
-        )
+    assert states_at_trigger
+    for callbacks, statistics in states_at_trigger:
+        assert callbacks.args == (EnableDisable.ENABLE,)
+        assert statistics.args == (True,)
 
 
 @pytest.mark.parametrize("kind", ["scan", "grid", "custom", "calib"])

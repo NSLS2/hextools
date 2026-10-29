@@ -23,6 +23,7 @@ getting_started
 cli
 gui
 profile
+migration-pr125
 ```
 
 ```{toctree}

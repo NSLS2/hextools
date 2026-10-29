@@ -74,8 +74,7 @@ from hextools.utils import (
 )
 from hextools.utils.path_providers import mock_path_provider
 
-# Adjust the default timeout for ophyd async to 60s
-DEFAULT_TIMEOUT = 60.0
+# Signal/device timeouts come from ophyd-async, not this profile's namespace.
 
 # Where mock detectors write their files, instead of the proposal directories.
 MOCK_DETECTOR_DATA_DIR = "/tmp/hextools_dets"
@@ -233,26 +232,31 @@ with auto_init_devices(timeout=2.0):
         "XF:27IDA-OP:1{Fltr:1-Ax:Yu}Mtr",
         "XF:27IDA-OP:0{Fltr:1_US}Sw:InPos-Sts",
         name="filter1_upstream",
+        settings_key="filter1_upstream",
     )
     filter1_downstream = Filter(
         "XF:27IDA-OP:1{Fltr:1-Ax:Yd}Mtr",
         "XF:27IDA-OP:0{Fltr:1_DS}Sw:InPos-Sts",
         name="filter1_downstream",
+        settings_key="filter1_downstream",
     )
     filter2 = Filter(
         "XF:27IDA-OP:1{Fltr:2-Ax:Y}Mtr",
         "XF:27IDA-OP:0{Fltr:2}Sw:InPos-Sts",
         name="filter2",
+        settings_key="filter2",
     )
     filter3 = Filter(
         "XF:27IDA-OP:3{Fltr:3-Ax:Y}Mtr",
         "XF:27IDA-OP:0{Fltr:3}Sw:InPos-Sts",
         name="filter3",
+        settings_key="filter3",
     )
     filter4 = Filter(
         "XF:27IDA-OP:2{Fltr:4-Ax:Y}Mtr",
         "XF:27IDA-OP:0{Fltr:4}Sw:InPos-Sts",
         name="filter4",
+        settings_key="filter4",
     )
 
     # PandABox

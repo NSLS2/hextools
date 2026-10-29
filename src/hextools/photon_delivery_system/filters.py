@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
+from math import isfinite
 from typing import TYPE_CHECKING, TypeAlias
 
 import bluesky.plan_stubs as bps
@@ -118,6 +119,9 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
         Motor controlling the filter position.
     description : derived_signal_r
         Derived signal providing the description of the current filter setting.
+    settings_key : str
+        Required keyword selecting a filter in ``bl_constants.yml``, independent
+        of the device's display name.
     """
 
     def __init__(
@@ -125,7 +129,21 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
         motor_pv: str,
         in_pos_switch_pv: str,
         name: str = "",
+        *,
+        settings_key: str,
     ):
+        self.settings_key = settings_key
+        try:
+            settings = fetch_beamline_constants("filters")[settings_key]
+        except KeyError as e:
+            raise KeyError(
+                f"Filter settings for '{settings_key}' not found in beamline constants."
+            ) from e
+        if set(settings) != {pos.name.lower() for pos in FilterPosition}:
+            raise ValueError(
+                f"Filter '{settings_key}' requires exactly seven positions: "
+                f"{[pos.name.lower() for pos in FilterPosition]}"
+            )
         try:
             self.positions = {
                 FilterPosition[pos.upper()]: (
@@ -133,12 +151,23 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
                     if isinstance(setting, dict)
                     else FilterSetting(setting)
                 )
-                for pos, setting in fetch_beamline_constants("filters")[name].items()
+                for pos, setting in settings.items()
             }
-        except KeyError as e:
-            raise KeyError(
-                f"Filter settings for '{name}' not found in beamline constants."
-            ) from e
+        except (TypeError, KeyError) as e:
+            raise ValueError(f"Invalid filter settings for '{settings_key}'") from e
+        for setting in self.positions.values():
+            if (
+                isinstance(setting.position, bool)
+                or not isinstance(setting.position, (int, float))
+                or not isfinite(setting.position)
+                or (
+                    setting.description is not None
+                    and not isinstance(setting.description, str)
+                )
+            ):
+                raise ValueError(
+                    f"Invalid filter setting for '{settings_key}': {setting!r}"
+                )
         self.in_position = epics_signal_r(bool, in_pos_switch_pv)
         self.filter_motor = AsyncEpicsMotor(motor_pv)
         with self.add_children_as_readables(Format.CONFIG_SIGNAL):
@@ -252,23 +281,30 @@ def set_filters(
     ValueError
         If no setting is given, or a setting is not one of that filter's choices.
     """
-    filter1_upstream = ensure_available(Filter, filter1_upstream=filter1_upstream)
-    filter1_downstream = ensure_available(Filter, filter1_downstream=filter1_downstream)
-    filter2 = ensure_available(Filter, filter2=filter2)
-    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
-
-    args = []
-    for device, setting, choices in (
-        (filter1_upstream, filter1_upstream_setting, Filter1UpstreamPosition),
-        (filter1_downstream, filter1_downstream_setting, Filter1DownstreamPosition),
-        (filter2, filter2_setting, Filter2Position),
+    selected = []
+    for name, device, setting, choices in (
+        (
+            "filter1_upstream",
+            filter1_upstream,
+            filter1_upstream_setting,
+            Filter1UpstreamPosition,
+        ),
+        (
+            "filter1_downstream",
+            filter1_downstream,
+            filter1_downstream_setting,
+            Filter1DownstreamPosition,
+        ),
+        ("filter2", filter2, filter2_setting, Filter2Position),
     ):
         if setting is not None:
-            # Lookup by value accepts the member or its material string, and raises
-            # ValueError for anything that isn't one of this filter's choices.
-            args += [device, FilterPosition[choices(setting).name]]
-    if not args:
+            selected.append((name, device, FilterPosition[choices(setting).name]))
+    if not selected:
         raise ValueError("Choose a setting for at least one filter.")
+    args = []
+    for name, device, position in selected:
+        args += [ensure_available(Filter, **{name: device}), position]
+    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
 
     fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
     yield from bps.mv(*args)

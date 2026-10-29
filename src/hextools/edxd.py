@@ -8,7 +8,6 @@ from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.preprocessors import finalize_wrapper
-from ophyd_async.core import EnableDisable
 from tiled.structures.core import Spec
 
 from hextools.detectors.germ import GeRMDetector
@@ -24,15 +23,7 @@ def _tiled_specs(spec: Spec) -> list[dict[str, str | None]]:
 
 
 def _prepare_germ(germ: GeRMDetector, count_time: float):
-    # IOC Autosave may restore Stats1 disabled after a restart.
-    yield from bps.mv(
-        germ.stats1.enable_callbacks,
-        EnableDisable.ENABLE,
-        germ.stats1.compute_statistics,
-        True,
-        germ.driver.acquire_time,
-        count_time,
-    )
+    yield from bps.mv(germ.driver.acquire_time, count_time)
 
 
 def configure_test_pulses(
@@ -353,6 +344,7 @@ def edxd_grid_scan(
     germ = ensure_available(GeRMDetector, germ=germ)
     germ.save_as_hdf()
 
+    @bpp.reset_positions_decorator([outer_motor, inner_motor] if reset_position else [])
     def _body():
         if use_shutter:
             yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
@@ -385,12 +377,7 @@ def edxd_grid_scan(
             yield from ensure_shutter_closed(fe_shutter)
             yield from ensure_shutter_closed(photon_shutter)
 
-    return (
-        yield from bpp.reset_positions_wrapper(
-            finalize_wrapper(_body(), _cleanup()),
-            [outer_motor, inner_motor] if reset_position else [],
-        )
-    )
+    return (yield from finalize_wrapper(_body(), _cleanup()))
 
 
 def edxd_2theta_tilt(

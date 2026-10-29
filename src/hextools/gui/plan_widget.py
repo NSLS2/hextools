@@ -21,7 +21,6 @@ process by sending ``RE(plan(...))`` to the IPython shell.
 
 from __future__ import annotations
 
-import asyncio
 import collections.abc
 import html
 import inspect
@@ -63,12 +62,10 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.edxd import edxd_2theta_tilt, edxd_custom_pos_list_grid, edxd_scan
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_selector_widget import DynamicDeviceSelector
 from hextools.gui.device_sources import NamespaceDeviceSource, QueueServerDeviceSource
 from hextools.log import _unwrap_failed_status
-from hextools.photon_delivery_system import move_slits
 
 _NO_SELECTION = "\u2014"  # em dash placeholder for an unset single device
 
@@ -257,7 +254,6 @@ class QtPlanWidget(QWidget):
     """
 
     signal_devices_changed = Signal()
-    _slit_values_ready = Signal(int, object, object)
 
     def __init__(
         self,
@@ -281,10 +277,6 @@ class QtPlanWidget(QWidget):
                 )
             self._device_source = NamespaceDeviceSource(ipython.user_ns)
         self._worker = None
-        self._slit_request = 0
-        self._slit_future = None
-        self._slit_closed = False
-        self._slit_values_ready.connect(self._apply_slit_values)
         self._scalar_fields: list[tuple[str, type, QWidget, bool]] = []
         self._scalar_list_fields: list[tuple[str, type, QWidget, bool]] = []
         self._enum_fields: list[tuple[str, QComboBox, bool]] = []
@@ -332,24 +324,11 @@ class QtPlanWidget(QWidget):
         self.signal_devices_changed.connect(self._refresh_devices)
         self._device_source.subscribe(self._on_devices_changed)
         self._refresh_devices()
-        if self._plan is move_slits and isinstance(
-            self._device_source, NamespaceDeviceSource
-        ):
-            combo = next(
-                f["widget"] for f in self._device_fields if f["name"] == "slits"
-            )
-            combo.currentIndexChanged.connect(self._refresh_slit_values)
-            self._slit_relative().toggled.connect(self._refresh_slit_values)
-            self._refresh_slit_values()
 
     # -- Form construction -----------------------------------------------------
 
     def _add_row(self, form: QFormLayout, name: str, widget: QWidget):
-        label = QLabel(
-            "Two theta"
-            if self._plan is edxd_2theta_tilt and name == "theta"
-            else f"{name.replace('_', ' ').title()}:"
-        )
+        label = QLabel(f"{name.replace('_', ' ').title()}:")
         tooltip = self._param_tooltips.get(name)
         if tooltip:
             label.setToolTip(tooltip)
@@ -415,13 +394,7 @@ class QtPlanWidget(QWidget):
     def _add_scalar_field(self, form, name, kind, param, required):
         if kind is bool:
             widget = QCheckBox()
-            default = bool(param.default) if not required else False
-            if (
-                self._plan in (edxd_scan, edxd_custom_pos_list_grid)
-                and name == "save_as_tiff"
-            ):
-                default = True
-            widget.setChecked(default)
+            widget.setChecked(bool(param.default) if not required else False)
         else:
             widget = QLineEdit()
             if kind is int:
@@ -491,7 +464,6 @@ class QtPlanWidget(QWidget):
 
     @Slot()
     def _refresh_devices(self):
-        slit_selection_changed = False
         for field in self._device_fields:
             options = self._device_source.list_devices(field["types"])
             if field["kind"] == "list":
@@ -507,99 +479,8 @@ class QtPlanWidget(QWidget):
                 index = combo.findData(current)
                 combo.setCurrentIndex(index if index >= 0 else 0)
                 combo.blockSignals(False)
-                if field["name"] == "slits" and current != combo.currentData():
-                    slit_selection_changed = True
-        if (
-            slit_selection_changed
-            and self._plan is move_slits
-            and isinstance(self._device_source, NamespaceDeviceSource)
-        ):
-            self._refresh_slit_values()
 
     # -- Submission ------------------------------------------------------------
-
-    def _slit_fields(self) -> dict[str, QLineEdit]:
-        return {
-            name: widget
-            for name, _, widget, _ in self._scalar_fields
-            if isinstance(widget, QLineEdit)
-        }
-
-    def _slit_relative(self) -> QCheckBox:
-        widget = next(w for n, _, w, _ in self._scalar_fields if n == "relative")
-        if not isinstance(widget, QCheckBox):
-            raise TypeError("The slit relative-mode field must be a checkbox")
-        return widget
-
-    def _refresh_slit_values(self, *_):
-        if not isinstance(self._device_source, NamespaceDeviceSource):
-            return
-        self._slit_request += 1
-        request = self._slit_request
-        if self._slit_future is not None:
-            self._slit_future.cancel()
-        values = self._slit_fields()
-        for widget in values.values():
-            widget.clear()
-            widget.setEnabled(False)
-        self._submit_button.setEnabled(False)
-        combo = next(f["widget"] for f in self._device_fields if f["name"] == "slits")
-        name = combo.currentData()
-        if name is None:
-            self._set_status("Select slits to load their current values.")
-            return
-        if self._slit_relative().isChecked():
-            self._apply_slit_values(request, dict.fromkeys(values, 0.0), None)
-            return
-
-        self._set_status(f"Reading current values for {name}\u2026")
-        try:
-            device = self._device_source.resolve_device(name)
-        except KeyError as exc:
-            self._apply_slit_values(request, None, exc)
-            return
-
-        async def read_values():
-            readings = await asyncio.gather(
-                *(getattr(device, key).get_value() for key in values)
-            )
-            return dict(zip(values, readings, strict=True))
-
-        future = asyncio.run_coroutine_threadsafe(read_values(), self._re_client.loop)
-        self._slit_future = future
-
-        def finished(result):
-            if result.cancelled() or self._slit_closed:
-                return
-            try:
-                readings, error = result.result(), None
-            except Exception as exc:
-                readings, error = None, exc
-            self._slit_values_ready.emit(request, readings, error)
-
-        future.add_done_callback(finished)
-
-    @Slot(int, object, object)
-    def _apply_slit_values(self, request, readings, error):
-        if request != self._slit_request or self._slit_closed:
-            return
-        if error is not None:
-            self._set_status(
-                f"Failed to read current slit values: {type(error).__name__}: {error}",
-                error=True,
-            )
-            return
-        for name, value in readings.items():
-            widget = self._slit_fields()[name]
-            widget.setText(str(value))
-            widget.setEnabled(True)
-        self._submit_button.setEnabled(True)
-        relative = self._slit_relative().isChecked()
-        self._set_status(
-            "Relative offsets (zero leaves each axis unchanged)."
-            if relative
-            else "Current slit values loaded; edit targets to move."
-        )
 
     def _collect_inputs(self) -> tuple[dict, set[str]]:
         """Gather plan kwargs and the set of device-valued keys.
@@ -757,8 +638,5 @@ class QtPlanWidget(QWidget):
         self._status_label.setStyleSheet("color: #DB3526;" if error else "")
 
     def closeEvent(self, event):
-        self._slit_closed = True
-        if self._slit_future is not None:
-            self._slit_future.cancel()
         self._device_source.unsubscribe(self._on_devices_changed)
         super().closeEvent(event)

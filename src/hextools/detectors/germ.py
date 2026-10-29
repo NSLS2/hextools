@@ -16,6 +16,7 @@ from ophyd_async.core import (
     DetectorTrigger,
     DetectorTriggerLogic,
     DeviceMock,
+    EnableDisable,
     PathProvider,
     SignalDataProvider,
     SignalR,
@@ -375,9 +376,15 @@ class GeRMStatsDataLogic(DetectorDataLogic):
     """Data logic that reads a single stats signal from the GeRM detector."""
 
     signal: SignalR
+    stats: NDStatsIO
     hinted: bool = True
 
     async def prepare_single(self, datakey_name: str) -> SignalDataProvider:
+        # Autosave may restore either switch disabled after an IOC restart.
+        await asyncio.gather(
+            self.stats.enable_callbacks.set(EnableDisable.ENABLE),
+            self.stats.compute_statistics.set(True),
+        )
         return SignalDataProvider(self.signal)
 
     def get_hinted_fields(self, datakey_name: str) -> Sequence[str]:
@@ -685,7 +692,7 @@ class GeRMDetector(StandardDetector):
                 "multipart/related;type=image/tiff",
                 hinted=False,
             ),
-            GeRMStatsDataLogic(self.stats1.total),
+            GeRMStatsDataLogic(self.stats1.total, self.stats1),
         )
 
     def save_as_hdf(self) -> None:
@@ -703,5 +710,5 @@ class GeRMDetector(StandardDetector):
                 self.hdf,
                 hinted=False,
             ),
-            GeRMStatsDataLogic(self.stats1.total),
+            GeRMStatsDataLogic(self.stats1.total, self.stats1),
         )

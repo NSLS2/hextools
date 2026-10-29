@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import Any, Protocol
 
 from bluesky import RunEngine
+from bluesky.protocols import Reading
 from qtpy.QtCore import Qt, QTimer, Signal, Slot
 from qtpy.QtWidgets import (
     QGridLayout,
@@ -19,11 +20,26 @@ from qtpy.QtWidgets import (
 )
 
 from hextools.gui._ipython import run_in_ipython, show_plan_error
-from hextools.photon_delivery_system.shutter import (
-    Shutter,
-    ensure_shutter_closed,
-    ensure_shutter_open,
-)
+
+
+class ShutterReadback(Protocol):
+    """Structural interface for a named, subscribable boolean readback."""
+
+    @property
+    def name(self) -> str:
+        """Display name of the readback."""
+        ...
+
+    def subscribe_reading(
+        self, function: Callable[[dict[str, Reading[bool]]], None]
+    ) -> None:
+        """Subscribe to the open/closed state."""
+        ...
+
+    def clear_sub(self, function: Callable[[dict[str, Reading[bool]]], None]) -> None:
+        """Remove a state subscription."""
+        ...
+
 
 # (top, bottom) gradient stops.
 _OPEN_COLORS = ("#7bb08a", "#4a7a58")
@@ -40,7 +56,7 @@ class _ShutterButton(QPushButton):
     def __init__(
         self,
         var_name: str,
-        shutter: Shutter,
+        shutter: ShutterReadback,
         loop: asyncio.AbstractEventLoop,
         parent=None,
     ):
@@ -106,26 +122,29 @@ class QtShutterStatus(QWidget):
     ----------
     re : RunEngine
         The in-process RunEngine.
-    namespace : Mapping[str, object]
-        Namespace searched for :class:`Shutter` objects, typically IPython's
-        ``user_ns``. Aliases of the same shutter are shown once.
+    shutters : Mapping[str, ShutterReadback]
+        Explicitly selected readbacks, keyed by their session variable name.
+    command_builder : Callable[[str, bool], str]
+        Build the command for a named shutter and desired open state.
+        Device discovery, plan choice and settling policy belong to the caller.
     """
 
-    def __init__(self, re: RunEngine, namespace: Mapping[str, Any], parent=None):
+    def __init__(
+        self,
+        re: RunEngine,
+        shutters: Mapping[str, ShutterReadback],
+        command_builder: Callable[[str, bool], str],
+        parent=None,
+    ):
         super().__init__(parent)
         self._re = re
-        self._namespace = namespace
+        self._command_builder = command_builder
         self._pending = False
-
-        shutters: dict[int, tuple[str, Shutter]] = {}
-        for name, obj in sorted(namespace.items()):
-            if not name.startswith("_") and isinstance(obj, Shutter):
-                shutters.setdefault(id(obj), (name, obj))
 
         self._buttons: list[_ShutterButton] = []
         grid = QGridLayout()
         grid.setContentsMargins(8, 6, 8, 6)
-        for row, (name, shutter) in enumerate(shutters.values()):
+        for row, (name, shutter) in enumerate(shutters.items()):
             button = _ShutterButton(name, shutter, re.loop)
             button.clicked.connect(lambda *_, b=button: self._toggle(b))
             label = QLabel(name)
@@ -162,13 +181,7 @@ class QtShutterStatus(QWidget):
                 "Cannot actuate a shutter while the RunEngine is busy.",
             )
             return
-        plan = ensure_shutter_closed if button.is_open else ensure_shutter_open
-        # Make the plan resolvable when the command is echoed and run in IPython.
-        self._namespace.setdefault(plan.__name__, plan)  # type: ignore
-        code = (
-            f"RE({plan.__name__}({button.var_name}, "
-            "allow_actuation=True, sleep_time=0.0))"
-        )
+        code = self._command_builder(button.var_name, not button.is_open)
         # Reserve both controls before the deferred cell can run or Qt reenters.
         self._pending = True
         self._update_enabled()
