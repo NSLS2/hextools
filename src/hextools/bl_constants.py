@@ -78,7 +78,7 @@ def build_enum_from_position_list(
             members[name.upper()] = (
                 position.description or name.replace("_", " ").title()
             )
-    return cast(  # type: ignore
+    return cast(
         type[StrEnum], StrEnum(key.title().replace("_", "") + "Position", members)
     )
 

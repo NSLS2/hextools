@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import h5py
 from bluesky_tiled_plugins import CatalogOfBlueskyRuns
@@ -178,7 +178,7 @@ def export_tomo_dark_flat_to_h5(
         isinstance(n, str) for n in det_names
     ):
         raise ValueError(f"Run {run} has an invalid 'detectors' field: {det_names}")
-    det_names = [str(n) for n in det_names]
+    det_names = cast(list[str], det_names)
 
     data_session, cycle, scan_id = confirm_required_start_fields(run_start)
 

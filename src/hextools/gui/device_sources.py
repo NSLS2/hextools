@@ -206,6 +206,10 @@ class NamespaceDeviceSource(DeviceSource):
             return False
         return self._matches(obj, types)
 
+    def resolve_device(self, name: str) -> Any:
+        """Resolve a validated local device path without evaluating Python code."""
+        return _walk_namespace(self._namespace)[name]
+
     @staticmethod
     def _matches(obj: Any, types: tuple[type, ...] | None) -> bool:
         """Check if the object matches the given types or looks like a device.
