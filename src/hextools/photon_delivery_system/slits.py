@@ -52,7 +52,9 @@ class FrontEndSlit(StandardReadable, AsyncMovable[SlitAperture]):
             self.y = AsyncEpicsMotor(prefix + "Mtr")
         with self.add_children_as_readables(Format.CONFIG_SIGNAL):
             self.aperture = derived_signal_r(self._aperture, y=self.y.user_readback)
-            self.in_position = derived_signal_r(self._in_position, y=self.y.user_readback, aperture=self.aperture)
+            self.in_position = derived_signal_r(
+                self._in_position, y=self.y.user_readback, aperture=self.aperture
+            )
         super().__init__(name=name)
 
     def _aperture(self, y: float) -> str:
