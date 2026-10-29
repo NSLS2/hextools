@@ -17,9 +17,7 @@ from hextools.gui.spec import GuiSpec
 
 @pytest.mark.parametrize("mock", [False, True])
 @pytest.mark.parametrize("history", [None, "explicit.json"])
-def test_command_line_overrides_base_environment(
-    monkeypatch, tmp_path, mock, history
-):
+def test_command_line_overrides_base_environment(monkeypatch, tmp_path, mock, history):
     profile = tmp_path / "test.py"
     profile.write_text("")
     spec = GuiSpec(
@@ -45,9 +43,7 @@ def test_command_line_overrides_base_environment(
 
 @pytest.mark.parametrize("client_name", ["c", "tiled_reading_client"])
 @pytest.mark.parametrize("run_specs", [(), (Spec("synthetic-run"),)])
-def test_scan_browser_requires_run_specs(
-    monkeypatch, RE, client_name, run_specs
-):
+def test_scan_browser_requires_run_specs(monkeypatch, RE, client_name, run_specs):
     app = QApplication.instance() or QApplication([])
     shell = InteractiveShell.instance()
     monkeypatch.setitem(shell.user_ns, client_name, object())
@@ -58,9 +54,7 @@ def test_scan_browser_requires_run_specs(
         if run_specs:
             assert selector.scan_browser is not None
             assert selector.scan_browser._spec_combo.count() == 1
-            assert (
-                selector.scan_browser._spec_combo.currentText() == "synthetic-run"
-            )
+            assert selector.scan_browser._spec_combo.currentText() == "synthetic-run"
         else:
             assert selector.scan_browser is None
     finally:
