@@ -7,27 +7,22 @@ import numpy as np
 import pytest
 from bluesky import Msg, RunEngine
 from bluesky import plan_stubs as bps
+from bluesky import preprocessors as bpp
 from bluesky.run_engine import RunEngineResult
 from ophyd_async.core import (
     StaticPathProvider,
     UUIDFilenameProvider,
     callback_on_mock_execute,
-    callback_on_mock_put,
     init_devices,
     set_mock_value,
-)
-from ophyd_async.epics.adcore import (
-    ADBaseDataType,
-    ADWriterFactory,
-    NDPluginFileIO,
 )
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from pytest_mock import MockerFixture
 
 from hextools.motors import RotationMotor
-from hextools.photon_delivery_system.shutter import ShutterStatus
 from hextools.photon_delivery_system import Shutter
+from hextools.photon_delivery_system.shutter import ShutterStatus
 from hextools.tomography.alignment import (
     ensure_run_is_valid,
     fit_points_to_ellipse,
@@ -329,10 +324,12 @@ def shutter_factory() -> Callable[[str], Shutter]:
         with init_devices(mock=True):
             shutter = Shutter(name, name=name)
         callback_on_mock_execute(
-            shutter.open_cmd, lambda: set_mock_value(shutter.status, ShutterStatus.OPEN)
+            shutter.open_cmd,
+            lambda: set_mock_value(shutter.status, ShutterStatus.OPEN),
         )
         callback_on_mock_execute(
-            shutter.close_cmd, lambda: set_mock_value(shutter.status, ShutterStatus.CLOSED)
+            shutter.close_cmd,
+            lambda: set_mock_value(shutter.status, ShutterStatus.CLOSED),
         )
         set_mock_value(shutter.status, ShutterStatus.CLOSED)
         return shutter
@@ -352,6 +349,9 @@ def motors() -> tuple[RotationMotor, AsyncEpicsMotor]:
     with init_devices(mock=True):
         rotation_motor = RotationMotor("ROT")
         sample_stage_x = AsyncEpicsMotor("X")
+    for motor in (rotation_motor, sample_stage_x):
+        set_mock_value(motor.velocity, 10000)
+        set_mock_value(motor.acceleration_time, 0.0001)
     return rotation_motor, sample_stage_x
 
 
@@ -360,66 +360,43 @@ def static_path_provider(tmp_path: Path) -> StaticPathProvider:
     return StaticPathProvider(UUIDFilenameProvider(), tmp_path)
 
 
-@pytest.fixture
-def kinetix_det_factory(
-    static_path_provider: StaticPathProvider,
-) -> Callable[[int], KinetixDetector]:
-    def _factory(num: int) -> KinetixDetector:
-        with init_devices(mock=True):
-            ktx = KinetixDetector(
-                f"KTX{num}",
-                ADWriterFactory.tiff(static_path_provider),
-                name=f"kinetix{num}",
-            )
-            tiff_plugin = ktx.get_plugin_by_name("tiff", NDPluginFileIO)
-
-        set_mock_value(ktx.driver.array_size_x, 3200)
-        set_mock_value(ktx.driver.array_size_y, 3200)
-        set_mock_value(ktx.driver.data_type, ADBaseDataType.UINT16)
-
-        async def _mock_increment_num_captured(_):
-            current_num_cap = await tiff_plugin.num_captured.get_value()
-            set_mock_value(tiff_plugin.num_captured, current_num_cap + 1)
-
-        callback_on_mock_put(
-            tiff_plugin.capture, lambda _: set_mock_value(tiff_plugin.num_captured, 0)
-        )
-        callback_on_mock_put(ktx.driver.acquire, _mock_increment_num_captured)
-        callback_on_mock_put(
-            tiff_plugin.file_path,
-            lambda _: set_mock_value(tiff_plugin.file_path_exists, True),
-        )
-        return ktx
-
-    return _factory
-
-
 async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
     RE: RunEngine,
+    kinetix_det_factory: Callable[[int], KinetixDetector],
     two_shutters: tuple[Shutter, Shutter],
     motors: tuple[RotationMotor, AsyncEpicsMotor],
 ):
 
     fe_shutter, photon_shutter = two_shutters
-    rotation_motor, sample_stage_x = motors
-    assert await fe_shutter.status.get_value() == ShutterStatus.CLOSED
+    rotation_motor, _ = motors
+    assert all(
+        status is ShutterStatus.CLOSED
+        for status in await asyncio.gather(
+            fe_shutter.status.get_value(), photon_shutter.status.get_value()
+        )
+    )
 
-    with pytest.raises(ValueError, match="front_end_shutter is not open"):
-        RE(tomo_alignment_scan([], 0.1, rot_motor=rotation_motor, sample_stage_x=sample_stage_x, fe_shutter=fe_shutter, photon_shutter=photon_shutter, base_x_offset=0.1))
+    with pytest.raises(
+        ValueError,
+        match=f"Shutter {fe_shutter.name} is closed but the desired state is open",
+    ):
+        RE(
+            tomo_alignment_scan(
+                kinetix_det_factory(1),
+                0.1,
+                fe_shutter=fe_shutter,
+                photon_shutter=photon_shutter,
+                rot_motor=rotation_motor,
+            )
+        )
 
 
 @pytest.mark.parametrize(
-    (
-        "exposure_time",
-        "num_projections",
-        "init_angle",
-        "stop_angle",
-        "base_x_offset",
-    ),
+    ("exposure_time", "num_projections", "init_angle", "stop_angle"),
     [
-        (0.1, 37, 0.0, 360.0, 0.0),
-        (0.4, 11, 0.0, 360.0, 10.0),
-        (1.0, 21, -50.0, 50.0, 10.0),
+        (0.1, 37, 0.0, 360.0),
+        (0.4, 11, 0.0, 360.0),
+        (1.0, 21, -50.0, 50.0),
     ],
 )
 async def test_tomo_alignment_scan(
@@ -431,94 +408,79 @@ async def test_tomo_alignment_scan(
     num_projections: int,
     init_angle: float,
     stop_angle: float,
-    base_x_offset: float,
 ):
-    rotation_motor, sample_stage_x = motors
+    rotation_motor, _ = motors
     fe_shutter, photon_shutter = two_shutters
     ktx1 = kinetix_det_factory(1)
     RE(bps.mv(fe_shutter, True))
 
     set_mock_value(rotation_motor.max_velocity, 10000)
-    max_velocity = await rotation_motor.max_velocity.get_value()
-    assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
+    # A real stage never sits at zero velocity, and the restore reads the setpoint.
+    await rotation_motor.velocity.set(10)
+    initial_velocity = await rotation_motor.velocity.get_value()
+    initial_position = await rotation_motor.user_readback.get_value()
+    initial_acquire_time = await ktx1.driver.acquire_time.get_value()
+    assert await photon_shutter.status.get_value() is ShutterStatus.CLOSED
 
     docs: dict[str, list[dict[str, Any]]] = {}
 
     def cache_docs(name: str, doc: dict[str, Any]):
-        if name in docs:
-            docs[name].append(doc)
-        else:
-            docs[name] = [doc]
+        docs.setdefault(name, []).append(doc)
 
-    messages_by_type: dict[str, list[Msg]] = {}
     messages: list[Msg] = []
-
-    def msg_hook(msg: Msg):
-        messages.append(msg)
-        if msg.command in messages_by_type:
-            messages_by_type[msg.command].append(msg)
-        else:
-            messages_by_type[msg.command] = [msg]
-
-    RE.msg_hook = msg_hook  # type: ignore
+    RE.msg_hook = messages.append  # type: ignore
 
     runs: RunEngineResult = RE(
-        tomo_alignment_scan(
-            [ktx1],
-            exposure_time,
-            rot_motor=rotation_motor,
-            fe_shutter=fe_shutter,
-            photon_shutter=photon_shutter,
-            num_projections=num_projections,
-            init_angle=init_angle,
-            stop_angle=stop_angle,
-            base_x_offset=base_x_offset,
-            sample_stage_x=sample_stage_x
+        # the shutter settle sleeps are only for hardware
+        bpp.msg_mutator(
+            tomo_alignment_scan(
+                ktx1,
+                exposure_time,
+                num_projections=num_projections,
+                init_angle=init_angle,
+                stop_angle=stop_angle,
+                fe_shutter=fe_shutter,
+                photon_shutter=photon_shutter,
+                rot_motor=rotation_motor,
+            ),
+            lambda msg: msg._replace(args=(0,)) if msg.command == "sleep" else msg,
         ),
         cache_docs,  # type: ignore
     )  # type: ignore
 
-    expecting_flat_run = abs(base_x_offset) > 0.0
+    # One run with only a primary stream: one event per projection.
+    assert len(runs.run_start_uids) == 1
+    for doc_type in ["start", "stop"]:
+        assert len(docs[doc_type]) == 1
+    assert [d["name"] for d in docs["descriptor"]] == ["primary"]
+    assert len(docs["event"]) == num_projections
+    assert docs["start"][0]["plan_name"] == "tomography_alignment_scan"
 
-    assert await rotation_motor.velocity.get_value() == max_velocity
-    assert await photon_shutter.status.get_value()
+    # Before the run: max velocity, exposure settings and one image per trigger.
+    open_run = next(i for i, msg in enumerate(messages) if msg.command == "open_run")
+    setup = {
+        msg.obj: msg.args[0] for msg in messages[:open_run] if msg.command == "set"
+    }
+    assert setup[rotation_motor.velocity] == 10000
+    assert setup[ktx1.driver.acquire_time] == exposure_time
+    assert setup[ktx1.driver.num_images] == 1
+    first_rotation = next(
+        msg
+        for msg in messages[open_run:]
+        if msg.command == "set" and msg.obj == rotation_motor
+    )
+    assert first_rotation.args == np.float64(init_angle)
 
-    for doc_type in ["start", "descriptor", "stream_resource", "stop"]:
-        assert len(docs[doc_type]) == (2 if expecting_flat_run else 1)
-
-    for doc_type in ["stream_datum", "event"]:
-        expected_num_events = (
-            num_projections + 1 if expecting_flat_run else num_projections
-        )
-        assert len(docs[doc_type]) == expected_num_events
-
-    assert await ktx1.driver.acquire_time.get_value() == exposure_time
-    # the plan resets the positions of the motors it moves, so the rotation
-    # stage ends back where it started, not at stop_angle
-    assert await rotation_motor.user_readback.get_value() == 0.0
-
-    if not expecting_flat_run:
-        assert len(runs.run_start_uids) == 1
-    else:
-        assert len(runs.run_start_uids) == 2
-        assert docs["start"][1]["flat_uid"] == runs.run_start_uids[0]
-
-        sample_staged_move_counter = 0
-        for msg in messages_by_type["set"]:
-            if msg.obj == sample_stage_x:
-                if sample_staged_move_counter == 0:
-                    assert msg.args == np.float64(base_x_offset)
-                else:
-                    assert msg.args == np.float64(0.0)
-                sample_staged_move_counter += 1
-        # offset for the flat field, back to zero, then the reset by the
-        # reset_positions decorator
-        assert sample_staged_move_counter == 3
-        assert await sample_stage_x.user_readback.get_value() == 0.0
-
-    for i, msg in enumerate(messages):
-        if msg.command == "open_run" and msg.kwargs["plan_name"] == "scan":
-            send_motor_to_init_msg = messages[i + 2]
-            assert send_motor_to_init_msg.command == "set"
-            assert send_motor_to_init_msg.obj == rotation_motor
-            assert send_motor_to_init_msg.args == np.float64(init_angle)
+    # Afterwards: photon shutter closed, motor and detector settings restored.
+    assert await photon_shutter.status.get_value() is ShutterStatus.CLOSED
+    assert await rotation_motor.velocity.get_value() == initial_velocity
+    assert await rotation_motor.user_readback.get_value() == initial_position
+    assert await ktx1.driver.acquire_time.get_value() == initial_acquire_time
+    # The stage returns at full speed, and only then slows back down.
+    close_run = next(i for i, msg in enumerate(messages) if msg.command == "close_run")
+    restores = [
+        msg.obj
+        for msg in messages[close_run:]
+        if msg.command == "set" and msg.obj in (rotation_motor, rotation_motor.velocity)
+    ]
+    assert restores == [rotation_motor, rotation_motor.velocity]

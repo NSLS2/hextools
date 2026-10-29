@@ -3,12 +3,24 @@ import time
 
 import bluesky.plan_stubs as bps
 import pytest
+from bluesky.protocols import Reading
 from bluesky.run_engine import RunEngine
-from ophyd_async.core import callback_on_mock_execute, init_devices, set_mock_value
+from bluesky.utils import FailedStatus
+from ophyd_async.core import (
+    DeviceMock,
+    callback_on_mock_execute,
+    callback_on_mock_put,
+    get_mock_put,
+    init_devices,
+    set_mock_value,
+)
 
 from hextools.photon_delivery_system.shutter import (
+    InterlockAcknowledge,
     Shutter,
     ShutterStatus,
+    ensure_shutter_closed,
+    ensure_shutter_open,
     ensure_shutter_state,
 )
 
@@ -17,7 +29,15 @@ from hextools.photon_delivery_system.shutter import (
 def shutter() -> Shutter:
     with init_devices(mock=True):
         ps = Shutter("TEST:SHUTTER:", name="test_shutter")
+        ps._mock_class = DeviceMock  # bypass MockShutter's actuation behavior
     return ps
+
+
+@pytest.fixture
+def mock_shutter() -> Shutter:
+    with init_devices(mock=True):
+        ms = Shutter("TEST:MOCKSHUTTER:", name="mock_shutter")
+    return ms
 
 
 async def _delayed_readback(ps: Shutter, value: bool, delay: float):
@@ -96,11 +116,11 @@ async def test_ensure_shutter_state(
     callback_on_mock_execute(shutter.close_cmd, _on_execute(False))
 
     if expected_executions is None:
-        expected_status = "open" if initial_state else "not open"
         with pytest.raises(
             ValueError,
             match=(
-                f"{shutter.name} is {expected_status}, but the desired state is "
+                f"Shutter {shutter.name} is "
+                f"{'open' if initial_state else 'closed'} but the desired state is "
                 f"{'open' if desired_state else 'closed'}!"
             ),
         ):
@@ -113,10 +133,139 @@ async def test_ensure_shutter_state(
     else:
         RE(
             ensure_shutter_state(
-                shutter, desired_state, allow_actuation=allow_actuation
+                shutter, desired_state, allow_actuation=allow_actuation, sleep_time=0
             )
         )
         assert executions == [desired_state] * expected_executions
         assert await shutter.status.get_value() is (
             ShutterStatus.OPEN if desired_state else ShutterStatus.CLOSED
         )
+
+
+async def test_mock_shutter_default_behavior(
+    RE: RunEngine, mock_shutter: Shutter, monkeypatch: pytest.MonkeyPatch
+):
+    uniform_calls: list[tuple[float, float]] = []
+
+    def fake_uniform(a: float, b: float) -> float:
+        uniform_calls.append((a, b))
+        return 0.1
+
+    monkeypatch.setattr(
+        "hextools.photon_delivery_system.shutter.random.uniform", fake_uniform
+    )
+
+    assert await mock_shutter.status.get_value() is ShutterStatus.CLOSED
+
+    t0 = time.monotonic()
+    RE(bps.mv(mock_shutter, True))
+    open_duration = time.monotonic() - t0
+    assert await mock_shutter.status.get_value() is ShutterStatus.OPEN
+    assert open_duration >= 0.1
+
+    t0 = time.monotonic()
+    RE(bps.mv(mock_shutter, False))
+    close_duration = time.monotonic() - t0
+    assert await mock_shutter.status.get_value() is ShutterStatus.CLOSED
+    assert close_duration >= 0.1
+
+    assert uniform_calls == [(0.0, 3.0), (0.0, 3.0)]
+
+
+@pytest.mark.parametrize("allow_actuation", [True, False])
+@pytest.mark.parametrize(
+    ("ensure_plan", "initial_status", "desired_status"),
+    [
+        (ensure_shutter_open, ShutterStatus.CLOSED, ShutterStatus.OPEN),
+        (ensure_shutter_closed, ShutterStatus.OPEN, ShutterStatus.CLOSED),
+    ],
+)
+async def test_ensure_shutter_helper_allow_actuation(
+    RE: RunEngine,
+    shutter: Shutter,
+    ensure_plan,
+    initial_status: ShutterStatus,
+    desired_status: ShutterStatus,
+    allow_actuation: bool,
+):
+    set_mock_value(shutter.status, initial_status)
+    callback_on_mock_execute(
+        shutter.open_cmd,
+        lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN),
+    )
+    callback_on_mock_execute(
+        shutter.close_cmd,
+        lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED),
+    )
+
+    if allow_actuation:
+        RE(ensure_plan(shutter, allow_actuation=True))
+        assert await shutter.status.get_value() is desired_status
+    else:
+        with pytest.raises(ValueError):
+            RE(ensure_plan(shutter, allow_actuation=False))
+        assert await shutter.status.get_value() is initial_status
+
+
+async def test_subscribe_reading_translates_status_to_bool(
+    RE: RunEngine, shutter: Shutter
+):
+    set_mock_value(shutter.status, ShutterStatus.CLOSED)
+
+    received: list[dict[str, Reading[bool]]] = []
+    shutter.subscribe_reading(received.append)
+
+    # Subscribing delivers an immediate reading for the current CLOSED status.
+    assert received[-1].keys() == {shutter.name}
+    assert received[-1][shutter.name]["value"] is False
+    assert "timestamp" in received[-1][shutter.name]
+
+    set_mock_value(shutter.status, ShutterStatus.OPEN)
+    assert received[-1][shutter.name]["value"] is True
+
+    set_mock_value(shutter.status, ShutterStatus.CLOSED)
+    assert received[-1][shutter.name]["value"] is False
+
+    # After clearing the subscription no further updates are delivered.
+    shutter.clear_sub(received.append)
+    count = len(received)
+    set_mock_value(shutter.status, ShutterStatus.OPEN)
+    assert len(received) == count
+
+
+def _interlock() -> InterlockAcknowledge:
+    with init_devices(mock=True):
+        interlock = InterlockAcknowledge("TEST:FE:")
+    return interlock
+
+
+async def test_interlock_acknowledge_writes_and_waits_for_the_pps(RE: RunEngine):
+    interlock = _interlock()
+    set_mock_value(interlock.acknowledged, False)
+
+    RE(bps.mv(interlock, True))
+
+    get_mock_put(interlock.request).assert_called_once()
+    assert await interlock.acknowledged.get_value()
+
+
+async def test_interlock_already_acknowledged_is_not_written(RE: RunEngine):
+    interlock = _interlock()
+
+    RE(bps.mv(interlock, True))
+
+    get_mock_put(interlock.request).assert_not_called()
+
+
+async def test_interlock_acknowledge_fails_if_the_pps_never_reports_it(
+    RE: RunEngine, monkeypatch
+):
+    monkeypatch.setattr(
+        "hextools.photon_delivery_system.shutter.DEFAULT_TIMEOUT", 0.1
+    )
+    interlock = _interlock()
+    set_mock_value(interlock.acknowledged, False)
+    callback_on_mock_put(interlock.request, lambda *_, **__: None)
+
+    with pytest.raises(FailedStatus):
+        RE(bps.mv(interlock, True))

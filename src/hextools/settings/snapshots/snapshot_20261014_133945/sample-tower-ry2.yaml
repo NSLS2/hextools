@@ -1,0 +1,10 @@
+acceleration_time: 1.0
+dial_high_limit_travel: 601.6800000000001
+dial_low_limit_travel: -998.3199999999999
+high_limit_travel: 800.0
+low_limit_travel: -800.0
+offset: 198.32
+offset_freeze_switch: Variable
+set_use_switch: Use
+user_setpoint: 181.625
+velocity: 9.473684210526315

@@ -1,0 +1,557 @@
+"""Bluesky plans for energy-dispersive X-ray diffraction (EDXD) at HEX."""
+
+import itertools
+from typing import Any
+
+import numpy as np
+from bluesky import plan_stubs as bps
+from bluesky import plans as bp
+from bluesky import preprocessors as bpp
+from bluesky.preprocessors import finalize_wrapper
+from tiled.structures.core import Spec
+
+from hextools.detectors.germ import GeRMDetector
+from hextools.motors import CollimatorTable, EDXDTable, SampleTower
+from hextools.photon_delivery_system import Shutter, ensure_shutter_open
+from hextools.photon_delivery_system.shutter import ensure_shutter_closed
+from hextools.specs import EDXD_CALIBRATION_V1, EDXD_SCAN_V1
+from hextools.utils import Steppable, ensure_available
+
+
+def _tiled_specs(spec: Spec) -> list[dict[str, str | None]]:
+    return [{"name": spec.name, "version": spec.version}]
+
+
+def configure_test_pulses(
+    use_test_pulses: bool,
+    test_pulse_amplitude: int = 100,
+    test_pulse_freq: int = 1000,
+    test_pulse_count: int = 99999,
+    germ: GeRMDetector | None = None,
+):
+    """Configure test pulses for the GeRM detector.
+
+    Parameters
+    ----------
+    use_test_pulses : bool
+        Whether to enable or disable test pulses.
+    test_pulse_amplitude : int, default 100
+        The amplitude of the test pulses.
+    test_pulse_freq : int, default 1000
+        The frequency of the test pulses.
+    test_pulse_count : int, default 99999
+        The number of test pulses to generate.
+    germ : GeRMDetector, optional
+        The GeRM detector device. If None, will pull from global namespace.
+    """
+    germ = ensure_available(GeRMDetector, germ=germ)
+
+    test_pulses_enabled = yield from bps.rd(germ.driver.test_pulse_enable)
+
+    # If already in the given state, must switch it off first
+    if test_pulses_enabled == use_test_pulses:
+        yield from bps.mv(germ.driver.test_pulse_enable, not use_test_pulses)
+
+    # Enable/disable test pulses for all channels
+    yield from bps.abs_set(
+        germ.driver.enable_all_tsen, 1 if use_test_pulses else 0, wait=True
+    )
+
+    # Set the test pulse parameters and enable/disable test pulses
+    yield from bps.mv(
+        germ.driver.test_pulse_amplitude,
+        test_pulse_amplitude if use_test_pulses else 0,
+        germ.driver.test_pulse_frequency,
+        test_pulse_freq if use_test_pulses else 0,
+        germ.driver.test_pulse_count,
+        test_pulse_count if use_test_pulses else 0,
+        germ.driver.test_pulse_enable,
+        use_test_pulses,
+    )
+
+
+def edxd_count(
+    count_time: float,
+    num: int = 1,
+    description: str | None = None,
+    germ: GeRMDetector | None = None,
+):
+    """Take one or more counts with the GeRM detector.
+
+    Parameters
+    ----------
+    count_time : float
+        The acquisition time for each count.
+    num : int, default 1
+        The number of counts to take.
+    description : str | None, optional
+        A description for the count, if any.
+    germ : GeRMDetector | None, optional
+        The GeRM detector device. If None, will pull from global namespace.
+    """
+    germ = ensure_available(GeRMDetector, germ=germ)
+
+    yield from bps.mv(germ.driver.acquire_time, count_time)
+
+    _md: dict[str, Any] = {
+        "plan_name": "edxd_count",
+        "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
+    }
+    if description is not None:
+        _md["description"] = description
+    yield from bp.count([germ], num=num, md=_md)
+
+
+def edxd_scan(
+    motor: Steppable,
+    start: float,
+    stop: float,
+    num_points: int,
+    count_time: float,
+    num_iterations: int = 1,
+    time_between_iterations: float = 0.0,
+    description: str | None = None,
+    save_as_tiff: bool = False,
+    reset_position: bool = True,
+    use_shutter: bool = True,
+    germ: GeRMDetector | None = None,
+    fe_shutter: Shutter | None = None,
+    photon_shutter: Shutter | None = None,
+):
+    """Perform a 1D scan with the EDXD detector.
+
+    Parameters
+    ----------
+    motor : Steppable,
+        The motor to scan.
+    start : float
+        The starting position for the motor.
+    stop : float
+        The stopping position for the motor.
+    num_points : int
+        The number of points in the scan.
+    count_time : float
+        The acquisition time at each point.
+    num_iterations : int, default 1
+        The number of times to repeat the scan.
+    time_between_iterations : float, default 0.0
+        The time to wait between iterations.
+    description : str | None, optional
+        A description for the scan, if any.
+    save_as_tiff : bool, default False
+        Whether to save the data as a TIFF file.
+    reset_position : bool, default True
+        Whether to reset the motor to its starting position after the scan.
+    use_shutter : bool, default True
+        Whether to use the shutters during the scan.
+    germ : GeRMDetector | None, optional
+        The GeRM detector device. If None, will pull from global namespace.
+    fe_shutter : Shutter | None, optional
+        The front-end shutter device. If None, will pull from global namespace.
+    photon_shutter : Shutter | None, optional
+        The photon shutter device. If None, will pull from global namespace.
+    """
+    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
+    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
+    germ = ensure_available(GeRMDetector, germ=germ)
+
+    def _body():
+        if use_shutter:
+            yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
+            yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+
+        yield from bps.mv(germ.driver.acquire_time, count_time)
+
+        if save_as_tiff:
+            germ.save_as_tiff()
+        else:
+            germ.save_as_hdf()
+
+        _md: dict[str, Any] = {
+            "plan_name": "edxd_scan",
+            "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
+        }
+        if description is not None:
+            _md["description"] = description
+        yield from bp.scan([germ], motor, start, stop, num_points, md=_md)
+
+    def _cleanup():
+        if use_shutter:
+            yield from ensure_shutter_closed(fe_shutter)
+            yield from ensure_shutter_closed(photon_shutter)
+        if reset_position:
+            yield from bps.mv(motor, start)
+
+    return (
+        yield from bps.repeat(
+            lambda: finalize_wrapper(_body(), _cleanup()),
+            num=num_iterations,
+            delay=time_between_iterations,
+        )
+    )
+
+
+def edxd_custom_pos_list_grid(
+    outer_motor: Steppable,
+    outer_positions_list: list[float],
+    inner_motor: Steppable,
+    inner_start: list[float],
+    inner_stop: list[float],
+    inner_num_points: list[int],
+    count_time: float,
+    save_as_tiff: bool = False,
+    use_shutter: bool = True,
+    reset_positions: bool = True,
+    description: str | None = None,
+    germ: GeRMDetector | None = None,
+    fe_shutter: Shutter | None = None,
+    photon_shutter: Shutter | None = None,
+):
+    """Plan stub for a custom position list grid scan for the EDXD detector."""
+    germ = ensure_available(GeRMDetector, germ=germ)
+    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
+    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
+
+    inner_starts = (
+        inner_start * len(outer_positions_list)
+        if len(inner_start) == 1
+        else inner_start
+    )
+    inner_stops = (
+        inner_stop * len(outer_positions_list) if len(inner_stop) == 1 else inner_stop
+    )
+    inner_num_points = (
+        inner_num_points * len(outer_positions_list)
+        if len(inner_num_points) == 1
+        else inner_num_points
+    )
+    if not all(
+        len(v) == len(outer_positions_list)
+        for v in [inner_starts, inner_stops, inner_num_points]
+    ):
+        raise ValueError(
+            "Inner start, stop, and num_points must all be a float, or a list of "
+            "the same length as the number of outer positions"
+        )
+
+    if save_as_tiff:
+        germ.save_as_tiff()
+    else:
+        germ.save_as_hdf()
+
+    @bpp.reset_positions_decorator(
+        [outer_motor, inner_motor] if reset_positions else []
+    )
+    def _body():
+        if use_shutter:
+            yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
+            yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+
+        yield from bps.mv(germ.driver.acquire_time, count_time)
+
+        _md: dict[str, Any] = {
+            "plan_name": "edxd_custom_pos_list_grid",
+            "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
+        }
+        if description is not None:
+            _md["description"] = description
+        for i, outer_pos in enumerate(outer_positions_list):
+            yield from bps.mv(outer_motor, outer_pos)
+            _md["outer_position"] = outer_pos
+            uid = yield from bp.list_scan(
+                [germ],
+                inner_motor,
+                list(np.linspace(inner_starts[i], inner_stops[i], inner_num_points[i])),
+                md=_md,
+            )
+            if "initial_scan_uid" not in _md:
+                _md["initial_scan_uid"] = uid
+
+    def _cleanup():
+        if use_shutter:
+            yield from ensure_shutter_closed(fe_shutter)
+            yield from ensure_shutter_closed(photon_shutter)
+
+    return (yield from finalize_wrapper(_body(), _cleanup()))
+
+
+def edxd_grid_scan(
+    outer_motor: Steppable,
+    outer_start: float,
+    outer_stop: float,
+    outer_num_points: int,
+    inner_motor: Steppable,
+    inner_start: float,
+    inner_stop: float,
+    inner_num_points: int,
+    count_time: float,
+    snake: bool = False,
+    use_shutter: bool = True,
+    reset_position: bool = True,
+    description: str | None = None,
+    germ: GeRMDetector | None = None,
+    fe_shutter: Shutter | None = None,
+    photon_shutter: Shutter | None = None,
+):
+    """Perform a 2D grid scan, taking an EDXD measurement at each grid point.
+
+    Parameters
+    ----------
+    outer_motor : Steppable
+        The outer (slower) motor for the grid scan.
+    outer_start : float
+        The starting position for the outer motor.
+    outer_stop : float
+        The stopping position for the outer motor.
+    outer_num_points : int
+        The number of points for the outer motor.
+    inner_motor : Steppable
+        The inner (faster) motor for the grid scan.
+    inner_start : float
+        The starting position for the inner motor.
+    inner_stop : float
+        The stopping position for the inner motor.
+    inner_num_points : int
+        The number of points for the inner motor.
+    count_time : float
+        The acquisition time at each grid point.
+    snake : bool, default False
+        Whether to perform the scan in a snake pattern.
+    use_shutter : bool, default True
+        Whether to use the shutters during the scan.
+    reset_position : bool, default True
+        Whether to reset the motors to their starting positions after the scan.
+    description : str | None, optional
+        A description for the scan, if any.
+    germ : GeRMDetector | None, optional
+        The GeRM detector device. If None, will pull from global namespace.
+    fe_shutter : Shutter | None, optional
+        The front-end shutter device. If None, will pull from global namespace.
+    photon_shutter : Shutter | None, optional
+        The photon shutter device. If None, will pull from global namespace.
+    """
+    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
+    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
+    germ = ensure_available(GeRMDetector, germ=germ)
+    germ.save_as_hdf()
+
+    def _body():
+        if use_shutter:
+            yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
+            yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+
+        yield from bps.mv(germ.driver.acquire_time, count_time)
+
+        _md: dict[str, Any] = {
+            "plan_name": "edxd_grid_scan",
+            "tiled_specs": _tiled_specs(EDXD_SCAN_V1),
+        }
+        if description is not None:
+            _md["description"] = description
+        yield from bp.grid_scan(
+            [germ],
+            outer_motor,
+            outer_start,
+            outer_stop,
+            outer_num_points,
+            inner_motor,
+            inner_start,
+            inner_stop,
+            inner_num_points,
+            md=_md,
+            snake_axes=snake,
+        )
+
+    def _cleanup():
+        if use_shutter:
+            yield from ensure_shutter_closed(fe_shutter)
+            yield from ensure_shutter_closed(photon_shutter)
+        if reset_position:
+            yield from bps.mv(outer_motor, outer_start)
+            yield from bps.mv(inner_motor, inner_start)
+
+    return (yield from finalize_wrapper(_body(), _cleanup()))
+
+
+def edxd_2theta_tilt(
+    theta: float,
+    move_out: bool = False,
+    edxd_table: EDXDTable | None = None,
+    collimator_table: CollimatorTable | None = None,
+):
+    """Plan stub to tilt the EDXD detector to a specified 2-theta angle.
+
+    Parameters
+    ----------
+    theta : float
+        The desired 2-theta angle for the EDXD detector.
+    move_out : bool, default False
+        Whether to move the EDXD table out before tilting.
+    edxd_table : EDXDTable | None, optional
+        The EDXD table device. If None, will pull from global namespace.
+    collimator_table : CollimatorTable | None, optional
+        The collimator table device. If None, will pull from global namespace.
+    """
+    edxd_table = ensure_available(EDXDTable, edxd_table=edxd_table)
+    collimator_table = ensure_available(
+        CollimatorTable, collimator_table=collimator_table
+    )
+
+    # TODO: Pull out into human readable file
+    x_out = -270.0
+    x0 = 0.0
+    coll_x0 = -54
+    d1 = 425
+    ds = 263
+    r_value = 70.5
+    beta_rad = np.deg2rad(theta)
+
+    if move_out:
+        yield from bps.mv(edxd_table.x, x_out)
+        return
+
+    yield from bps.mv(edxd_table.x, x0, edxd_table.rx, theta)
+    d2: float = yield from bps.rd(edxd_table.z.user_readback)
+    delta_theta = np.arctan(24 / (d2 - ds))
+
+    yield from bps.mv(
+        edxd_table.y,
+        -d2 * np.tan(beta_rad),
+        collimator_table.slits_pitch,
+        (theta - np.rad2deg(delta_theta)),
+        collimator_table.y_coarse,
+        -(
+            (
+                d1
+                + r_value * np.sin(beta_rad - delta_theta)
+                - (d1 - ds) * np.cos(beta_rad - delta_theta)
+            )
+            * np.tan(beta_rad)
+            + (d1 - ds) * np.tan(beta_rad - delta_theta)
+            - r_value * (1 - np.cos(beta_rad - delta_theta))
+        ),
+        collimator_table.x,
+        coll_x0,
+    )
+
+
+def edxd_calib_scan(
+    start: float,
+    stop: float,
+    iterations: int = 2,
+    count_time: float = 3000,
+    description: str | None = None,
+    sample_tower: SampleTower | None = None,
+    germ: GeRMDetector | None = None,
+    fe_shutter: Shutter | None = None,
+    photon_shutter: Shutter | None = None,
+):
+    """Perform a sweeping edxd calibration scan.
+
+    Parameters
+    ----------
+    start : float
+        The starting position for the sweep motion.
+    stop : float
+        The stopping position for the sweep motion.
+    iterations : int, default 2
+        The number of sweeps to perform. Each move from start-stop or stop-start
+        is counted as one sweep.
+    count_time : float, default 3000
+        The total run-time of the scan. Motor velocity will be adjusted to achieve
+        the requested number of sweeps within this count time.
+    description : str | None, optional
+        A description for the scan. If None, no description is added.
+    sample_tower : SampleTower | None, optional
+        The sample tower device. If None, will pull from global namespace.
+    germ : GeRMDetector | None, optional
+        The GeRM detector device. If None, will pull from global namespace.
+    fe_shutter : Shutter | None, optional
+        The front-end shutter device. If None, will pull from global namespace.
+    photon_shutter : Shutter | None, optional
+        The photon shutter device. If None, will pull from global namespace.
+    """
+    germ = ensure_available(GeRMDetector, germ=germ)
+    sample_tower = ensure_available(SampleTower, sample_tower=sample_tower)
+
+    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
+    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
+
+    _md: dict[str, Any] = {
+        "plan_name": "edxd_calib_scan",
+        "tiled_specs": _tiled_specs(EDXD_CALIBRATION_V1),
+    }
+    if description is not None:
+        _md["description"] = description
+
+    z1_max_velocity = yield from bps.rd(sample_tower.z1.max_velocity)
+    z1_curr_position = yield from bps.rd(sample_tower.z1.user_readback)
+
+    low, high = sorted((start, stop))
+    in_range = low <= z1_curr_position <= high
+    if in_range:
+        scan_origin = z1_curr_position
+    else:
+        scan_origin = (
+            start
+            if abs(z1_curr_position - start) <= abs(z1_curr_position - stop)
+            else stop
+        )
+
+    # One iteration is origin -> stop -> start -> origin, i.e. two full spans.
+    required_velo = (2 * abs(start - stop) * iterations) / count_time
+    if required_velo > z1_max_velocity:
+        raise ValueError(
+            f"Velocity {required_velo} exceeds max velocity {z1_max_velocity}"
+        )
+
+    @bpp.reset_positions_decorator([sample_tower.z1, sample_tower.z1.velocity])
+    @bpp.stage_decorator([germ])
+    @bpp.run_decorator(md=_md)
+    def _body():
+        yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
+        yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+        if not in_range:
+            yield from bps.mv(sample_tower.z1.velocity, z1_max_velocity)
+            yield from bps.mv(sample_tower.z1, scan_origin)
+
+        yield from bps.mv(
+            germ.driver.acquire_time,
+            count_time,
+            sample_tower.z1.velocity,
+            required_velo,
+        )
+
+        count_status = yield from bps.trigger(germ, wait=False, group="germ")
+
+        waypoints = itertools.cycle((stop, start, scan_origin))
+        while not count_status.done:
+            move_sts = yield from bps.abs_set(
+                sample_tower.z1, next(waypoints), wait=False
+            )
+            while move_sts.done is False:
+                yield from bps.sleep(0.1)
+                if count_status.done:
+                    break
+
+        yield from bps.mv(sample_tower.z1.motor_stop, 1)
+
+        yield from bps.create(name="primary")
+        reading = yield from bps.read(germ)  # type: ignore
+        yield from bps.save()
+        return reading
+
+    def _cleanup():
+        yield from ensure_shutter_closed(photon_shutter, allow_actuation=True)
+
+    return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
+
+
+__all__ = [
+    "configure_test_pulses",
+    "edxd_calib_scan",
+    "edxd_count",
+    "edxd_scan",
+    "edxd_2theta_tilt",
+    "edxd_custom_pos_list_grid",
+]

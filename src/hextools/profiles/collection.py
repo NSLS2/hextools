@@ -1,63 +1,85 @@
 """Bluesky profile for the 27-ID-1 HEX beamline at NSLS-II."""
 
 import os
+from pathlib import (
+    Path,  # noqa: F401 - operator namespace
+    PurePath,
+    PureWindowsPath,
+)
 
-from hextools.detectors.germ import GeRMDetector
-
+from bluesky import plan_stubs as bps  # noqa: F401 - operator namespace
+from bluesky import plans as bp  # noqa: F401 - operator namespace
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
+    call_in_bluesky_event_loop,  # noqa: F401 - operator namespace
 )
-from bluesky.utils import ProgressBarManager
+from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
+from bluesky.utils import ProgressBarManager  # noqa: F401 - operator namespace
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
-from pathlib import PureWindowsPath
 from nslsii.ophyd_async.providers import NSLS2PathProvider
-from pathlib import Path
+from ophyd_async.core import PathInfo
 from ophyd_async.epics.adcore import (
     ADWriterFactory,
+    ContAcqDetector,
     NDStatsIO,
     PluginSignalDataLogic,
-    ContAcqDetector,
 )
-from ophyd_async.epics.adkinetix import KinetixDetector
+from ophyd_async.epics.adkinetix import KinetixDetector  # noqa: F401 - operator namespace
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
+from ophyd_async.sim import SimMotor
 from tiled.client import from_uri, simple
-from bluesky import plans as bp, plan_stubs as bps, preprocessors as bpp
-from bluesky.suspenders import SuspendFloor
-from hextools.utils import show_docs
 
-from hextools.detectors.phantom import PhantomDetector
-from hextools.detectors.kinetix import kinetix_factory
-from hextools.machine import NSLS2StorageRing
-from hextools.motors import (
-    FOV_2_4_mm_Camera,
-    OpticsTable,
-    RotationMotor,
-    SampleTower,
-    FOV_20_40_mm_Camera,
+from hextools.detectors.germ import (
+    GeRMDetector,
+    GeRMStatsDataLogic,  # noqa: F401 - operator namespace
 )
-from hextools.photon_delivery_system import (
-    DCLM,
-    Filter,
-    Shutter,
-    Slits,
-    load_filters,
+from hextools.detectors.kinetix import kinetix_factory
+from hextools.detectors.phantom import PhantomDetector
+from hextools.edxd import *
+from hextools.edxd import edxd_grid_scan  # noqa: F401 - operator namespace
+from hextools.log import *
+from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
+from hextools.motors import (
+    CollimatorTable,
+    EDXDTable,
+    FOV_2_4_mm_Camera,
+    FOV_20_40_mm_Camera,
+    OpticsTable,
+    SampleSmall,
+    SampleTower,
+    move_motor,  # noqa: F401 - operator namespace
+)
+from hextools.photon_delivery_system import *
+from hextools.suspenders import SuspendFloorUnlessOpsMode
+from hextools.tomography import *
+from hextools.tomography import (
+    LastDarkFlatUIDTracker,
 )
 from hextools.utils import (
     ProposalIDPrompt,
+    StartDocAwareFilenameProvider,
     auto_init_devices,
     initialize_run_engine,
     is_running_in_ci,
     print_proposal_info,
     print_version_info,
+    reset_scan_id,  # noqa: F401 - operator namespace
+    show_docs,  # noqa: F401 - operator namespace
 )
+from hextools.utils.magics import HEXBlueskyMagics
+from hextools.utils.path_providers import mock_path_provider
 
-from hextools.tomography import tomo_flyscan
+# Adjust the default timeout for ophyd async to 60s
+DEFAULT_TIMEOUT = 60.0
+
+# Where mock detectors write their files, instead of the proposal directories.
+MOCK_DETECTOR_DATA_DIR = "/tmp/hextools_dets"
 
 # Environment variables for Redis host and ophyd_async detector state preservation
 os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"
@@ -66,14 +88,21 @@ os.environ["OPHYD_ASYNC_PRESERVE_DETECTOR_STATE"] = "YES"
 # Print version information for bluesky, ophyd_async, tiled, and hextools.
 print_version_info()
 
+# Log hextools messages (including plan narration) to the console, color-coded by level.
+logger = configure_logger()
+
 # Setup the RunEngine and its metadata.
 RE: RunEngine = initialize_run_engine()
 RE.md["facility"] = "NSLS-II"
 RE.md["group"] = "HEX"
 RE.md["beamline_id"] = "27-ID-1"
 
-# Setup progress bars
-RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
+# Log any exception raised during a plan as an error, and every RunEngine state change.
+log_plan_exceptions(RE, logger)
+log_state_changes(RE, logger)
+
+# Uncomment if running in the terminal to get progress bars.
+# RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
 
 # Display active proposal information in the console.
 print_proposal_info(RE.md)
@@ -82,7 +111,22 @@ print_proposal_info(RE.md)
 ipython = get_ipython()
 if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
     ipython.prompts = ProposalIDPrompt(RE, ipython)
+    ipython.xmode = "Minimal"
     autoawait_in_bluesky_event_loop()
+
+    # Configure plots to work interactively
+    from matplotlib import pyplot as plt
+
+    plt.ion()
+
+    # Configure the Bluesky magics with the current RunEngine instance.
+    HEXBlueskyMagics.RE = RE
+    ipython.register_magics(HEXBlueskyMagics)
+
+    # Make tracebacks minimal by default to reduce clutter.
+    # Use %tb verbose to view full traceback.
+    ipython.run_line_magic("xmode", "minimal")
+
 
 # Construct our tiled clients for writing and (in an interactive session) reading.
 # If we're running in CI, we use a simple client for both.
@@ -94,27 +138,79 @@ if not is_running_in_ci():
     if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
         tiled_reading_client = c = from_uri("https://tiled.nsls2.bnl.gov")["hex"]["raw"]
 else:
-    tiled_writing_client = tiled_reading_client = c = simple()
+    tiled_writing_client = tiled_reading_client = c = simple(
+        readable_storage=MOCK_DETECTOR_DATA_DIR
+    )
 
 
 # Subscribe the tiled writer to the RunEngine
-RE.subscribe(TiledWriter(tiled_writing_client))
+RE.subscribe(TiledWriter(tiled_writing_client, backup_directory="/tmp/bluesky-docs"))
 
-# Subscribe the best effort callback
+# Subscribe the best effort callback, for its plots. The GUI's live table and plan
+# narration already cover what its table and heading would print.
 bec = BestEffortCallback()
+bec.disable_table()
+bec.disable_heading()
 RE.subscribe(bec)
 
-# Define our global default path provider for the beamline
-path_provider = NSLS2PathProvider(RE.md)
+# Keep track of last dark-flat scan UID
+RE.subscribe(LastDarkFlatUIDTracker(RE.md))
 
-with auto_init_devices(timeout=2.0, verbose=False):
+filename_provider = StartDocAwareFilenameProvider()
+RE.subscribe(filename_provider.doc_callback)
+
+
+# TODO: Get this upstream
+class HEXPathProvider(NSLS2PathProvider):
+    """NSLS-II path provider with configurable scan ID zero-padding."""
+
+    def __init__(self, *args, scan_id_padding: int = 6, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._scan_id_padding = scan_id_padding
+
+    def _generate_directory_path(
+        self, base_path: PurePath, datakey_name: str
+    ) -> PurePath:
+        base_path = super()._generate_directory_path(base_path, datakey_name)
+        if self._include_scan_id_dir:
+            base_path = (
+                base_path.parent
+                / f"scan_{self._metadata_dict['scan_id']:0{self._scan_id_padding}d}"
+            )
+        return base_path
+
+    def __call__(self, datakey_name) -> PathInfo:
+        # NSLS2PathProvider doesn't pass the datakey to the filename provider.
+        return (
+            super()
+            .__call__(datakey_name)
+            .model_copy(update={"filename": self._filename_provider(datakey_name)})
+        )
+
+
+# Define our global default path provider for the beamline
+if is_running_in_ci():
+    path_provider = mock_path_provider(MOCK_DETECTOR_DATA_DIR)
+else:
+    path_provider = HEXPathProvider(
+        RE.md,
+        filename_provider=filename_provider,
+        include_scan_id_dir=True,
+        granularity="year",
+        scan_id_padding=5,
+    )
+
+with auto_init_devices(timeout=2.0):
     # Shutters (Front-end and photon)
-    fe_shutter = Shutter("XF:27IDA-PPS{Sh:FE}", name="front_end_shutter")
-    photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon_shutter")
+    fe_shutter = PPSShutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
+    photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon-shutter")
 
     # Slits
-    a_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="a_slits")
-    f_slits = Slits("XF:27IDF-OP:1{Slt:2-Ax:", name="f_slits")
+    a_slits = Slits("XF:27IDA-OP:1{Slt:1-Ax:", name="a-slits")
+    f_slits = Slits("XF:27IDF-OP:1{Slt:2-Ax:", name="f-slits")
+    edxd_slits = Slits("XF:27IDF-OP:1{Slt:CMT-Ax:", name="edxd-slits")
+    # Front-end Slit1: its Y axis picks a fixed aperture
+    fe_slit1 = FrontEndSlit("FE:C27A-OP{Slt:1-Ax:Y}", name="fe-slit1")
 
     # Storage ring information
     storage_ring = NSLS2StorageRing()
@@ -125,19 +221,24 @@ with auto_init_devices(timeout=2.0, verbose=False):
     )
 
     # Motors for the optics table
-    optics_table = OpticsTable("XF:27IDF-OP:1{OPT:1-Ax:", name="optics_table")
+    optics_table = OpticsTable("XF:27IDF-OP:1{OPT:1-Ax:", name="optics-table")
 
     # Sample tower
-    sample_tower = SampleTower("XF:27IDF-OP:1{SMPL:1-Ax:", name="sample_tower")
+    sample_tower = SampleTower("XF:27IDF-OP:1{SMPL:1-Ax:", name="sample-tower")
     rot_motor = sample_tower.ry2
 
-    # Generate filter objects from the configuration file
-    filters: list[Filter] = load_filters()
+    sample_small = SampleSmall("XF:27IDF-OP:1{MC:3-Ax:SampleS", name="sample-small")
 
-    # Add filters directly to namespace for convenience in interactive sessions
-    if ipython is not None:
-        for filter in filters:
-            ipython.user_ns[filter.name] = filter
+    # EDXD Table
+    edxd_table = EDXDTable("XF:27IDF-OP:1{EDXD:1-Ax:", name="edxd-table")
+    collimator_table = CollimatorTable("XF:27IDF-OP:1{", name="collimator-table")
+
+    # Filters, first the two filter 1 (upstream/downstream), then filters 2, 3, and 4
+    filter1_upstream = Filter("XF:27IDA-OP:1{Fltr:1-Ax:Yu}Mtr", "XF:27IDA-OP:0{Fltr:1_US}Sw:InPos-Sts", name="filter1_upstream")
+    filter1_downstream = Filter("XF:27IDA-OP:1{Fltr:1-Ax:Yd}Mtr", "XF:27IDA-OP:0{Fltr:1_DS}Sw:InPos-Sts", name="filter1_downstream")
+    filter2 = Filter("XF:27IDA-OP:1{Fltr:2-Ax:Y}Mtr", "XF:27IDA-OP:0{Fltr:2}Sw:InPos-Sts", name="filter2")
+    filter3 = Filter("XF:27IDA-OP:3{Fltr:3-Ax:Y}Mtr", "XF:27IDA-OP:0{Fltr:3}Sw:InPos-Sts", name="filter3")
+    filter4 = Filter("XF:27IDA-OP:2{Fltr:4-Ax:Y}Mtr", "XF:27IDA-OP:0{Fltr:4}Sw:InPos-Sts", name="filter4")
 
     # PandABox
     panda = HDFPanda("XF:27ID1-ES{PANDA:1}:", path_provider, name="panda1")
@@ -150,59 +251,64 @@ with auto_init_devices(timeout=2.0, verbose=False):
 
     # Optique-Peter microscope optics
     double_obj_camera = FOV_2_4_mm_Camera(
-        "XF:27IDF-OP:1{OPT:1-Ax:", name="double_obj_camera"
+        "XF:27IDF-OP:1{OPT:1-Ax:", name="double-obj-camera"
     )
     wide_fov_camera = FOV_20_40_mm_Camera(
-        "XF:27IDF-OP:1{OPT:2-Ax:", name="wide_fov_camera"
+        "XF:27IDF-OP:1{OPT:2-Ax:", name="wide-fov-camera"
     )
 
     phantom = PhantomDetector(
         "XF:27ID1-ES{Phantom-Det:1}",
-        ADWriterFactory.hdf(path_provider),
+        ADWriterFactory.hdf(path_provider, hinted=False),
         name="phantom",
     )
 
-    # TODO: Re-install with ADVimba
-    # diamond_window_camera = VimbaDetector(
-    #     "XF:27IDA-BI{FAM:1-Cam:1}",
-    #     ADWriterFactory.hdf(path_provider),
-    #     name="diamond_window_camera",
-    # )
+    diamond_window_cam = VimbaDetector(
+        "XF:27IDA-BI{FAM:1-Cam:1}",
+        ADWriterFactory.hdf(path_provider, hinted=False),
+        name="diamond-window-cam",
+    )
 
-    sample_camera = VimbaDetector(
+    sample_cam = VimbaDetector(
         "XF:27ID1-ES{Sample-Cam:1}",
-        ADWriterFactory.hdf(path_provider),
-        name="sample_camera",
+        ADWriterFactory.hdf(path_provider, hinted=False),
+        name="sample-cam",
     )
 
-    # TODO: Re-install with ADVimba
-    # fs_window_stats = NDStatsIO(
-    #     "XF:27IDA-BI{FS:1-Cam:1}Stats1:", name="fs_window_stats"
-    # )
-    # fs_window = VimbaDetector(
-    #     "XF:27IDA-BI{FS:1-Cam:1}",
-    #     ADWriterFactory.hdf(path_provider),
-    #     name="fs_window",
-    #     plugins={"stats1": fs_window_stats},
-    # )
+    fs_window_stats = NDStatsIO(
+        "XF:27IDA-BI{FS:1-Cam:1}Stats1:", name="fs-window-stats"
+    )
+    fs_window_cam = VimbaDetector(
+        "XF:27IDA-BI{FS:1-Cam:1}",
+        ADWriterFactory.hdf(path_provider, hinted=False),
+        name="fs-window-cam",
+        plugins={"stats1": fs_window_stats},
+    )
     # TODO: Remove this once the StandardDetector -> StandardReadble change is merged.
-    # TODO: Use mean rather than total, once available.
-    #fs_window.add_detector_logics(
-    #    PluginSignalDataLogic(fs_window.driver, fs_window_stats.total)
-    #)
-
-    f_hutch_camera = VimbaDetector(
-        "XF:27IDA-BI{GigE-Cam:5}",
-        ADWriterFactory.hdf(path_provider),
-        name="f_hutch_camera",
+    fs_window_cam.add_detector_logics(
+        PluginSignalDataLogic(fs_window_cam.driver, fs_window_stats.mean_value)
     )
 
-    pe_path_provider = NSLS2PathProvider(
-        RE.md, base_write_dir=PureWindowsPath("Z:\\proposals")
+    f_hutch_cam = VimbaDetector(
+        "XF:27IDA-BI{GigE-Cam:5}",
+        ADWriterFactory.hdf(path_provider, hinted=False),
+        name="f_hutch_cam",
+    )
+
+    # For the Perkin-Elmer detector, we use a separate path provider
+    # Since we need to specify the write directory as a windows path.
+    pe_path_provider = (
+        path_provider
+        if is_running_in_ci()
+        else NSLS2PathProvider(
+            RE.md,
+            filename_provider=filename_provider,
+            base_write_dir=PureWindowsPath("Z:\\proposals"),
+        )
     )
     perkin_elmer = ContAcqDetector(
         "XF:27ID1-ES{PE-Det:1}",
-        ADWriterFactory.hdf(pe_path_provider),
+        ADWriterFactory.hdf(pe_path_provider, hinted=False),
         name="perkin-elmer",
         proc_suffix="Proc1:",
     )
@@ -213,20 +319,41 @@ with auto_init_devices(timeout=2.0, verbose=False):
         name="germ",
     )
 
+    # A few simulated motors, useful for testing
+    sim_x = SimMotor(name="sim_x", instant=False)
+    sim_y = SimMotor(name="sim_y", instant=False)
+    sim_z = SimMotor(name="sim_z", instant=False)
 
-# Install a suspender to pause the RunEngine if the beam current drops below 100 mA
-# and resume when it rises above 300 mA.
-RE.install_suspender(SuspendFloor(storage_ring.beam_current, 100, resume_thresh=390))
+
+# Pause the RunEngine if the beam current drops below 100 mA and resume above
+# 390 mA. Always installed; it ignores low beam while the ring is in maintenance
+# or shutdown, checking the mode each time rather than once at startup.
+RE.install_suspender(
+    SuspendFloorUnlessOpsMode(
+        storage_ring.beam_current,
+        100,
+        resume_thresh=390,
+        ops_mode=storage_ring.operating_mode,
+        skip_modes=(NSLS2OpsMode.MAINTENANCE, NSLS2OpsMode.SHUTDOWN),
+    )
+)
 
 # Configure baseline supplemental data to include in the metadata of every run.
-# sd = bpp.SupplementalData(
-#     baseline=[
-#         storage_ring.beam_current,
-#         wb_slits,
-#         pb_slits,
-#         sample_tower,
-#         #dclm,
-#         optics_table,
-#     ]
-# )
-# RE.preprocessors.append(sd)
+sd = bpp.SupplementalData(
+    baseline=[
+        storage_ring.beam_current,
+        fe_slit1,
+        a_slits,
+        f_slits,
+        sample_tower,
+        monochromator,
+        optics_table,
+        edxd_table,
+        # collimator_table,
+    ]
+)
+RE.preprocessors.append(sd)
+
+# Disable bec printout of baseline readings
+# since it is kind of noisy
+bec.disable_baseline()

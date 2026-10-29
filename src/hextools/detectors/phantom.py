@@ -6,7 +6,6 @@ from typing import Annotated as A
 
 from ophyd_async.core import (
     DEFAULT_TIMEOUT,
-    DetectorTrigger,
     DetectorTriggerLogic,
     DeviceVector,
     OnOff,
@@ -32,10 +31,10 @@ from ophyd_async.epics.adcore import (
     NDFileHDF5IO,
     NDPluginBaseIO,
     NDProcessIO,
-    prepare_exposures_per_collection,
-    default_trigger_info_from_detector_settings,
+    prepare_filter,
+    trigger_info_from_driver,
 )
-from ophyd_async.epics.core import EpicsDevice, PvSuffix, epics_signal_rw_rbv
+from ophyd_async.epics.core import EpicsDevice, PvSuffix
 
 
 class PhantomDownloadFrameMode(StrictEnum):
@@ -121,6 +120,8 @@ class PhantomPixelDataFormat(StrictEnum):
 
 
 class PhantomCineIO(EpicsDevice, StandardReadable):
+    """IO class for a single Phantom camera cine."""
+
     cine_name: A[SignalR[str], PvSuffix("Name_RBV")]
     width: A[SignalR[int], PvSuffix("Width_RBV")]
     height: A[SignalR[int], PvSuffix("Height_RBV")]
@@ -374,17 +375,14 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         await self.setup_download(num)
 
     async def prepare_exposures_per_collection(self, exposures_per_collection: int):
-        """Prepare the process plugin for the specified number of exposures per collection.
+        """Prepare the proc plugin for the specified number of exposures per collection.
 
         Parameters
         ----------
         exposures_per_collection : int
             The number of exposures to take per collection.
         """
-        if self.process_plugin is not None:
-            await prepare_exposures_per_collection(
-                self.process_plugin, exposures_per_collection=exposures_per_collection
-            )
+        await prepare_filter(self.process_plugin, num_filter=exposures_per_collection)
 
     async def default_trigger_info(self) -> TriggerInfo:
         """Fallback for the default TriggerInfo in plans without prepare.
@@ -394,15 +392,10 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         TriggerInfo
             A TriggerInfo with default values for the Phantom camera.
         """
-        trigger_mode = DetectorTrigger.INTERNAL
-        if await self.driver.ext_sync_type.get_value() == PhantomExtSyncType.FSYNC:
-            trigger_mode = DetectorTrigger.EXTERNAL_EDGE
-        default_trig_info = await default_trigger_info_from_detector_settings(
+        return await trigger_info_from_driver(
             self.driver.total_download_frames,
             self.process_plugin,
-            detector_trigger=trigger_mode,
         )
-        return default_trig_info
 
 
 class PhantomAcquireLogic(ADAcquireLogic):
@@ -487,16 +480,17 @@ class PhantomAcquireLogic(ADAcquireLogic):
                     f"does not match actual number {actual_post_trig}"
                 ) from exc
 
-        # If we recieved the trigger, we know at this point how many frames we'll have access to,
-        # and how many we want to download. If we are trying to DL more than we have available,
-        # raise a RuntimeError.
+        # If we recieved the trigger, we know at this point how many frames we'll have
+        # access to, and how many we want to download. If we are trying to DL more than
+        # we have available, raise a RuntimeError.
         available_frames, total_download_frames = await asyncio.gather(
             self.driver.total_frame_count.get_value(),
             self.driver.total_download_frames.get_value(),
         )
         if total_download_frames > available_frames:
             raise RuntimeError(
-                f"Requested {total_download_frames} frames to download, but only {available_frames} are available!"
+                f"Requested {total_download_frames} frames to download, "
+                f"but only {available_frames} are available!"
             )
 
         # Finally, start the download
@@ -532,24 +526,15 @@ class PhantomAcquireLogic(ADAcquireLogic):
                     if saved:
                         return
             except TimeoutError as err:
-                # download_counter = await self.driver.download_count.get_value()
-                # if download_counter == 0:
-                #     raise TimeoutError(
-                #         "Download counter stopped incrementing and cine was not marked as saved!"
-                #     ) from err
-
                 current, saved = await asyncio.gather(
                     self.driver.download_count.get_value(),
                     selected_cine.cine_content_saved.get_value(),
-                )
-                print(
-                    f"Last value: {last_download_count}, Current value: {current}, Saved: {saved}"
                 )
                 if saved:
                     return
                 if current <= last_download_count:
                     raise TimeoutError(
-                        "Download counter stopped incrementing and cine was not marked as saved!"
+                        "Download counter stopped incrementing and cine was not saved!"
                     ) from err
                 last_download_count = current
 

@@ -70,12 +70,12 @@ async def test_auto_init_devices_context_manager_printout(monkeypatch, capsys):
     assert bad_motor.name == "bad_motor"
 
     out = capsys.readouterr().out
-    assert "Initializing devices" in out
+    assert "Connecting to beamline devices" in out
     assert "good_motor" in out
-    assert "[  OK  ]" in out
+    assert "[   OK   ]" in out
     # The device that failed to connect is reported as disconnected.
     assert "bad_motor" in out
-    assert "[  DC  ]" in out
+    assert "[ FAILED ]" in out
 
 
 async def test_merge_async_iterables_yields_all_items():
@@ -110,7 +110,7 @@ def test_proposal_id_prompt_tokens():
     fake_re = SimpleNamespace(md={"data_session": "pass-42"})
     fake_shell = SimpleNamespace(execution_count=7)
 
-    tokens = ProposalIDPrompt(fake_re, fake_shell).in_prompt_tokens()  # type: ignore[invalid-argument-type]
+    tokens = ProposalIDPrompt(fake_re, fake_shell).in_prompt_tokens()  # type: ignore
 
     text = "".join(value for _, value in tokens)
     assert "pass-42" in text
@@ -121,7 +121,7 @@ def test_proposal_id_prompt_defaults_when_missing():
     fake_re = SimpleNamespace(md={})
     fake_shell = SimpleNamespace(execution_count=1)
 
-    prompt = ProposalIDPrompt(fake_re, fake_shell)  # type: ignore[invalid-argument-type]
+    prompt = ProposalIDPrompt(fake_re, fake_shell)  # type: ignore
     text = "".join(value for _, value in prompt.in_prompt_tokens())
     assert "N/A" in text
 
@@ -199,7 +199,7 @@ def mock_namespace(monkeypatch):
 @pytest.mark.parametrize("kwargs", [{}, {"my_var": 42, "other_var": 99.5}])
 def test_ensure_available_only_takes_one_var(mock_namespace, kwargs):
     with pytest.raises(
-        ValueError, match="Can only check availability of a single device at a time."
+        ValueError, match="Can only check availability of a single object at a time."
     ):
         ensure_available(int, **kwargs)
 
@@ -222,7 +222,7 @@ def test_ensure_available_success(mock_namespace, name, value, type, expected):
 def test_ensure_available_fails_if_val_invalid_type(mock_namespace):
     with pytest.raises(
         TypeError,
-        match="Value for my_var must be of type <class 'int'> or None, is <class 'str'>",
+        match="Value for my_var must be of type <class 'int'> or None",
     ):
         ensure_available(int, my_var="not an int")
 
@@ -230,6 +230,6 @@ def test_ensure_available_fails_if_val_invalid_type(mock_namespace):
 def test_ensure_available_fails_if_not_provided_and_not_in_ns(mock_namespace):
     with pytest.raises(
         ValueError,
-        match="Device non_existent_var of type <class 'int'> is not available locally, or in the IPython namespace!",
+        match="Object non_existent_var of type <class 'int'>",
     ):
         ensure_available(int, non_existent_var=None)

@@ -1,5 +1,5 @@
 ---
-name: Pixi Update
+name: Refresh Lockfile
 
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   update:
-    name: Update Pixi Lockfile
+    name: Refresh Pixi Lockfile
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -22,20 +22,25 @@ jobs:
       - name: Setup pixi
         uses: prefix-dev/setup-pixi@2253d9c9310442c09975d64615591b5b381da6e7  # v0.10.0
         with:
-          pixi-version: v0.79.0
+          pixi-version: v0.83.0
           cache: false
           frozen: false
 
       - name: Run pixi update
         run: |
-          echo "Automated monthly \`pixi update\` of the lockfile." > diff.md
-          echo "" >> diff.md
-          pixi update --json | pixi exec pixi-diff-to-markdown >> diff.md
+          echo "Automated monthly \`pixi update\` of the lockfile." > "$RUNNER_TEMP/diff.md"
+          echo "" >> "$RUNNER_TEMP/diff.md"
+          pixi update --json | pixi exec pixi-diff-to-markdown >> "$RUNNER_TEMP/diff.md"
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
         with:
-          commit-message: "Update pixi lockfile"
-          title: "Update pixi lockfile"
+          commit-message: "Refresh pixi lockfile"
+          author: >-
+            ${{ github.event_name == 'workflow_dispatch'
+              && format('{0} <{1}+{0}@users.noreply.github.com>', github.actor, github.actor_id)
+              || 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>' }}
+          title: "Refresh pixi lockfile"
           branch: pixi-update
-          body-path: diff.md
+          add-paths: pixi.lock
+          body-path: ${{ runner.temp }}/diff.md

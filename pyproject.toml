@@ -32,9 +32,9 @@ dependencies = [
   "algotom",
   "ipython",
   "numpy",
-  "bluesky",
-  "nslsii",
-  "ophyd-async[ca, pva]",
+  "bluesky @ git+https://github.com/bluesky/bluesky@main",
+  "nslsii @ git+https://github.com/NSLS2/nslsii@main",
+  "ophyd-async[ca, pva] @ git+https://github.com/bluesky/ophyd-async@main",
   "rich>=15.0.0",
   "scikit-image>=0.26.0",
   "scipy>=1.17.1",
@@ -42,7 +42,19 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = [
-#   "ntnda-qt-viewer",
+    "bluesky-widgets",
+    "bluesky-queueserver",
+    "bluesky-queueserver-api",
+    "bluesky-httpserver",
+    "docstring-parser",
+    "tiled[client]",
+    "bluesky-tiled-plugins",
+    "matplotlib",
+    "pyqtgraph",
+    "qtpy",
+    "pyside6",
+    "pexpect",
+    "ntnda-qt-viewer @ git+https://github.com/jwlodek/ntnda-qt-viewer@main",
 ]
 
 [dependency-groups]
@@ -92,11 +104,14 @@ Changelog = "https://github.com/NSLS-II-HEX/hextools/releases"
 [tool.hatch]
 version.source = "vcs"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build]
 artifacts = ["src/hextools/_version.py"]
 
 [tool.hatch.build.targets.wheel]
-sources = ["src"]
+projects = ["src/hextools"]
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/hextools/_version.py"
@@ -105,13 +120,16 @@ version-file = "src/hextools/_version.py"
 typeCheckingMode = "standard"
 reportMissingImports = false  # Ignore missing stubs in imported modules
 
+[tool.ty.rules]
+unused-type-ignore-comment = "ignore"
+
 
 [tool.pytest.ini_options]
 # Run pytest with all our checkers, and don't spam us with massive tracebacks on error
 addopts = """
     --tb=native -vv --strict-markers --doctest-modules
     --doctest-glob="*.rst" --doctest-glob="*.md"
-    --ignore=docs/examples --ignore=src/hextools/profiles
+    --ignore=docs/examples --ignore=docs/_scripts --ignore=src/hextools/profiles --ignore=src/hextools/gui
     """
 # https://iscinumpy.gitlab.io/post/bound-version-constraints/#watch-for-warnings
 filterwarnings = [
@@ -151,6 +169,8 @@ lint.select = [
     "SLF",     # self - https://docs.astral.sh/ruff/settings/#lintflake8-self
     "PLC2701", # private import - https://docs.astral.sh/ruff/rules/import-private-name/
     "LOG015",  # root logger call - https://docs.astral.sh/ruff/rules/root-logger-call/
+    "PLE1205", # too many logging args - https://docs.astral.sh/ruff/rules/logging-too-many-args/
+    "PLE1206", # too few logging args - https://docs.astral.sh/ruff/rules/logging-too-few-args/
     "S101",    # assert - https://docs.astral.sh/ruff/rules/assert/
     "D",       # docstring - https://docs.astral.sh/ruff/rules/#pydocstyle-d
 ]
@@ -168,7 +188,14 @@ convention = "numpy"
 # By default, private member access is allowed in tests
 # See https://github.com/DiamondLightSource/python-copier-template/issues/154
 # Remove this line to forbid private member access in tests
-"tests/**/*" = ["SLF001", "S101", "D"]
+"tests/**/*" = ["SLF001", "S101", "D", "PLC2701"]
+# Qt requires camelCase names for overridden methods (closeEvent, sizeHint, ...).
+"src/hextools/gui/**/*" = ["N802"]
+# Vendored from bluesky_widgets; kept close to upstream.
+"src/hextools/gui/_threading.py" = ["D", "E501", "N803", "SLF001"]
+"src/hextools/gui/_event_loop.py" = ["D", "SLF001"]
+# IPython startup profile: star imports populate the operator namespace on purpose.
+"src/hextools/profiles/**/*" = ["F403", "F405"]
 
 [tool.ruff.lint.flake8-import-conventions.extend-aliases]
 # We often shorten "Annotated" to "A" for brevity

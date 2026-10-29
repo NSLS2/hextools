@@ -1,18 +1,18 @@
 """Motion stages and related utility functions for the HEX beamline."""
 
 import asyncio
+from typing import Any
 
+import bluesky.plan_stubs as bps
 from ophyd_async.core import (
     AsyncMovable,
     AsyncStatus,
-    DeviceMock,
+    SignalR,
     StandardReadable,
     StrictEnum,
-    callback_on_mock_put,
     default_mock_class,
     derived_signal_r,
-    set_mock_put_proceeds,
-    set_mock_value,
+    observe_signals_value,
     wait_for_value,
 )
 from ophyd_async.core import (
@@ -24,7 +24,15 @@ from ophyd_async.epics.core import (
     epics_signal_rw,
     epics_triggerable_command,
 )
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+from ophyd_async.epics.motor import (
+    Motor as AsyncEpicsMotor,
+)
+from ophyd_async.epics.motor import (
+    VeloAndAcclRespectingMotorMock,
+)
+
+# Make every Motor respect velocity/acceleration in mock mode by default.
+default_mock_class(VeloAndAcclRespectingMotorMock)(AsyncEpicsMotor)
 
 
 def get_encoder_value_from_pos(
@@ -49,69 +57,10 @@ def get_encoder_value_from_pos(
     return int(current_position / encoder_resolution + encoder_pos_at_zero)
 
 
-class OpticsTable(StandardReadable, EpicsDevice):
-    """HEX optics table."""
-
-    def __init__(self, prefix: str, name="optics_table"):
-        super().__init__(prefix, name=name)
-        with self.add_children_as_readables(Format.CHILD):
-            self.x2 = AsyncEpicsMotor(prefix + "X2}Mtr", name="x2")
-            self.y2 = AsyncEpicsMotor(prefix + "Y2}Mtr", name="y2")
-            self.rx3 = AsyncEpicsMotor(prefix + "Rx3}Mtr", name="rx3")
-            self.ry3 = AsyncEpicsMotor(prefix + "Ry3}Mtr", name="ry3")
-            self.x3 = AsyncEpicsMotor(prefix + "X3}Mtr", name="x3")
-            self.y3 = AsyncEpicsMotor(prefix + "Y3}Mtr", name="y3")
-            self.ry4 = AsyncEpicsMotor(prefix + "Ry4}Mtr", name="ry4")
-            self.x4 = AsyncEpicsMotor(prefix + "X4}Mtr", name="x4")
-            self.a1 = AsyncEpicsMotor(prefix + "A1}Mtr", name="a1")
-            self.z0 = AsyncEpicsMotor(prefix + "Z0}Mtr", name="z0")
-
-
-# TODO: Get this upstreamed to ophyd_async and remove it from here.
-# It is a general utility that is not specific to HEX.
-class VelocityRespectingMotorMock(DeviceMock[AsyncEpicsMotor]):
-    """Mock behaviour that respects motor velocity and acceleration time."""
-
-    async def connect(self, device: AsyncEpicsMotor) -> None:
-        """Mock signals to simulate a move respecting velocity and acceleration."""
-        set_mock_value(device.velocity, 10)
-        set_mock_value(device.max_velocity, 100)
-        set_mock_value(device.acceleration_time, 0.01)
-
-        # Motor starts in "done" state (not moving)
-        set_mock_value(device.motor_done_move, 1)
-
-        async def _do_move(target: float):
-            current = await device.user_readback.get_value()
-            velocity = await device.velocity.get_value()
-            acceleration_time = await device.acceleration_time.get_value()
-            move_time = abs(target - current) / velocity + 2 * acceleration_time
-            set_mock_value(device.motor_done_move, 0)
-            elapsed = 0.0
-            while elapsed < move_time:
-                await asyncio.sleep(min(1.0, move_time - elapsed))
-                elapsed += 1.0
-                fraction = min(elapsed / move_time, 1.0)
-                position = current + (target - current) * fraction
-                set_mock_value(device.user_readback, position)
-            set_mock_value(device.user_readback, target)
-            set_mock_value(device.motor_done_move, 1)
-            set_mock_put_proceeds(device.user_setpoint, True)
-
-        def _on_setpoint_write(value):
-            set_mock_put_proceeds(device.user_setpoint, False)
-            asyncio.ensure_future(_do_move(value))
-
-        callback_on_mock_put(device.user_setpoint, _on_setpoint_write)
-
-
-@default_mock_class(VelocityRespectingMotorMock)
 class RotationMotor(AsyncEpicsMotor):
     """A motor that can be used for rotation scans.
 
-    This class is a subclass of the AsyncEpicsMotor class and is used to represent
-    a motor that can be used for rotation scans. It has additional attributes and
-    methods that are specific to rotation scans.
+    Adds derived signal to find the number of encoder counts per revolution.
     """
 
     def __init__(self, prefix: str, name: str = ""):
@@ -139,6 +88,16 @@ class RotationMotor(AsyncEpicsMotor):
         return int(360.0 / encoder_resolution)
 
 
+class SampleSmall(StandardReadable, EpicsDevice):
+    """HEX small sample stage with independent X and Y motors."""
+
+    def __init__(self, prefix: str, name: str = "sample_small"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.CHILD):
+            self.x = AsyncEpicsMotor(prefix + "X}Mtr", name="x")
+            self.y = AsyncEpicsMotor(prefix + "Y}Mtr", name="y")
+
+
 class SampleTower(StandardReadable, EpicsDevice):
     """HEX sample tower."""
 
@@ -161,6 +120,25 @@ class SampleTower(StandardReadable, EpicsDevice):
         # TODO: Get this prefix adjusted so it doesn't need to be ah
         self.ry2 = RotationMotor("XF:27IDF-OP:1{MC:5-Ax:4}Mtr", name="ry2")
 
+
+class OpticsTable(StandardReadable, EpicsDevice):
+    """HEX optics table."""
+
+    def __init__(self, prefix: str, name="optics_table"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.CHILD):
+            self.x2 = AsyncEpicsMotor(prefix + "X2}Mtr", name="x2")
+            self.y2 = AsyncEpicsMotor(prefix + "Y2}Mtr", name="y2")
+            self.rx3 = AsyncEpicsMotor(prefix + "Rx3}Mtr", name="rx3")
+            self.ry3 = AsyncEpicsMotor(prefix + "Ry3}Mtr", name="ry3")
+            self.x3 = AsyncEpicsMotor(prefix + "X3}Mtr", name="x3")
+            self.y3 = AsyncEpicsMotor(prefix + "Y3}Mtr", name="y3")
+            self.ry4 = AsyncEpicsMotor(prefix + "Ry4}Mtr", name="ry4")
+            self.x4 = AsyncEpicsMotor(prefix + "X4}Mtr", name="x4")
+            self.a1 = AsyncEpicsMotor(prefix + "A1}Mtr", name="a1")
+            self.z0 = AsyncEpicsMotor(prefix + "Z0}Mtr", name="z0")
+
+
 class CameraObjective(StrictEnum):
     """Represents the camera objective in use."""
 
@@ -175,7 +153,7 @@ class HomeStatus(StrictEnum):
     HOMED = "Homed"
 
 
-class FOV_2_4_mm_Camera(
+class FOV_2_4_mm_Camera(  # noqa: N801
     StandardReadable, EpicsDevice, AsyncMovable[CameraObjective | str]
 ):
     """HEX double objective camera."""
@@ -204,9 +182,11 @@ class FOV_2_4_mm_Camera(
         self._at_left_objective = epics_signal_r(
             bool, prefix + "ObjSel}AtLeftObj", name="at_left_objective"
         )
+        self._stop_requested = asyncio.Event()
+        self._arrival_grace = 2.0
+        self._start_timeout = 5.0
 
-    @AsyncStatus.wrap
-    async def set(self, value: CameraObjective | str):
+    def set(self, value: CameraObjective | str) -> AsyncStatus:
         """Move the camera to the specified objective.
 
         Parameters
@@ -219,6 +199,11 @@ class FOV_2_4_mm_Camera(
         RuntimeError
             If the camera objective selector is not homed.
         """
+        # Reset on the call, not in the task, so a stop() at any later point is honored.
+        self._stop_requested = asyncio.Event()
+        return AsyncStatus(self._set(value))
+
+    async def _set(self, value: CameraObjective | str):
         if await self._obj_selector_home_sts.get_value() != HomeStatus.HOMED:
             raise RuntimeError(
                 "Camera objective selector is not homed. "
@@ -239,15 +224,65 @@ class FOV_2_4_mm_Camera(
                 "one of its names."
             )
 
-        await self.objective.set(value)
         if value == CameraObjective.RIGHT_2MM:
-            rb_check = self._at_right_objective
+            at_objective = self._at_right_objective
         else:
-            rb_check = self._at_left_objective
-        await wait_for_value(rb_check, True, timeout=None)
+            at_objective = self._at_left_objective
+        stopped = AsyncStatus(self._stop_requested.wait())
+        watch = asyncio.create_task(self._reached(at_objective, stopped))
+        try:
+            # Let the watch subscribe first, so a move that ends during the put is seen.
+            await asyncio.sleep(0)
+            if not self._stop_requested.is_set():
+                await self.objective.set(value)
+                if self._stop_requested.is_set():
+                    # stop() came while the command was in flight, maybe before motion.
+                    await self.obj_selector.motor_stop.set(1)
+            reached = await watch
+        finally:
+            watch.cancel()
+            stopped.task.cancel()
+        if not reached:
+            raise RuntimeError(
+                f"{self.name} objective selector stopped before reaching {value.value}"
+            )
+
+    async def _reached(self, at_objective: SignalR[bool], stopped: AsyncStatus) -> bool:
+        """Whether the selector reaches the objective before it stops moving."""
+        dmov = self.obj_selector.motor_done_move
+        signals: list[SignalR[Any]] = [at_objective, dmov]
+        moved = False
+        try:
+            async with asyncio.timeout(self._start_timeout) as start_deadline:
+                async for signal, reading in observe_signals_value(
+                    *signals, done_status=stopped
+                ):
+                    if signal is at_objective and reading:
+                        return True
+                    if signal is dmov:
+                        if not reading:
+                            moved = True
+                            start_deadline.reschedule(None)
+                        elif moved:
+                            break
+        except TimeoutError:
+            return bool(await at_objective.get_value())
+        if stopped.done:
+            return bool(await at_objective.get_value())
+        # AtLeftObj/AtRightObj can update just after the motor reports done.
+        try:
+            await wait_for_value(at_objective, True, timeout=self._arrival_grace)
+        except TimeoutError:
+            return False
+        return True
+
+    async def stop(self, success: bool = False):
+        """Stop the objective selector, which the IOC moves to the chosen objective."""
+        self._stop_requested.set()
+        await self.obj_selector.stop()
 
 
-class FOV_20_40_mm_Camera(StandardReadable, EpicsDevice):
+class FOV_20_40_mm_Camera(StandardReadable, EpicsDevice):  # noqa: N801
     """HEX wide field of view camera."""
 
     def __init__(self, prefix: str, name: str = "fov_20_40_mm_camera"):
@@ -255,3 +290,54 @@ class FOV_20_40_mm_Camera(StandardReadable, EpicsDevice):
         with self.add_children_as_readables(Format.CHILD):
             self.focus = AsyncEpicsMotor(prefix + "Focus}Mtr", name="focus")
             self.rotation = AsyncEpicsMotor(prefix + "CamRot}Mtr", name="rotation")
+
+
+class EDXDTable(StandardReadable, EpicsDevice):
+    """HEX EDXD table."""
+
+    def __init__(self, prefix: str, name: str = "edxd_table"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.CHILD):
+            self.x = AsyncEpicsMotor(prefix + "X}Mtr", name="x")
+            self.y = AsyncEpicsMotor(prefix + "Y}Mtr", name="y")
+            self.z = AsyncEpicsMotor(prefix + "Z}Mtr", name="z")
+            self.rx = AsyncEpicsMotor(prefix + "Rx}Mtr", name="rx")
+
+
+class CollimatorTable(StandardReadable, EpicsDevice):
+    """HEX collimator table."""
+
+    def __init__(self, prefix: str, name: str = "collimator"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.CHILD):
+            self.x = AsyncEpicsMotor(prefix + "CMT:1-Ax:X}Mtr", name="x")
+            self.y_coarse = AsyncEpicsMotor(prefix + "CMT:1-Ax:Yc}Mtr", name="y_coarse")
+            self.y_fine = AsyncEpicsMotor(prefix + "CMT:1-Ax:Yf}Mtr", name="y_fine")
+            # TODO: Consider renaming PV to follow format of above.
+            self.slits_pitch = AsyncEpicsMotor(
+                prefix + "Slt:CMT-Ax:Pitch}Mtr", name="slits_pitch"
+            )
+
+
+def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = None):
+    """Move the specified motor to the given position.
+
+    Wraps the `bps.mv` plan stub to create a plan signature more conducive to creating
+    a user-friendly GUI input.
+
+    Parameters
+    ----------
+    motor : AsyncEpicsMotor
+        The motor to move.
+    value : float
+        The target position for the motor.
+    timeout : float, optional
+        Maximum time to wait for the motor to reach the target position.
+        Defaults to None.
+
+    Raises
+    ------
+    RuntimeError
+        If the motor fails to reach the target position within the specified timeout.
+    """
+    yield from bps.mv(motor, value, timeout=timeout)

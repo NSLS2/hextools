@@ -1,115 +1,35 @@
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 import pytest
 from bluesky import Msg, RunEngine
-from bluesky import plan_stubs as bps
 from ophyd_async.core import (
+    Device,
     StaticPathProvider,
-    UUIDFilenameProvider,
-    callback_on_mock_execute,
     callback_on_mock_put,
+    get_mock_put,
     init_devices,
     set_mock_value,
 )
-from ophyd_async.epics.adcore import ADBaseDataType, ADWriterFactory, NDPluginFileIO
-from ophyd_async.epics.adkinetix import KinetixDetector
+from ophyd_async.epics.adcore import NDPluginFileIO, NDProcessFilterType, NDProcessIO
+from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
+from ophyd_async.epics.core import epics_signal_rw
+from ophyd_async.fastcs.panda import DatasetTable, HDFPanda, PandaHdf5DatasetType
 
-from hextools.photon_delivery_system import Shutter
-from hextools.photon_delivery_system.shutter import ShutterStatus
+from hextools.photon_delivery_system import Shutter, ShutterStatus
 from hextools.tomography.radiography import FRAME_PERIOD_MARGIN, take_radiograph
-
-# --- shutters: same shape as tests/tomography/test_alignment.py ---------------
-
-
-@pytest.fixture
-def shutter_factory() -> Callable[[str], Shutter]:
-    def _factory(name: str) -> Shutter:
-        with init_devices(mock=True):
-            shutter = Shutter(name, name=name)
-        # the only two arcs Shutter.set awaits: a command put flips the status readback
-        callback_on_mock_execute(
-            shutter.open_cmd,
-            lambda *_: set_mock_value(shutter.status, ShutterStatus.OPEN),
-        )
-        callback_on_mock_execute(
-            shutter.close_cmd,
-            lambda *_: set_mock_value(shutter.status, ShutterStatus.CLOSED),
-        )
-        return shutter
-
-    return _factory
-
-
-@pytest.fixture
-def two_shutters(shutter_factory: Callable[[str], Shutter]) -> tuple[Shutter, Shutter]:
-    return shutter_factory("front_end_shutter"), shutter_factory("photon_shutter")
-
-
-# --- detector: Kinetix with an HDF writer, minimum causal chain ---------------
-
-
-@pytest.fixture
-def static_path_provider(tmp_path: Path) -> StaticPathProvider:
-    return StaticPathProvider(UUIDFilenameProvider(), tmp_path)
-
-
-@pytest.fixture
-def kinetix_hdf_factory(
-    static_path_provider: StaticPathProvider,
-) -> Callable[[int], KinetixDetector]:
-    def _factory(num: int) -> KinetixDetector:
-        with init_devices(mock=True):
-            ktx = KinetixDetector(
-                f"KTX{num}",
-                ADWriterFactory.hdf(static_path_provider),
-                name=f"kinetix{num}",
-            )
-            hdf = ktx.get_plugin_by_name("hdf", NDPluginFileIO)
-
-        # what the descriptor needs to describe the image
-        set_mock_value(ktx.driver.array_size_x, 3200)
-        set_mock_value(ktx.driver.array_size_y, 3200)
-        set_mock_value(ktx.driver.data_type, ADBaseDataType.UINT16)
-
-        async def _one_burst_arrives(_):
-            # one acquire produces a whole burst: num_images frames land in the file
-            n = await ktx.driver.num_images.get_value()
-            got = await hdf.num_captured.get_value()
-            set_mock_value(hdf.num_captured, got + n)
-
-        # prepare: setting the directory must make the IOC report it exists
-        callback_on_mock_put(
-            hdf.file_path, lambda _: set_mock_value(hdf.file_path_exists, True)
-        )
-        # prepare: starting capture resets the frame counter
-        callback_on_mock_put(hdf.capture, lambda _: set_mock_value(hdf.num_captured, 0))
-        # trigger: the writer waits on num_captured reaching the expected count
-        callback_on_mock_put(ktx.driver.acquire, _one_burst_arrives)
-        return ktx
-
-    return _factory
-
-
-# --- one row of the happy path, to prove the arcs before the table exists -----
 
 
 async def test_take_radiograph_single_row(
     RE: RunEngine,
-    kinetix_hdf_factory: Callable[[int], KinetixDetector],
+    kinetix_det_factory: Callable[[int], KinetixDetector],
     two_shutters: tuple[Shutter, Shutter],
-    monkeypatch: pytest.MonkeyPatch,
 ):
-    # the profile sets this; tests do not load the profile
-    monkeypatch.setenv("OPHYD_ASYNC_PRESERVE_DETECTOR_STATE", "YES")
-    # the gap has to exceed the time an acquisition takes, otherwise bp.count
-    # has no time left to sleep between acquisitions
-    exposure_time, num_images, num_acquisitions, wait = 0.1, 10, 5, 0.2
+    exposure_time, num_images, num_acquisitions, wait = 0.1, 10, 5, 0.01
 
     fe_shutter, photon_shutter = two_shutters
-    ktx = kinetix_hdf_factory(1)
-    RE(bps.mv(fe_shutter, True))  # precondition: front end already open
+    set_mock_value(fe_shutter.status, ShutterStatus.OPEN)
+    ktx = kinetix_det_factory(1)
 
     docs: dict[str, list[dict[str, Any]]] = {}
 
@@ -121,14 +41,15 @@ async def test_take_radiograph_single_row(
     def msg_hook(msg: Msg):
         messages_by_type.setdefault(msg.command, []).append(msg)
 
-    RE.msg_hook = msg_hook
+    RE.msg_hook = msg_hook  # type: ignore
 
     RE(
         take_radiograph(
             [ktx],
             exposure_time,
             num_images=num_images,
-            num_acquisitions=num_acquisitions,
+            num_iterations=num_acquisitions,
+            external_trigger=False,
             time_gap=wait,
             use_shutter=True,
             fe_shutter=fe_shutter,
@@ -137,27 +58,197 @@ async def test_take_radiograph_single_row(
         cache_docs,  # type: ignore
     )
 
-    for kind in ("start", "descriptor", "stream_resource", "stop"):
-        assert len(docs[kind]) == 1
-    assert len(docs["event"]) == num_acquisitions
+    # Each acquisition is its own run, so each opens its own file
+    for kind in ("start", "descriptor", "stream_resource", "stop", "event"):
+        assert len(docs[kind]) == num_acquisitions
     assert len(docs["stream_datum"]) == num_acquisitions
+    assert all(start["plan_name"] == "take_radiograph" for start in docs["start"])
 
-    start = docs["start"][0]
-    assert start["plan_name"] == "take_radiograph"
-
-    sleeps = messages_by_type.get("sleep", [])
-    # a scalar delay is repeated forever, so bp.count also sleeps after the
-    # final acquisition
-    assert len(sleeps) == num_acquisitions
-    # bp.count subtracts elapsed time from the delay, so each sleep is <= wait
-    assert all(0 < m.args[0] <= wait for m in sleeps)
+    # the gap between runs; longer sleeps are shutter settling
+    delay_sleeps = [m for m in messages_by_type.get("sleep", []) if m.args[0] == wait]
+    assert len(delay_sleeps) == num_acquisitions - 1
 
     assert await ktx.driver.acquire_time.get_value() == exposure_time
     assert await ktx.driver.num_images.get_value() == num_images
     assert (
-        await photon_shutter.status.get_value() is ShutterStatus.CLOSED
+        await photon_shutter.status.get_value() == ShutterStatus.CLOSED
     )  # finalizer closed it
 
     assert await ktx.driver.acquire_period.get_value() == pytest.approx(
         exposure_time + FRAME_PERIOD_MARGIN
     )
+
+
+# --- PandA-paced radiograph: HEX_DEFAULT wiring --------------------------------
+# BITS.B -> LUT1 -> PULSE1 (enabled while PCAP is armed) -> TTLOUT1 (camera) and PCAP
+
+
+class _Bits(Device):
+    """The PandA BITS block; on the real PandA it is discovered from the IOC."""
+
+    def __init__(self, prefix: str, name: str = ""):
+        self.a = epics_signal_rw(int, f"{prefix}A")
+        self.b = epics_signal_rw(int, f"{prefix}B")
+        super().__init__(name=name)
+
+
+class _PandaWithBits(HDFPanda):
+    def __init__(self, prefix: str, path_provider, name: str = ""):
+        self.bits = _Bits(f"{prefix}BITS:")
+        super().__init__(prefix, path_provider, name=name)
+
+
+@pytest.fixture
+def panda_pacing(static_path_provider: StaticPathProvider):
+    """A mock PandA whose BITS.B rising edge sends PULSE1's train to the cameras."""
+
+    def _factory(cameras: list[KinetixDetector]) -> _PandaWithBits:
+        with init_devices(mock=True):
+            panda = _PandaWithBits("PANDA:", static_path_provider, name="panda1")
+        set_mock_value(panda.data.directory_exists, True)
+        set_mock_value(
+            panda.data.datasets,
+            DatasetTable(name=["Angle"], dtype=[PandaHdf5DatasetType.FLOAT_64]),
+        )
+        callback_on_mock_put(
+            panda.pcap.arm, lambda v: set_mock_value(panda.pcap.active, v)
+        )
+        callback_on_mock_put(
+            panda.data.capture, lambda _: set_mock_value(panda.data.num_captured, 0)
+        )
+
+        async def _pulse_train(value):
+            if not value or not await panda.pcap.active.get_value():
+                return
+            n = await panda.pulse[1].pulses.get_value()
+            for cam in cameras:
+                hdf = cam.get_plugin("hdf", NDPluginFileIO)
+                set_mock_value(hdf.num_captured, await hdf.num_captured.get_value() + n)
+            captured = await panda.data.num_captured.get_value()
+            set_mock_value(panda.data.num_captured, captured + n)
+
+        callback_on_mock_put(panda.bits.b, _pulse_train)
+        return panda
+
+    return _factory
+
+
+async def test_external_trigger_radiograph_is_paced_by_the_panda(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[[int], KinetixDetector],
+    panda_pacing,
+    two_shutters: tuple[Shutter, Shutter],
+):
+    exposure_time, acquire_period, num_images, num_iterations = 0.1, 0.2, 19, 2
+    fe_shutter, photon_shutter = two_shutters
+    ktx = kinetix_det_factory(1)
+    panda = panda_pacing([ktx])
+
+    docs: dict[str, list[dict[str, Any]]] = {}
+
+    def cache_docs(name: str, doc: dict[str, Any]):
+        docs.setdefault(name, []).append(doc)
+
+    RE(
+        take_radiograph(
+            [ktx],
+            exposure_time,
+            num_images=num_images,
+            num_iterations=num_iterations,
+            acquire_period=acquire_period,
+            external_trigger=True,
+            use_shutter=False,
+            fe_shutter=fe_shutter,
+            photon_shutter=photon_shutter,
+            panda=panda,
+        ),
+        cache_docs,  # type: ignore
+    )
+
+    # Each burst is its own run. The PandA paces the camera but is not recorded,
+    # so no Angle (dropped in ecd0b0d; may be revisited).
+    assert len(docs["start"]) == num_iterations
+    assert all(stop["exit_status"] == "success" for stop in docs["stop"])
+    assert {d["data_key"] for d in docs["stream_resource"]} == {"kinetix1"}
+    assert len(docs["stream_datum"]) == num_iterations
+    # armed for external edges during the bursts; cleanup returns it to preview
+    modes = [
+        call.args[0] for call in get_mock_put(ktx.driver.trigger_mode).call_args_list
+    ]
+    assert any(mode != KinetixTriggerMode.INTERNAL for mode in modes)
+    assert await ktx.driver.trigger_mode.get_value() == KinetixTriggerMode.INTERNAL
+
+    pulse = panda.pulse[1]
+    assert await pulse.pulses.get_value() == num_images
+    assert await pulse.step.get_value() == pytest.approx(acquire_period)
+    assert await pulse.width.get_value() == pytest.approx(exposure_time)
+    # BITS.A (fly-scan PCOMP enable) stays off; BITS.B rises once per burst and ends low
+    assert await panda.bits.a.get_value() == 0
+    bits_b = [call.args[0] for call in get_mock_put(panda.bits.b).call_args_list]
+    assert bits_b.count(1) == num_iterations
+    assert await panda.bits.b.get_value() == 0
+
+
+def test_external_trigger_without_a_panda_fails_before_arming(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[[int], KinetixDetector],
+    two_shutters: tuple[Shutter, Shutter],
+):
+    """With nothing pulsing the camera, an external radiograph used to time out."""
+    fe_shutter, photon_shutter = two_shutters
+    ktx = kinetix_det_factory(1)
+    with pytest.raises(ValueError, match="panda"):
+        RE(
+            take_radiograph(
+                [ktx],
+                0.1,
+                num_images=19,
+                external_trigger=True,
+                use_shutter=False,
+                fe_shutter=fe_shutter,
+                photon_shutter=photon_shutter,
+            )
+        )
+    assert not get_mock_put(ktx.driver.acquire).called
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({}, NDProcessFilterType.AVERAGE),
+        ({"filter_type": "Sum"}, NDProcessFilterType.SUM),
+    ],
+)
+async def test_averaged_radiograph_sets_the_proc_filter_type(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[..., KinetixDetector],
+    two_shutters: tuple[Shutter, Shutter],
+    kwargs: dict[str, Any],
+    expected: NDProcessFilterType,
+):
+    fe_shutter, photon_shutter = two_shutters
+    ktx = kinetix_det_factory(1, with_proc=True)
+    proc = ktx.get_plugin("proc", NDProcessIO)
+    set_mock_value(proc.filter_type, NDProcessFilterType.DIFFERENCE)
+    docs: dict[str, list[dict[str, Any]]] = {}
+
+    def cache_docs(name: str, doc: dict[str, Any]):
+        docs.setdefault(name, []).append(doc)
+
+    RE(
+        take_radiograph(
+            [ktx],
+            0.01,
+            num_images=2,
+            images_to_average=3,
+            external_trigger=False,
+            use_shutter=False,
+            fe_shutter=fe_shutter,
+            photon_shutter=photon_shutter,
+            **kwargs,
+        ),
+        cache_docs,  # type: ignore
+    )
+
+    assert await proc.filter_type.get_value() == expected
+    assert docs["start"][0]["filter_type"] == expected.value

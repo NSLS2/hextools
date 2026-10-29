@@ -1,14 +1,7 @@
 """Ophyd async support for detectors at HEX."""
 
-# Readout headroom (s) added to exposure_time when frame_period is unset;
-# same margin the beamline's deployed PandA plan kept between step and exposure.
-FRAME_PERIOD_MARGIN = 0.0125 #Kinetix
-                    # 0.000005 #TODO for phantom
-                    # GeRM N/A
-                    # 0.05 # PE
-
-
-
+from .germ import Gain, GeRMDetector
+from .kinetix import KinetixTriggerMode, kinetix_factory
 from .phantom import (
     PhantomAuxPinMode,
     PhantomDetector,
@@ -21,6 +14,14 @@ from .phantom import (
     PhantomSettingsSlot,
     PhantomTrigEdge,
 )
+from .utils import enable_preview_mode, set_plugin_queue_sizes, set_proc_filter_type
+
+# Readout headroom (s) added to exposure_time when frame_period is unset;
+# same margin the beamline's deployed PandA plan kept between step and exposure.
+FRAME_PERIOD_MARGIN = 0.0125  # Kinetix
+# 0.000005 #TODO for phantom
+# GeRM N/A
+# 0.05 # PE
 
 __all__ = [
     "PhantomDetector",
@@ -33,4 +34,11 @@ __all__ = [
     "PhantomReadySignal",
     "PhantomTrigEdge",
     "PhantomSettingsSlot",
+    "Gain",
+    "GeRMDetector",
+    "KinetixTriggerMode",
+    "enable_preview_mode",
+    "set_plugin_queue_sizes",
+    "set_proc_filter_type",
+    "kinetix_factory",
 ]

@@ -1,20 +1,29 @@
 """Filter device with multiple positions."""
 
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from importlib import resources
+from typing import TYPE_CHECKING, TypeAlias
 
-import yaml
+import bluesky.plan_stubs as bps
 from ophyd_async.core import (
     AsyncMovable,
-    AsyncStatus,
     StandardReadable,
+    WatchableAsyncStatus,
     derived_signal_r,
+    forward_watcher_updates,
     wait_for_value,
 )
 from ophyd_async.core import StandardReadableFormat as Format
 from ophyd_async.epics.core import EpicsDevice, epics_signal_r
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+
+from ..utils import ensure_available
+from hextools.bl_constants import (
+    build_enums_from_position_lists,
+    fetch_beamline_constants,
+)
+from .shutter import PPSShutter, ShutterStatus
 
 
 @dataclass
@@ -59,12 +68,11 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
     def __init__(
         self,
         motor_pv: str,
-        positions: dict[FilterPosition, FilterSetting],
         in_pos_switch_pv: str,
         name: str = "",
     ):
+        self.positions: dict[FilterPosition, FilterSetting] = {}
         self.in_position = epics_signal_r(bool, in_pos_switch_pv)
-        self.positions = positions
         self.filter_motor = AsyncEpicsMotor(motor_pv)
         with self.add_children_as_readables(Format.CONFIG_SIGNAL):
             self.description = derived_signal_r(
@@ -73,6 +81,26 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
                 motor_pos=self.filter_motor.user_readback,
             )
         super().__init__(name=name)
+
+    def set_name(self, name: str, *, child_name_separator: str | None = None) -> None:
+        """Set the name, and load this filter's positions from the beamline constants.
+
+        Positions load here so filters named by ``init_devices`` get them too.
+        """
+        super().set_name(name, child_name_separator=child_name_separator)
+        if not name:
+            return
+        try:
+            self.positions = {
+                FilterPosition[pos.upper()]: (
+                    FilterSetting(**setting)
+                    if isinstance(setting, dict)
+                    else FilterSetting(setting)
+                )
+                for pos, setting in fetch_beamline_constants("filters")[name].items()
+            }
+        except KeyError as e:
+            raise KeyError(f"Filter settings for '{name}' not found in beamline constants.") from e
 
     def _get_description(self, in_pos: bool, motor_pos: float) -> str:
         """Get the description of the current filter setting based on motor position.
@@ -96,7 +124,7 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
         )
         return closest[1].description or closest[0].name.lower().replace("_", " ")
 
-    @AsyncStatus.wrap
+    @WatchableAsyncStatus.wrap
     async def set(self, value: FilterPosition):
         """Set the filter to the specified position.
 
@@ -111,56 +139,93 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
                 f"Defined positions are: {list(self.positions.keys())}"
             )
 
-        await self.filter_motor.set(self.positions[value].position)
+        move = self.filter_motor.set(self.positions[value].position)
+        async for update in forward_watcher_updates([move], self.name, combine=False):
+            yield update
         await wait_for_value(self.in_position, True, timeout=10)
 
+    async def stop(self, success: bool = False):
+        """Stop the filter motor, so pausing or aborting the RunEngine stops a move."""
+        await self.filter_motor.stop()
 
-FILTERS_CONFIG_RESOURCE: str = "filters.yml"
 
-
-def load_filters() -> list[Filter]:
-    """Create Filter devices from the packaged YAML configuration file.
-
-    The ``filters.yml`` file bundled with the ``hextools`` package is used.
-    Each top-level key defines a filter with its ``motor_pv``,
-    ``in_position_switch`` PV, and a ``positions`` mapping. The ``positions``
-    mapping must contain exactly one entry per :class:`FilterPosition`, keyed by
-    the lowercased enum name (``upper_limit``, ``pass_through``, ``pos_1`` ..
-    ``pos_4``, ``lower_limit``). Each value is either a number (the motor
-    position) or a mapping with ``position`` and optional ``description`` keys.
-
-    Returns
-    -------
-    list[Filter]
-        One configured Filter device per top-level entry, named after its key.
-    """
-    source = resources.files(__package__ or "hextools").joinpath(
-        FILTERS_CONFIG_RESOURCE
+# Dynamically build enums for filter positions from beamline constants
+if TYPE_CHECKING:
+    Filter1UpstreamPosition: TypeAlias = StrEnum
+    Filter1DownstreamPosition: TypeAlias = StrEnum
+    Filter2Position: TypeAlias = StrEnum
+    Filter3Position: TypeAlias = StrEnum
+    Filter4Position: TypeAlias = StrEnum
+else:
+    (
+        Filter1UpstreamPosition,
+        Filter1DownstreamPosition,
+        Filter2Position,
+        Filter3Position,
+        Filter4Position,
+    ) = build_enums_from_position_lists(
+        "filters", always_included_keys=["pass_through"]
     )
-    config = yaml.safe_load(source.read_text(encoding="utf-8"))
 
-    filters: list[Filter] = []
-    for name, spec in config["filters"].items():
-        positions_spec = spec["positions"]
-        if len(positions_spec) != len(FilterPosition):
-            raise ValueError(
-                f"Filter {name!r} must define exactly {len(FilterPosition)} "
-                f"positions (one per FilterPosition), got {len(positions_spec)}."
-            )
-        positions: dict[FilterPosition, FilterSetting] = {}
-        for key, value in positions_spec.items():
-            filter_position = FilterPosition[key.upper()]
-            if isinstance(value, dict):
-                setting = FilterSetting(value["position"], value.get("description"))
-            else:
-                setting = FilterSetting(value)
-            positions[filter_position] = setting
-        filters.append(
-            Filter(
-                motor_pv=spec["motor_pv"],
-                positions=positions,
-                in_pos_switch_pv=spec["in_position_switch"],
-                name=name,
-            )
-        )
-    return filters
+
+def set_filters(
+    filter1_upstream_setting: Filter1UpstreamPosition | None = None,
+    filter1_downstream_setting: Filter1DownstreamPosition | None = None,
+    filter2_setting: Filter2Position | None = None,
+    filter1_upstream: Filter | None = None,
+    filter1_downstream: Filter | None = None,
+    filter2: Filter | None = None,
+    fe_shutter: PPSShutter | None = None,
+):
+    """Set filter 1 upstream, filter 1 downstream and filter 2 by material.
+
+    Each setting is one of that filter's materials from ``bl_constants.yml`` (for
+    example ``"6 mm Cu"``) or ``"Pass Through"``. A filter with no setting does
+    not move; the others move together.
+
+    Moving a filter closes the front-end shutter through its interlock. Once the
+    filters are in position the interlock is acknowledged, and the front-end
+    shutter is reopened if it was open before.
+
+    Parameters
+    ----------
+    filter1_upstream_setting : Filter1UpstreamPosition, optional
+        Material for filter 1 upstream.
+    filter1_downstream_setting : Filter1DownstreamPosition, optional
+        Material for filter 1 downstream.
+    filter2_setting : Filter2Position, optional
+        Material for filter 2.
+    filter1_upstream, filter1_downstream, filter2 : Filter, optional
+        The filter devices. If None, taken from the session namespace.
+    fe_shutter : PPSShutter, optional
+        The front-end shutter. If None, taken from the session namespace.
+
+    Raises
+    ------
+    ValueError
+        If no setting is given, or a setting is not one of that filter's choices.
+    """
+    args = []
+    if filter1_upstream_setting is not None:
+        args += [
+            ensure_available(Filter, filter1_upstream=filter1_upstream),
+            FilterPosition[Filter1UpstreamPosition(filter1_upstream_setting).name],
+        ]
+    if filter1_downstream_setting is not None:
+        args += [
+            ensure_available(Filter, filter1_downstream=filter1_downstream),
+            FilterPosition[Filter1DownstreamPosition(filter1_downstream_setting).name],
+        ]
+    if filter2_setting is not None:
+        args += [
+            ensure_available(Filter, filter2=filter2),
+            FilterPosition[Filter2Position(filter2_setting).name],
+        ]
+    if not args:
+        raise ValueError("Choose a setting for at least one filter.")
+    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
+    fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
+    yield from bps.mv(*args)
+    yield from bps.mv(fe_shutter.interlock_ack, True)
+    if fe_was_open:
+        yield from bps.mv(fe_shutter, True)

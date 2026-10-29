@@ -10,8 +10,6 @@ from ophyd_async.core import (
 )
 from ophyd_async.fastcs.panda import CommonPandaBlocks, PandaPcompDirection
 
-from .motors import get_encoder_value_from_pos
-
 
 class SingleAxisFlyscanInfo(ConfinedModel):
     """Information for a single axis flyscan.
@@ -54,6 +52,7 @@ class SingleAxisFlyableLogic(FlyableLogic[SingleAxisFlyscanInfo, None]):
         pcomp = self.panda.pcomp[1]
         pulse = self.panda.pulse[1]
         calc = self.panda.calc[1]  # type: ignore
+        bita = self.panda.bits.a  # type: ignore
         coros = [
             pcomp.dir.set(value.direction),
             pcomp.start.set(value.start),
@@ -61,6 +60,7 @@ class SingleAxisFlyableLogic(FlyableLogic[SingleAxisFlyscanInfo, None]):
             calc.out_units.set(value.position_dataset_units),
             calc.out_scale.set(value.position_scale),
             calc.out_offset.set(value.position_offset),
+            bita.set(0),
         ]
         if not value.time_based:
             coros.extend(
@@ -88,13 +88,18 @@ class SingleAxisFlyableLogic(FlyableLogic[SingleAxisFlyscanInfo, None]):
             )
         await asyncio.gather(*coros)
 
+        # Only enable the pcomp block after all the configuration
+        # has been set.
+        await bita.set(1)
+
     async def on_kickoff(self, ctx: None) -> None:
-        await wait_for_value(self.panda.pcomp[1].active, True, timeout=1)
+        await wait_for_value(self.panda.pcomp[1].active, True, timeout=10)
 
     async def on_complete(self, ctx: None) -> None:
         await wait_for_value(self.panda.pcomp[1].active, False, timeout=None)
 
     async def stop(self):
+        await self.panda.bits.a.set(0)  # type: ignore
         await wait_for_value(self.panda.pcomp[1].active, False, timeout=1)
 
 
@@ -145,7 +150,7 @@ def construct_fly_info_models(
     current_enc_position: int,
     acq_time_overhead: float = 0.001,
     time_based: bool = False,
-    position_dataset_name: str = "Angle",
+    position_dataset_name: str = "rotation_angle",
     position_dataset_units: str = "deg",
 ) -> tuple[SingleAxisFlyscanInfo, FlyMotorInfo]:
     """Construct the fly info models for a single axis flyscan.
@@ -155,7 +160,6 @@ def construct_fly_info_models(
     tuple[SingleAxisFlyscanInfo, FlyMotorInfo]
         The fly info models for a single axis flyscan.
     """
-
     dist_to_start = (start_position - current_position) / encoder_resolution
     start_in_counts = round(current_enc_position + dist_to_start)
     signed_travel_counts = round((stop_position - start_position) / encoder_resolution)
@@ -188,7 +192,8 @@ def construct_fly_info_models(
         pulse_step = travel_counts // (num_pulses - 1)
     else:
         pulse_width = max_exposure_time
-        pulse_step = move_time / num_pulses
+        # The first pulse fires at the start, so num_pulses - 1 steps reach the stop.
+        pulse_step = move_time / (num_pulses - 1) if num_pulses > 1 else move_time
 
     flyer_info = SingleAxisFlyscanInfo(
         start=start_in_counts,
