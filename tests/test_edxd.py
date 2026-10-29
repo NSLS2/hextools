@@ -228,7 +228,7 @@ async def test_edxd_scan(
 
     assert _shutters_opened_before_first_count(messages, fe_shutter, photon_shutter)
     await _assert_closed(fe_shutter, photon_shutter)
-    # reset_position returns the motor to the start of the scan
+    # reset_position restores the pre-scan position (zero in this fixture).
     assert await x.user_readback.get_value() == pytest.approx(0)
 
 

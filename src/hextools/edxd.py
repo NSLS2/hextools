@@ -8,6 +8,7 @@ from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.preprocessors import finalize_wrapper
+from ophyd_async.core import EnableDisable
 from tiled.structures.core import Spec
 
 from hextools.detectors.germ import GeRMDetector
@@ -20,6 +21,18 @@ from hextools.utils import Steppable, ensure_available
 
 def _tiled_specs(spec: Spec) -> list[dict[str, str | None]]:
     return [{"name": spec.name, "version": spec.version}]
+
+
+def _prepare_germ(germ: GeRMDetector, count_time: float):
+    # IOC Autosave may restore Stats1 disabled after a restart.
+    yield from bps.mv(
+        germ.stats1.enable_callbacks,
+        EnableDisable.ENABLE,
+        germ.stats1.compute_statistics,
+        True,
+        germ.driver.acquire_time,
+        count_time,
+    )
 
 
 def configure_test_pulses(
@@ -91,7 +104,7 @@ def edxd_count(
     """
     germ = ensure_available(GeRMDetector, germ=germ)
 
-    yield from bps.mv(germ.driver.acquire_time, count_time)
+    yield from _prepare_germ(germ, count_time)
 
     _md: dict[str, Any] = {
         "plan_name": "edxd_count",
@@ -141,7 +154,8 @@ def edxd_scan(
     save_as_tiff : bool, default False
         Whether to save the data as a TIFF file.
     reset_position : bool, default True
-        Whether to reset the motor to its starting position after the scan.
+        Restore the pre-scan motor position on completion, failure or abort.
+        A pause does not restore the position. False leaves the final position.
     use_shutter : bool, default True
         Whether to use the shutters during the scan.
     germ : GeRMDetector | None, optional
@@ -154,13 +168,14 @@ def edxd_scan(
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     germ = ensure_available(GeRMDetector, germ=germ)
+    initial_position = (yield from bps.rd(motor)) if reset_position else None
 
     def _body():
         if use_shutter:
             yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
             yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
 
-        yield from bps.mv(germ.driver.acquire_time, count_time)
+        yield from _prepare_germ(germ, count_time)
 
         if save_as_tiff:
             germ.save_as_tiff()
@@ -176,11 +191,13 @@ def edxd_scan(
         yield from bp.scan([germ], motor, start, stop, num_points, md=_md)
 
     def _cleanup():
-        if use_shutter:
-            yield from ensure_shutter_closed(fe_shutter)
-            yield from ensure_shutter_closed(photon_shutter)
-        if reset_position:
-            yield from bps.mv(motor, start)
+        try:
+            if use_shutter:
+                yield from ensure_shutter_closed(fe_shutter)
+                yield from ensure_shutter_closed(photon_shutter)
+        finally:
+            if reset_position:
+                yield from bps.mv(motor, initial_position)
 
     return (
         yield from bps.repeat(
@@ -247,7 +264,7 @@ def edxd_custom_pos_list_grid(
             yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
             yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
 
-        yield from bps.mv(germ.driver.acquire_time, count_time)
+        yield from _prepare_germ(germ, count_time)
 
         _md: dict[str, Any] = {
             "plan_name": "edxd_custom_pos_list_grid",
@@ -320,7 +337,8 @@ def edxd_grid_scan(
     use_shutter : bool, default True
         Whether to use the shutters during the scan.
     reset_position : bool, default True
-        Whether to reset the motors to their starting positions after the scan.
+        Restore both pre-scan motor positions on completion, failure or abort.
+        A pause does not restore positions. False leaves the final positions.
     description : str | None, optional
         A description for the scan, if any.
     germ : GeRMDetector | None, optional
@@ -340,7 +358,7 @@ def edxd_grid_scan(
             yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
             yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
 
-        yield from bps.mv(germ.driver.acquire_time, count_time)
+        yield from _prepare_germ(germ, count_time)
 
         _md: dict[str, Any] = {
             "plan_name": "edxd_grid_scan",
@@ -366,11 +384,13 @@ def edxd_grid_scan(
         if use_shutter:
             yield from ensure_shutter_closed(fe_shutter)
             yield from ensure_shutter_closed(photon_shutter)
-        if reset_position:
-            yield from bps.mv(outer_motor, outer_start)
-            yield from bps.mv(inner_motor, inner_start)
 
-    return (yield from finalize_wrapper(_body(), _cleanup()))
+    return (
+        yield from bpp.reset_positions_wrapper(
+            finalize_wrapper(_body(), _cleanup()),
+            [outer_motor, inner_motor] if reset_position else [],
+        )
+    )
 
 
 def edxd_2theta_tilt(
@@ -509,6 +529,7 @@ def edxd_calib_scan(
     @bpp.stage_decorator([germ])
     @bpp.run_decorator(md=_md)
     def _body():
+        yield from _prepare_germ(germ, count_time)
         yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
         yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
         if not in_range:
@@ -516,8 +537,6 @@ def edxd_calib_scan(
             yield from bps.mv(sample_tower.z1, scan_origin)
 
         yield from bps.mv(
-            germ.driver.acquire_time,
-            count_time,
             sample_tower.z1.velocity,
             required_velo,
         )

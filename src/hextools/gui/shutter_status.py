@@ -115,6 +115,7 @@ class QtShutterStatus(QWidget):
         super().__init__(parent)
         self._re = re
         self._namespace = namespace
+        self._pending = False
 
         shutters: dict[int, tuple[str, Shutter]] = {}
         for name, obj in sorted(namespace.items()):
@@ -140,8 +141,20 @@ class QtShutterStatus(QWidget):
         vbox = QVBoxLayout()
         vbox.addWidget(group_box)
         self.setLayout(vbox)
+        self._timer = QTimer(self)
+        self._timer.setInterval(100)
+        self._timer.timeout.connect(self._update_enabled)
+        self._timer.start()
+        self._update_enabled()
+
+    def _update_enabled(self):
+        enabled = not self._pending and self._re.state == "idle"
+        for button in self._buttons:
+            button.setEnabled(enabled)
 
     def _toggle(self, button: _ShutterButton):
+        if self._pending:
+            return
         if self._re.state != "idle":
             QMessageBox.warning(
                 self,
@@ -153,15 +166,25 @@ class QtShutterStatus(QWidget):
         # Make the plan resolvable when the command is echoed and run in IPython.
         self._namespace.setdefault(plan.__name__, plan)  # type: ignore
         code = f"RE({plan.__name__}({button.var_name}, allow_actuation=True))"
+        # Reserve both controls before the deferred cell can run or Qt reenters.
+        self._pending = True
+        self._update_enabled()
         # Defer so the click handler returns before IPython executes the cell.
         QTimer.singleShot(0, lambda: self._execute_cell(code))
 
     def _execute_cell(self, code: str):
-        error = run_in_ipython(code)
+        try:
+            if self._re.state != "idle":
+                return
+            error = run_in_ipython(code)
+        finally:
+            self._pending = False
+            self._update_enabled()
         if error is not None:
             show_plan_error(self, "Shutter actuation failed", error)
 
     def closeEvent(self, event):
+        self._timer.stop()
         for button in self._buttons:
             button.unsubscribe()
         super().closeEvent(event)
