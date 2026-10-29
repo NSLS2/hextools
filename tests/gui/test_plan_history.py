@@ -50,11 +50,7 @@ def test_history_is_saved_and_cleared(RE, det, tmp_path, monkeypatch):
     monitor, history = _history(RE, path)
     assert not history._clear_button.isEnabled()
 
-<<<<<<< HEAD
     _finish_plan(RE, det, monitor)
-=======
-    _finish_plan(RE, monitor, det)
->>>>>>> 3fc0e09b123e5bc746b1c9f473df9129c18374c6
     assert len(json.loads(path.read_text())) == 1
     assert history._clear_button.isEnabled()
 
@@ -78,11 +74,7 @@ def test_history_is_saved_and_cleared(RE, det, tmp_path, monkeypatch):
 def test_history_is_loaded_on_startup(RE, det, tmp_path):
     path = tmp_path / "history.json"
     monitor, _ = _history(RE, path)
-<<<<<<< HEAD
     _finish_plan(RE, det, monitor)
-=======
-    _finish_plan(RE, monitor, det)
->>>>>>> 3fc0e09b123e5bc746b1c9f473df9129c18374c6
     monitor.detach()
 
     monitor, history = _history(RE, path)
