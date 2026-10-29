@@ -8,7 +8,7 @@ from typing import Any
 from bluesky.utils import RunEngineInterrupted
 from qtpy.QtWidgets import QMessageBox, QWidget
 
-from hextools.log import _unwrap_failed_status
+from hextools.gui.errors import unwrap_failed_status as _unwrap_failed_status
 
 PAUSED_MESSAGE = (
     "The plan is paused. Press Resume to continue it, "

@@ -1,4 +1,4 @@
-"""BNL brand theming for the HEX GUI.
+"""BNL brand theming for the data-acquisition GUI.
 
 Dark (default) and light themes built on the Brookhaven National Laboratory
 brand palette (https://www.bnl.gov/brandcenter/palette.php).
@@ -86,6 +86,16 @@ THEMES = {
 }
 DEFAULT_THEME = "dark"
 _SETTINGS_KEY = "ui/theme"
+# Where the theme choice is remembered; launchers set it per application.
+_settings_scope = ("bluesky", "bluesky-gui")
+
+
+def set_settings_scope(organization: str, application: str) -> None:
+    """Remember the theme choice under ``organization``/``application``."""
+    global _settings_scope
+    _settings_scope = (organization, application)
+
+
 _current_theme = DEFAULT_THEME
 
 # A str.format template: literal braces are doubled.
@@ -343,7 +353,7 @@ def saved_theme() -> str:
     """Return the user's saved theme choice, or the default if none/invalid."""
     from qtpy.QtCore import QSettings
 
-    value = QSettings("NSLS2", "hextools-gui").value(_SETTINGS_KEY, DEFAULT_THEME)
+    value = QSettings(*_settings_scope).value(_SETTINGS_KEY, DEFAULT_THEME)
     return value if value in THEMES else DEFAULT_THEME  # type: ignore
 
 
@@ -351,7 +361,7 @@ def save_theme(theme: str) -> None:
     """Remember ``theme`` as the user's choice for future sessions."""
     from qtpy.QtCore import QSettings
 
-    QSettings("NSLS2", "hextools-gui").setValue(_SETTINGS_KEY, theme)
+    QSettings(*_settings_scope).setValue(_SETTINGS_KEY, theme)
 
 
 def apply_bnl_theme(app=None, theme: str = DEFAULT_THEME):

@@ -46,7 +46,7 @@ from hextools.gui._hook_chain import install_hook, uninstall_hook
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_sources import _walk_namespace
 from hextools.gui.log_watcher import LogWatcher, level_color
-from hextools.utils.nl_msg_hook import MsgHookNarrator, nl_msg_hook
+from hextools.gui.narrator import MsgHookNarrator, nl_msg_hook
 
 _NO_PLAN = "\u2014"  # em dash
 _NOT_APPLICABLE = "N/A"
