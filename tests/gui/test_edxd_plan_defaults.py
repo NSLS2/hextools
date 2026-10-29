@@ -5,6 +5,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import inspect
 
 import pytest
+
+pytest.importorskip("qtpy")
+pytest.importorskip("bluesky_widgets")
+
 from bluesky import RunEngine
 from IPython.core.interactiveshell import InteractiveShell
 from qtpy.QtWidgets import QApplication, QCheckBox

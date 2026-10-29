@@ -3,6 +3,10 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+
+pytest.importorskip("qtpy")
+pytest.importorskip("bluesky_widgets")
+
 from bluesky import RunEngine
 from bluesky import plan_stubs as bps
 from bluesky.utils import RunEngineInterrupted
