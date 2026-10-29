@@ -83,8 +83,11 @@ def test_generic_widgets_do_not_import_hex_policy(module):
 )
 def test_boundary_resolves_absolute_relative_and_dynamic_imports(source, package):
     imports = _imports(source, package)
-    assert any(
-        name == "hextools" or name.startswith("hextools.")
-        for name in imports
-        if not name.startswith("hextools.gui.")
-    ) or "hextools.gui.hex_config" in imports
+    assert (
+        any(
+            name == "hextools" or name.startswith("hextools.")
+            for name in imports
+            if not name.startswith("hextools.gui.")
+        )
+        or "hextools.gui.hex_config" in imports
+    )

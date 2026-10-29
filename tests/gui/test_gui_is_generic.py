@@ -82,9 +82,7 @@ def _import_names(source: str, package: str) -> set[str]:
                     if isinstance(package_arg, ast.Constant) and isinstance(
                         package_arg.value, str
                     ):
-                        value = importlib.util.resolve_name(
-                            value, package_arg.value
-                        )
+                        value = importlib.util.resolve_name(value, package_arg.value)
                 names.add(value)
     return names
 
@@ -134,9 +132,7 @@ def test_generic_modules_do_not_embed_known_hex_identities():
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         ]
         assert not any(
-            identity in value
-            for identity in FORBIDDEN_IDENTITIES
-            for value in strings
+            identity in value for identity in FORBIDDEN_IDENTITIES for value in strings
         ), path
 
 

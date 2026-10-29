@@ -24,20 +24,33 @@ def _profile_constructors() -> dict[str, str]:
 
 
 def _expected_devices() -> list[tuple[str, str]]:
-    tree = ast.parse((SRC / "gui" / "__main__.py").read_text())
+    # HEX device expectations live with its spec, not the generic launcher.
+    tree = ast.parse((SRC / "gui_config.py").read_text())
     for node in ast.walk(tree):
         if (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.target.id == "EXPECTED_DEVICES"
-            and isinstance(node.value, ast.List)
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "HEX_GUI"
+                for target in node.targets
+            )
+            and isinstance(node.value, ast.Call)
         ):
+            expected_devices = next(
+                (
+                    keyword.value
+                    for keyword in node.value.keywords
+                    if keyword.arg == "expected_devices"
+                ),
+                None,
+            )
+            if not isinstance(expected_devices, ast.List):
+                break
             return [
                 (ast.literal_eval(entry.elts[0]), ast.unparse(entry.elts[1]))
-                for entry in node.value.elts
+                for entry in expected_devices.elts
                 if isinstance(entry, ast.Tuple)
             ]
-    raise AssertionError("EXPECTED_DEVICES not found in gui/__main__.py")
+    raise AssertionError("GuiSpec.expected_devices not found in gui_config.py")
 
 
 # Queue Server mode matches class names exactly, so fe_shutter built as a
