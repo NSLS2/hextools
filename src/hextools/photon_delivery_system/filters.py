@@ -26,8 +26,8 @@ from hextools.bl_constants import (
     fetch_beamline_constants,
 )
 
-from ..utils import ensure_available
-from .shutter import PPSShutter, ShutterStatus, ensure_shutter_closed
+from ..utils import ensure_available, get_obj_from_ipython_ns
+from .shutter import PPSShutter, ShutterStatus, ensure_shutter_open
 
 
 @dataclass
@@ -51,10 +51,23 @@ class FilterPosition(IntEnum):
 
 
 class FilterMock(DeviceMock["Filter"]):
-    """Starts at pass through; in position while the motor rests on a setting."""
+    """Starts at pass through; in position while the motor rests on a setting.
+
+    Like the beamline, moving the filter trips the front-end shutter's interlock. The
+    shutter is ``fe_shutter`` from the session namespace, unless :meth:`interlock`
+    gave one.
+    """
 
     #: How close (motor units) the readback must be to a setting's position.
     tolerance = 0.01
+
+    def __init__(self, name: str = "", parent: DeviceMock | None = None) -> None:
+        super().__init__(name, parent)
+        self._fe_shutter: PPSShutter | None = None
+
+    def interlock(self, shutter: PPSShutter) -> None:
+        """Trip ``shutter``'s interlock on every move, instead of ``fe_shutter``'s."""
+        self._fe_shutter = shutter
 
     async def connect(self, device: "Filter") -> None:
         motor = device.filter_motor
@@ -72,7 +85,19 @@ class FilterMock(DeviceMock["Filter"]):
                 ),
             )
 
+        def _trip_interlock(reading: dict[str, Reading[int]]) -> None:
+            if reading[motor.motor_done_move.name]["value"]:
+                return
+            # Looked up per move: the profile defines fe_shutter after the filters.
+            shutter = self._fe_shutter or get_obj_from_ipython_ns(
+                "fe_shutter", PPSShutter
+            )
+            if shutter is not None:
+                set_mock_value(shutter.status, ShutterStatus.CLOSED)
+                set_mock_value(shutter.interlock_ack.acknowledged, False)
+
         motor.user_readback.subscribe_reading(_update_in_position)
+        motor.motor_done_move.subscribe_reading(_trip_interlock)
 
 
 @default_mock_class(FilterMock)
@@ -246,8 +271,7 @@ def set_filters(
         raise ValueError("Choose a setting for at least one filter.")
 
     fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
-    yield from ensure_shutter_closed(fe_shutter)
     yield from bps.mv(*args)
     yield from bps.mv(fe_shutter.interlock_ack, True)
     if fe_was_open:
-        yield from bps.mv(fe_shutter, True)
+        yield from ensure_shutter_open(fe_shutter, allow_actuation=True)

@@ -219,6 +219,8 @@ def ensure_shutter_state(
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
         whether to wait for the shutter to reach the desired state after actuation
+    sleep_time : float, default 4.0
+        the time to sleep to ensure the shutter has reached the desired state
     """
     shutters = shutter if isinstance(shutter, list) else [shutter]
 
@@ -251,6 +253,7 @@ def ensure_shutter_open(
     allow_actuation: bool = False,
     group: Hashable | None = None,
     wait: bool = True,
+    sleep_time: float = 4.0,
 ):
     """Plan stub to guarantee that the shutter(s) is/are open.
 
@@ -265,9 +268,16 @@ def ensure_shutter_open(
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
         whether to wait for the shutter to reach the desired state after actuation
+    sleep_time : float, default 4.0
+        the time to sleep to ensure the shutter has reached the desired state
     """
     yield from ensure_shutter_state(
-        shutter, True, allow_actuation=allow_actuation, wait=wait, group=group
+        shutter,
+        True,
+        allow_actuation=allow_actuation,
+        wait=wait,
+        group=group,
+        sleep_time=sleep_time,
     )
 
 
@@ -276,6 +286,7 @@ def ensure_shutter_closed(
     allow_actuation: bool = True,
     group: Hashable | None = None,
     wait: bool = True,
+    sleep_time: float = 4.0,
 ):
     """Plan stub to guarantee that the shutter is closed.
 
@@ -290,7 +301,14 @@ def ensure_shutter_closed(
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
             whether to wait for the shutter to reach the desired state after actuation
+    sleep_time : float, default 4.0
+        the time to sleep to ensure the shutter has reached the desired state
     """
     yield from ensure_shutter_state(
-        shutter, False, allow_actuation=allow_actuation, wait=wait, group=group
+        shutter,
+        False,
+        allow_actuation=allow_actuation,
+        wait=wait,
+        group=group,
+        sleep_time=sleep_time,
     )

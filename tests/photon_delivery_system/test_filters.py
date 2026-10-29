@@ -1,10 +1,10 @@
 from typing import Any, cast
 
 import bluesky.plan_stubs as bps
-import bluesky.preprocessors as bpp
 import pytest
 from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
+from IPython.core.interactiveshell import InteractiveShell
 from ophyd_async.core import (
     callback_on_mock_put,
     get_mock_put,
@@ -20,6 +20,7 @@ from hextools.photon_delivery_system.filters import (
     Filter2Position,
     Filter3Position,
     Filter4Position,
+    FilterMock,
     FilterPosition,
     FilterSetting,
     set_filters,
@@ -82,6 +83,37 @@ async def test_mock_filter_starts_in_pass_through_and_moves_into_position(
     assert await f.in_position.get_value()
     expected = f.positions[FilterPosition.POS_1].description
     assert await f.description.get_value() == expected
+
+
+async def test_mock_filter_move_trips_interlocked_shutters(RE: RunEngine):
+    with init_devices(mock=True):
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter2")
+    fe_shutter = _fe_shutter(ShutterStatus.OPEN)
+    assert isinstance(f._mock, FilterMock)
+    f._mock.interlock(fe_shutter)
+    # Connecting doesn't trip it; only a move does.
+    assert await fe_shutter.status.get_value() == ShutterStatus.OPEN
+    assert await fe_shutter.interlock_ack.acknowledged.get_value()
+
+    RE(bps.mv(f, FilterPosition.POS_1))
+
+    assert await fe_shutter.status.get_value() == ShutterStatus.CLOSED
+    assert not await fe_shutter.interlock_ack.acknowledged.get_value()
+
+
+async def test_mock_filter_trips_the_namespace_fe_shutter_by_default(RE: RunEngine):
+    with init_devices(mock=True):
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter2")
+    fe_shutter = _fe_shutter(ShutterStatus.OPEN)
+    shell = InteractiveShell.instance()
+    try:
+        shell.user_ns["fe_shutter"] = fe_shutter
+        RE(bps.mv(f, FilterPosition.POS_1))
+    finally:
+        InteractiveShell.clear_instance()
+
+    assert await fe_shutter.status.get_value() == ShutterStatus.CLOSED
+    assert not await fe_shutter.interlock_ack.acknowledged.get_value()
 
 
 def test_filter_requires_its_name_in_the_beamline_constants():
@@ -163,7 +195,7 @@ def _set_filters(
     filter2: str | None = None,
 ):
     """``set_filters`` with every filter passed in, setting the given materials."""
-    plan = set_filters(
+    return set_filters(
         filter1_upstream_setting=(
             Filter1UpstreamPosition(filter1_upstream) if filter1_upstream else None
         ),
@@ -177,10 +209,6 @@ def _set_filters(
         filter1_downstream=devices["filter1_downstream"],
         filter2=devices["filter2"],
         fe_shutter=fe_shutter,
-    )
-    # The shutter settling sleep is only for hardware.
-    return bpp.msg_mutator(
-        plan, lambda msg: msg._replace(args=(0,)) if msg.command == "sleep" else msg
     )
 
 
