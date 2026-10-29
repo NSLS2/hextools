@@ -331,6 +331,7 @@ def shutter_factory() -> Callable[[str], Shutter]:
             shutter.close_cmd,
             lambda: set_mock_value(shutter.status, ShutterStatus.CLOSED),
         )
+        set_mock_value(shutter.status, ShutterStatus.CLOSED)
         return shutter
 
     return _factory
@@ -376,7 +377,8 @@ async def test_tomo_alignment_scan_fails_if_fe_shutter_closed(
     )
 
     with pytest.raises(
-        RuntimeError, match=f"Shutter {fe_shutter.name} is not in the desired state"
+        ValueError,
+        match=f"Shutter {fe_shutter.name} is closed, but the desired state is open",
     ):
         RE(
             tomo_alignment_scan(

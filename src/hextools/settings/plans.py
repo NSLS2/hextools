@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from IPython.core.getipython import get_ipython
 from ophyd_async.core import Device, YamlSettingsProvider, walk_rw_signals
@@ -28,7 +28,9 @@ def _saved_settings_enum() -> type[StrEnum]:
             if path.parent != _SNAPSHOT_DIR and not path.stem.startswith("_")
         }
     )
-    return StrEnum("SavedDeviceSettings", {stem: stem for stem in stems})
+    return cast(
+        type[StrEnum], StrEnum("SavedDeviceSettings", {stem: stem for stem in stems})
+    )
 
 
 # Built at import, so settings stored afterwards appear after a reload/restart.

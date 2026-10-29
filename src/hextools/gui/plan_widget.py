@@ -64,11 +64,7 @@ from qtpy.QtWidgets import (
 
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_selector_widget import DynamicDeviceSelector
-from hextools.gui.device_sources import (
-    NamespaceDeviceSource,
-    QueueServerDeviceSource,
-    device_display_name,
-)
+from hextools.gui.device_sources import NamespaceDeviceSource, QueueServerDeviceSource
 from hextools.log import _unwrap_failed_status
 
 _NO_SELECTION = "\u2014"  # em dash placeholder for an unset single device
@@ -479,7 +475,7 @@ class QtPlanWidget(QWidget):
                 combo.clear()
                 combo.addItem(_NO_SELECTION, None)
                 for name in options:
-                    combo.addItem(device_display_name(name), name)
+                    combo.addItem(name, name)
                 index = combo.findData(current)
                 combo.setCurrentIndex(index if index >= 0 else 0)
                 combo.blockSignals(False)

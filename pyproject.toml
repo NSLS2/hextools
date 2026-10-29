@@ -119,9 +119,11 @@ version-file = "src/hextools/_version.py"
 [tool.pyright]
 typeCheckingMode = "standard"
 reportMissingImports = false  # Ignore missing stubs in imported modules
-
-[tool.ty.rules]
-unused-type-ignore-comment = "ignore"
+executionEnvironments = [
+    # qtpy re-exports Qt names in a way pyright doesn't count as exported.
+    { root = "src/hextools/gui", reportPrivateImportUsage = false },
+    { root = "." },
+]
 
 
 [tool.pytest.ini_options]

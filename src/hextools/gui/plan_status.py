@@ -18,7 +18,8 @@ from typing import Any
 
 from bluesky import RunEngine
 from bluesky.callbacks.best_effort import BestEffortCallback, hinted_fields
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
+from matplotlib.backends.backend_qt import NavigationToolbar2QT
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from qtpy.QtCore import QObject, Qt, QTimer, Signal, Slot
 from qtpy.QtGui import QColor, QFont, QFontDatabase, QPainter, QPen

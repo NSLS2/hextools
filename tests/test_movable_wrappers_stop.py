@@ -19,11 +19,7 @@ from ophyd_async.epics.motor import Motor
 
 from hextools.motors import CameraObjective, FOV_2_4_mm_Camera, HomeStatus
 from hextools.photon_delivery_system.dclm import DCLM
-from hextools.photon_delivery_system.filters import (
-    Filter,
-    FilterPosition,
-    FilterSetting,
-)
+from hextools.photon_delivery_system.filters import Filter
 from hextools.photon_delivery_system.slits import Slits
 
 
@@ -39,9 +35,8 @@ def _slits() -> tuple[Device, list[Motor]]:
 
 
 def _filter() -> tuple[Device, list[Motor]]:
-    positions = {FilterPosition.PASS_THROUGH: FilterSetting(0.0, "pass through")}
     with init_devices(mock=True):
-        filt = Filter("TEST:FLT:MTR", positions, "TEST:FLT:IN_POS", name="filt")
+        filt = Filter("TEST:FLT:MTR", "TEST:FLT:IN_POS", name="filter2")
     return filt, [filt.filter_motor]
 
 

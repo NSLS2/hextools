@@ -133,8 +133,8 @@ RE(move_slits(f_slits, vertical_center=-0.1, relative=True))    # nudge by 0.1 m
 Front-end Slit1 has fixed apertures chosen by its Y axis (`fe_slit1`):
 
 ```python
-RE(set_fe_slit1_aperture("Pinhole 0.89 mm"))
-RE(set_fe_slit1_aperture(SlitAperture.FULLY_OPEN))   # 24 x 4.55 mm
+RE(set_fe_aperture("Pinhole (0.89 mm)"))
+RE(set_fe_aperture(SlitAperture.FULLY_OPEN))   # 24 x 4.55 mm
 ```
 
 Every filter defined in the filter configuration file is placed in the

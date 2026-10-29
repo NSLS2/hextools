@@ -85,7 +85,7 @@ pytest = ">=9.1.1,<10"
 pytest-cov = ">=7.1.0,<8"
 pytest-mock = ">=3.15.1,<4"
 ruff = ">=0.16.2,<0.17"
-ty = ">=0.0.69,<0.0.70"
+pyright = "*"
 pytest-asyncio = ">=1.4.0,<2"
 import-linter = ">=2.13,<3"
 myst-parser = ">=5.1.0,<6"
@@ -112,9 +112,8 @@ default-environment = "dev"
 cmd = "python -m hextools.gui --mock"
 default-environment = "dev"
 
-# ty doesn't pick up pixi's environment from CONDA_PREFIX on its own.
 [feature.dev.tasks.type-check]
-cmd = "ty check --python $CONDA_PREFIX src tests"
+cmd = "pyright src tests"
 default-environment = "dev"
 
 [feature.exporter.tasks]

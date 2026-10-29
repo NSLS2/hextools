@@ -34,27 +34,23 @@ def dclm() -> DCLM:
 @pytest.mark.parametrize(
     "mode, expected_xtal1, expected_bs",
     [
-        (BeamMode.WHITE, DCLM.xtal1_out, DCLM.beam_stop_out),
-        (
-            BeamMode.MONOCHROMATIC,
-            DCLM.xtal1_in,
-            DCLM.beam_stop_in,
-        ),
+        (BeamMode.WHITE, "xtal1_out", "beam_stop_out"),
+        (BeamMode.MONOCHROMATIC, "xtal1_in", "beam_stop_in"),
     ],
 )
 async def test_monochromator_beam_mode_switch(
     RE: RunEngine,
     dclm: DCLM,
     mode: BeamMode,
-    expected_xtal1: float,
-    expected_bs: float,
+    expected_xtal1: str,
+    expected_bs: str,
 ):
     RE(bps.mv(dclm, mode))
 
     xtal1_pos = await dclm.xtal1_vertical_trans.user_readback.get_value()
     bs_pos = await dclm.cooled_beam_stop.user_readback.get_value()
-    assert xtal1_pos == pytest.approx(expected_xtal1)
-    assert bs_pos == pytest.approx(expected_bs)
+    assert xtal1_pos == pytest.approx(getattr(dclm, expected_xtal1))
+    assert bs_pos == pytest.approx(getattr(dclm, expected_bs))
 
     beam_mode = await dclm.beam_mode.get_value()
     assert beam_mode == mode

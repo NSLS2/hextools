@@ -236,7 +236,8 @@ def test_search_runs_filters_by_detector_name():
 
 
 def test_viewer_slices_a_stack_read_from_tiled():
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     run = _tomo_run()
     viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
     _wait_for(lambda: viewer._datasets)
@@ -263,7 +264,8 @@ def test_viewer_slices_a_stack_read_from_tiled():
 
 
 def test_viewer_plots_a_column_against_another():
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     viewer = QtRunViewer(FakeClient({"abc": _tomo_run()}), "abc")
     _wait_for(lambda: viewer._datasets)
 
@@ -277,7 +279,8 @@ def test_viewer_plots_a_column_against_another():
 
 
 def test_scan_browser_opens_a_run_in_the_viewer():
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     client = FakeClient({"abc": _tomo_run()})
     browser = QtScanBrowser(client, [Spec("TomoFlyscan")], RunEngine({}))
     viewer = browser.open_viewer("abc")
@@ -301,7 +304,8 @@ class GatedArray(FakeArray):
 
 
 def _open_gated_image(monkeypatch):
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     run = _tomo_run()
     array = GatedArray(PROJECTIONS)
     run["primary"].arrays["kinetix-det1_image"] = array
@@ -348,7 +352,9 @@ def test_viewer_resets_contrast_for_the_new_axis_not_a_stale_frame(monkeypatch):
     _wait_for(lambda: viewer._frame_worker is None and not viewer._frame_pending)
     sinogram = PROJECTIONS[:, 0, 0, :]
     np.testing.assert_array_equal(viewer._image, sinogram)
-    assert tuple(viewer._image_item.getLevels()) == pytest.approx(auto_levels(sinogram))
+    levels = viewer._image_item.getLevels()
+    assert levels is not None
+    assert tuple(levels) == pytest.approx(auto_levels(sinogram))
     viewer.close()
 
 
@@ -388,7 +394,8 @@ def test_viewer_clears_analysis_while_the_new_frame_is_summarised(monkeypatch):
 # plotting callback and left the previous plot under the new label.
 @pytest.mark.parametrize("axis", ["y", "x"])
 def test_viewer_refuses_to_plot_text_values(axis):
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     run = _tomo_run()
     stream = run["primary"]
     stream._columns["shutter"] = np.array(["Open", "Closed", "Open"])
@@ -434,7 +441,8 @@ def _averaged_run():
 # PR 96 review: with several frames per event, only the first event's frames
 # could be reached; the event axis was always read at 0.
 def test_viewer_navigates_events_and_frames_of_an_averaged_stack():
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     viewer = QtRunViewer(FakeClient({"abc": _averaged_run()}), "abc")
     _wait_for(lambda: viewer._datasets)
     _select(viewer, "kinetix-det1_image")
@@ -453,7 +461,8 @@ def test_viewer_navigates_events_and_frames_of_an_averaged_stack():
 # PR 96 review: the previous stack's slice-axis choices stayed live while the
 # next dataset loaded, and picking axis 2 for a 2D array raised IndexError.
 def test_viewer_disables_slicing_while_the_next_dataset_loads(monkeypatch):
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     errors = []
     monkeypatch.setattr("sys.excepthook", lambda *exc: errors.append(exc[1]))
     run = _averaged_run()
@@ -475,7 +484,8 @@ def test_viewer_disables_slicing_while_the_next_dataset_loads(monkeypatch):
 # PR 96 review: a failed read left the previous dataset's curve and statistics
 # on screen under the new dataset's name.
 def test_viewer_clears_the_old_plot_when_a_read_fails():
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     run = _tomo_run()
     run["primary"]._columns["broken"] = RuntimeError("502 Bad Gateway")
     viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
@@ -493,7 +503,8 @@ def test_viewer_clears_the_old_plot_when_a_read_fails():
 # PR 96 review: each finished column read replotted the current selection, and
 # started a second read of a column already being read.
 def test_viewer_reads_each_column_once():
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     run = _tomo_run()
     stream = run["primary"]
     viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
@@ -528,7 +539,8 @@ class FailingFrameArray(FakeArray):
 # PR 96 review: a failed frame read changed only the status, leaving the
 # previous frame and its statistics on screen under the new index.
 def test_viewer_clears_the_image_when_a_frame_read_fails():
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     run = _tomo_run()
     run["primary"].arrays["kinetix-det1_image"] = FailingFrameArray(PROJECTIONS, 2)
     viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
@@ -549,7 +561,8 @@ def test_viewer_clears_the_image_when_a_frame_read_fails():
 def test_viewer_computes_frame_statistics_off_the_gui_thread(monkeypatch):
     import hextools.gui.run_viewer as run_viewer
 
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     threads = []
     statistics = run_viewer.image_statistics
 
@@ -569,7 +582,8 @@ def test_viewer_computes_frame_statistics_off_the_gui_thread(monkeypatch):
 # PR 96 review: after plotting against time, the X axis kept its "s" unit when
 # switched back to the index, and pyqtgraph went on scaling it as seconds.
 def test_viewer_clears_the_time_unit_when_x_changes():
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     viewer = QtRunViewer(FakeClient({"abc": _tomo_run()}), "abc")
     _wait_for(lambda: viewer._datasets)
     _select(viewer, "angle")
@@ -585,7 +599,8 @@ def test_viewer_clears_the_time_unit_when_x_changes():
 
 # AJ (2026-10-22): HEX images need rotating in the viewer; the data is unchanged.
 def test_viewer_rotates_the_displayed_image_in_quarter_turns():
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     run = _tomo_run()
     viewer = QtRunViewer(FakeClient({"abc": run}), "abc")
     _wait_for(lambda: viewer._datasets)

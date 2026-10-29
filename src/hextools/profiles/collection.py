@@ -72,7 +72,6 @@ from hextools.utils import (
     reset_scan_id,  # noqa: F401 - operator namespace
     show_docs,  # noqa: F401 - operator namespace
 )
-from hextools.utils.magics import HEXBlueskyMagics
 from hextools.utils.path_providers import mock_path_provider
 
 # Adjust the default timeout for ophyd async to 60s
@@ -118,10 +117,6 @@ if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
     from matplotlib import pyplot as plt
 
     plt.ion()
-
-    # Configure the Bluesky magics with the current RunEngine instance.
-    HEXBlueskyMagics.RE = RE
-    ipython.register_magics(HEXBlueskyMagics)
 
     # Make tracebacks minimal by default to reduce clutter.
     # Use %tb verbose to view full traceback.
@@ -233,13 +228,32 @@ with auto_init_devices(timeout=2.0):
     edxd_table = EDXDTable("XF:27IDF-OP:1{EDXD:1-Ax:", name="edxd-table")
     collimator_table = CollimatorTable("XF:27IDF-OP:1{", name="collimator-table")
 
-    # Generate filter objects from the configuration file
-    filters: list[Filter] = load_filters()
-
-    # Add filters directly to namespace for convenience in interactive sessions
-    if ipython is not None:
-        for filter in filters:
-            ipython.user_ns[filter.name] = filter
+    # Filters, first the two filter 1 (upstream/downstream), then filters 2, 3, and 4
+    filter1_upstream = Filter(
+        "XF:27IDA-OP:1{Fltr:1-Ax:Yu}Mtr",
+        "XF:27IDA-OP:0{Fltr:1_US}Sw:InPos-Sts",
+        name="filter1_upstream",
+    )
+    filter1_downstream = Filter(
+        "XF:27IDA-OP:1{Fltr:1-Ax:Yd}Mtr",
+        "XF:27IDA-OP:0{Fltr:1_DS}Sw:InPos-Sts",
+        name="filter1_downstream",
+    )
+    filter2 = Filter(
+        "XF:27IDA-OP:1{Fltr:2-Ax:Y}Mtr",
+        "XF:27IDA-OP:0{Fltr:2}Sw:InPos-Sts",
+        name="filter2",
+    )
+    filter3 = Filter(
+        "XF:27IDA-OP:3{Fltr:3-Ax:Y}Mtr",
+        "XF:27IDA-OP:0{Fltr:3}Sw:InPos-Sts",
+        name="filter3",
+    )
+    filter4 = Filter(
+        "XF:27IDA-OP:2{Fltr:4-Ax:Y}Mtr",
+        "XF:27IDA-OP:0{Fltr:4}Sw:InPos-Sts",
+        name="filter4",
+    )
 
     # PandABox
     panda = HDFPanda("XF:27ID1-ES{PANDA:1}:", path_provider, name="panda1")
