@@ -174,8 +174,11 @@ def export_tomo_dark_flat_to_h5(
 
     run_start = run.start
     det_names = run_start.get("detectors", [])
-    if not isinstance(det_names, list):
+    if not isinstance(det_names, list) or not all(
+        isinstance(n, str) for n in det_names
+    ):
         raise ValueError(f"Run {run} has an invalid 'detectors' field: {det_names}")
+    det_names = [str(n) for n in det_names]
 
     data_session, cycle, scan_id = confirm_required_start_fields(run_start)
 

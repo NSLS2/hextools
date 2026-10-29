@@ -16,7 +16,8 @@ from hextools.utils.nl_msg_hook import MsgHookNarrator  # noqa: E402
 
 
 def _history(RE, path):
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     monitor = PlanMonitor(
         RE, narrator=MsgHookNarrator(emit=lambda _: None), namespace={"count": count}
     )

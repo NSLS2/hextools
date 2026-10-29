@@ -19,7 +19,6 @@ from typing import Any
 
 from bluesky import RunEngine
 from bluesky_widgets.models.run_engine_client import RunEngineClient
-from bluesky_widgets.qt.threading import FunctionWorker
 from qtpy.QtCore import Qt, QTimer, Signal, Slot
 from qtpy.QtGui import QIntValidator
 from qtpy.QtWidgets import (
@@ -38,6 +37,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from hextools.gui._threading import FunctionWorker
 from hextools.utils import (
     get_proposal_info,
     is_running_in_ci,

@@ -15,9 +15,10 @@ import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from bluesky_widgets.qt.threading import FunctionWorker
 from qtpy.QtCore import Qt, QTimer, Signal, Slot
 from qtpy.QtWidgets import QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
+
+from hextools.gui._threading import FunctionWorker
 
 _PLACEHOLDER = "\u2014"  # em dash
 

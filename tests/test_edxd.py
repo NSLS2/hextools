@@ -7,6 +7,7 @@ import pytest
 from bluesky import Msg, RunEngine
 from bluesky import preprocessors as bpp
 from bluesky_tiled_plugins import TiledWriter
+from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 from bluesky_tiled_plugins.clients.catalog_of_bluesky_runs import CatalogOfBlueskyRuns
 from ophyd_async.core import (
     Device,
@@ -103,6 +104,12 @@ def tiled(
     return client
 
 
+def _germ_data(tiled: CatalogOfBlueskyRuns, uid: str):
+    run = tiled[uid]
+    assert isinstance(run, BlueskyRunV3)
+    return run["primary"]["germ"].read()
+
+
 async def _assert_closed(*shutters: Shutter) -> None:
     for shutter in shutters:
         assert await shutter.status.get_value() == ShutterStatus.CLOSED
@@ -179,7 +186,7 @@ async def test_edxd_count(
     assert await germ.driver.acquire_time.get_value() == 0.02
 
     # Three spectra frames, each matching its event's stats total.
-    data = tiled[start["uid"]]["primary"]["germ"].read()
+    data = _germ_data(tiled, start["uid"])
     frames = np.asarray(data).reshape(3, -1)
     totals = [e["data"]["germ-stats1-total"] for e in docs["event"]]
     assert totals == [float(f.sum()) for f in frames]
@@ -222,7 +229,7 @@ async def test_edxd_scan(
     assert start["description"] == "strain map"
     assert [e["data"]["x"] for e in docs["event"]] == pytest.approx([0, 1, 2])
     assert {r["mimetype"] for r in docs["stream_resource"]} == {mimetype}
-    data = tiled[start["uid"]]["primary"]["germ"].read()
+    data = _germ_data(tiled, start["uid"])
     assert np.asarray(data).shape[0] == 3
     assert await germ.driver.acquire_time.get_value() == 0.02
 
@@ -577,7 +584,7 @@ async def test_edxd_calib_scan_sweeps_during_one_count(
     # A single count, read once the sweep is done.
     (event,) = docs["event"]
     assert event["data"]["germ-stats1-total"] > 0
-    assert np.asarray(tiled[start["uid"]]["primary"]["germ"].read()).shape[0] == 1
+    assert np.asarray(_germ_data(tiled, start["uid"])).shape[0] == 1
     assert await germ.driver.acquire_time.get_value() == 0.5
 
     # in range: sweeps from where z1 is, origin -> stop -> start -> origin, at

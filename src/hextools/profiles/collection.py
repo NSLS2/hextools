@@ -72,7 +72,6 @@ from hextools.utils import (
     reset_scan_id,  # noqa: F401 - operator namespace
     show_docs,  # noqa: F401 - operator namespace
 )
-from hextools.utils.magics import HEXBlueskyMagics
 from hextools.utils.path_providers import mock_path_provider
 
 # Adjust the default timeout for ophyd async to 60s
@@ -118,10 +117,6 @@ if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
     from matplotlib import pyplot as plt
 
     plt.ion()
-
-    # Configure the Bluesky magics with the current RunEngine instance.
-    HEXBlueskyMagics.RE = RE
-    ipython.register_magics(HEXBlueskyMagics)
 
     # Make tracebacks minimal by default to reduce clutter.
     # Use %tb verbose to view full traceback.

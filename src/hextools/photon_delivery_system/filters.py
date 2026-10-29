@@ -197,26 +197,26 @@ def set_filters(
     ValueError
         If no setting is given, or a setting is not one of that filter's choices.
     """
+    filter1_upstream = ensure_available(Filter, filter1_upstream=filter1_upstream)
+    filter1_downstream = ensure_available(Filter, filter1_downstream=filter1_downstream)
+    filter2 = ensure_available(Filter, filter2=filter2)
+
     args = []
-    if filter1_upstream_setting is not None:
-        args += [
-            ensure_available(Filter, filter1_upstream=filter1_upstream),
-            FilterPosition[Filter1UpstreamPosition(filter1_upstream_setting).name],  # type: ignore
-        ]
-    if filter1_downstream_setting is not None:
-        args += [
-            ensure_available(Filter, filter1_downstream=filter1_downstream),
-            FilterPosition[Filter1DownstreamPosition(filter1_downstream_setting).name],  # type: ignore
-        ]
-    if filter2_setting is not None:
-        args += [
-            ensure_available(Filter, filter2=filter2),
-            FilterPosition[Filter2Position(filter2_setting).name],  # type: ignore
-        ]
+    for device, setting, choices in (
+        (filter1_upstream, filter1_upstream_setting, Filter1UpstreamPosition),
+        (filter1_downstream, filter1_downstream_setting, Filter1DownstreamPosition),
+        (filter2, filter2_setting, Filter2Position),
+    ):
+        if setting is not None:
+            # Lookup by value accepts the member or its material string, and raises
+            # ValueError for anything that isn't one of this filter's choices.
+            args += [device, FilterPosition[choices(setting).name]]
     if not args:
         raise ValueError("Choose a setting for at least one filter.")
+
     fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
     fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
+
     yield from bps.mv(*args)
     yield from bps.mv(fe_shutter.interlock_ack, True)
     if fe_was_open:

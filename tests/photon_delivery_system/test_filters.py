@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 import bluesky.plan_stubs as bps
 import pytest
@@ -136,6 +136,32 @@ def _fe_shutter(status: ShutterStatus = ShutterStatus.CLOSED) -> PPSShutter:
     return fe_shutter
 
 
+def _set_filters(
+    devices: dict[str, Filter],
+    fe_shutter: PPSShutter,
+    *,
+    filter1_upstream: str | None = None,
+    filter1_downstream: str | None = None,
+    filter2: str | None = None,
+):
+    """``set_filters`` with every filter passed in, setting the given materials."""
+    return set_filters(
+        filter1_upstream_setting=(
+            Filter1UpstreamPosition(filter1_upstream) if filter1_upstream else None
+        ),
+        filter1_downstream_setting=(
+            Filter1DownstreamPosition(filter1_downstream)
+            if filter1_downstream
+            else None
+        ),
+        filter2_setting=Filter2Position(filter2) if filter2 else None,
+        filter1_upstream=devices["filter1_upstream"],
+        filter1_downstream=devices["filter1_downstream"],
+        filter2=devices["filter2"],
+        fe_shutter=fe_shutter,
+    )
+
+
 def test_filter_choices_are_pass_through_and_each_filters_materials():
     assert {p.name: p.value for p in Filter1UpstreamPosition} == {
         "PASS_THROUGH": "Pass Through",
@@ -155,13 +181,8 @@ async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):
         set_mock_value(device.filter_motor.user_readback, 999.0)
 
     RE(
-        set_filters(
-            filter1_upstream_setting="6 mm Cu",  # type: ignore
-            filter2_setting="1 mm Cu",  # type: ignore
-            filter1_upstream=devices["filter1_upstream"],
-            filter1_downstream=devices["filter1_downstream"],
-            filter2=devices["filter2"],
-            fe_shutter=_fe_shutter(),
+        _set_filters(
+            devices, _fe_shutter(), filter1_upstream="6 mm Cu", filter2="1 mm Cu"
         )
     )
 
@@ -180,14 +201,12 @@ async def test_set_filters_sets_all_three(RE: RunEngine):
     devices = _set_filters_devices()
 
     RE(
-        set_filters(
-            filter1_upstream_setting="6 mm Cu",  # type: ignore
-            filter1_downstream_setting="6 mm Al",  # type: ignore
-            filter2_setting="1 mm Cu",  # type: ignore
-            filter1_upstream=devices["filter1_upstream"],
-            filter1_downstream=devices["filter1_downstream"],
-            filter2=devices["filter2"],
-            fe_shutter=_fe_shutter(),
+        _set_filters(
+            devices,
+            _fe_shutter(),
+            filter1_upstream="6 mm Cu",
+            filter1_downstream="6 mm Al",
+            filter2="1 mm Cu",
         )
     )
 
@@ -203,12 +222,25 @@ async def test_set_filters_sets_all_three(RE: RunEngine):
     "kwargs, match",
     [
         ({}, "at least one"),
-        ({"filter2_setting": "6 mm Al"}, "is not a valid Filter2Position"),
+        # Filter 1 upstream's material, which filter 2 doesn't have.
+        (
+            {"filter2_setting": Filter1UpstreamPosition("6 mm Al")},
+            "is not a valid Filter2Position",
+        ),
     ],
 )
 def test_set_filters_refuses_bad_input(RE: RunEngine, kwargs: dict, match: str):
+    devices = _set_filters_devices()
     with pytest.raises(ValueError, match=match):
-        RE(set_filters(**kwargs, **_set_filters_devices()))
+        RE(
+            set_filters(
+                **kwargs,
+                filter1_upstream=devices["filter1_upstream"],
+                filter1_downstream=devices["filter1_downstream"],
+                filter2=devices["filter2"],
+                fe_shutter=_fe_shutter(),
+            )
+        )
 
 
 def _trip_fe_interlock_on_move(filt: Filter, fe_shutter: PPSShutter) -> None:
@@ -233,13 +265,7 @@ async def test_set_filters_acknowledges_the_interlock_and_restores_the_fe_shutte
     )
     _trip_fe_interlock_on_move(devices["filter2"], fe_shutter)
 
-    RE(
-        set_filters(
-            filter2_setting="1 mm Cu",  # type: ignore
-            filter2=devices["filter2"],
-            fe_shutter=fe_shutter,
-        )
-    )
+    RE(_set_filters(devices, fe_shutter, filter2="1 mm Cu"))
 
     get_mock_put(fe_shutter.interlock_ack.request).assert_called_once()
     assert await fe_shutter.interlock_ack.acknowledged.get_value()
@@ -251,13 +277,7 @@ async def test_set_filters_leaves_an_acknowledged_interlock_alone(RE: RunEngine)
     devices = _set_filters_devices()
     fe_shutter = _fe_shutter()
 
-    RE(
-        set_filters(
-            filter2_setting="1 mm Cu",  # type: ignore
-            filter2=devices["filter2"],
-            fe_shutter=fe_shutter,
-        )
-    )
+    RE(_set_filters(devices, fe_shutter, filter2="1 mm Cu"))
 
     get_mock_put(fe_shutter.interlock_ack.request).assert_not_called()
 
@@ -267,7 +287,11 @@ async def test_filter_move_reports_progress(RE: RunEngine):
     names: list[str] = []
 
     status = filt.set(FilterPosition.POS_1)
-    status.watch(lambda **kw: names.append(kw["name"]))  # type: ignore
+
+    def watcher(*_: Any, **kw: Any) -> None:
+        names.append(kw["name"])
+
+    status.watch(watcher)
     await status
 
     assert names
@@ -283,12 +307,6 @@ async def test_set_filters_fails_and_keeps_the_fe_shutter_closed_if_ack_never_co
     callback_on_mock_put(fe_shutter.interlock_ack.request, lambda *_, **__: None)
 
     with pytest.raises(FailedStatus):
-        RE(
-            set_filters(
-                filter2_setting="1 mm Cu",  # type: ignore
-                filter2=devices["filter2"],
-                fe_shutter=fe_shutter,
-            )
-        )
+        RE(_set_filters(devices, fe_shutter, filter2="1 mm Cu"))
 
     assert await fe_shutter.status.get_value() == ShutterStatus.CLOSED

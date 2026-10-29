@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pyqtgraph as pg
@@ -692,7 +692,9 @@ class QtRunViewer(QWidget):
             return
         vertical = self._profile_direction.currentIndex() == 1
         limit = self._image.shape[1 if vertical else 0] - 1
-        position = int(np.clip(round(self._profile_line.value()), 0, limit))
+        # A horizontal or vertical InfiniteLine's value is a single number.
+        value = cast(float, self._profile_line.value())
+        position = int(np.clip(round(value), 0, limit))
         profile = self._image[:, position] if vertical else self._image[position, :]
         self._profile_curve.setData(np.asarray(profile, dtype=float))
         self._profile_plot.setTitle(f"{'Column' if vertical else 'Row'} {position}")
