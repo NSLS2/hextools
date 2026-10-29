@@ -7,6 +7,10 @@ monochromator:
   xtal1_out: 48.3
   fs_in: 25.0
   fs_out: 46.0
+  bragg_factor: 1.977
+  bragg_angle_offset: 35.2544
+  fixed_beam_offset: 25.0
+  fs_distance: 1428.0
 
 filters:
   filter1_upstream:

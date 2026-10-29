@@ -30,6 +30,7 @@ from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.epics.core import EpicsDevice
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
+from hextools.bl_constants import fetch_beamline_constants
 from hextools.detectors.utils import enable_preview_mode
 
 from ..utils import ensure_available
@@ -99,22 +100,18 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
     """
 
     # Constants for in/out positions of the monochromator components
-    beam_stop_in: Final[float] = 0.0
-    beam_stop_out: Final[float] = 48.3
-    xtal1_in: Final[float] = 0.0
-    xtal1_out: Final[float] = -36.0
-    fs_in: Final[float] = 25.0
-    fs_out: Final[float] = 46.0
+    _beam_stop_in: float
+    _beam_stop_out: float
+    _xtal1_in: float
+    _xtal1_out: float
+    _fs_in: float
+    _fs_out: float
 
     # Constants for the monochromator geometry
-    bragg_factor: Final[float] = 1.977  # Energy in keV for Si(111) at 2d = 6.271 Å
-    bragg_angle_offset: Final[float] = (
-        35.2544  # Bragg angle offset in degrees for Si(111)
-    )
-    fixed_beam_offset: Final[float] = (
-        25.0  # Crystal 2 z offset in mm for fixed beam offset
-    )
-    fs_distance: Final[float] = 1428.0  # Distance to fluorescence screen in mm
+    _bragg_factor: float  # Energy in keV for Si(111) at 2d = 6.271 Å
+    _bragg_angle_offset: float  # Bragg angle offset in degrees for Si(111)
+    _fixed_beam_offset: float  # Crystal 2 z offset in mm for fixed beam offset
+    _fs_distance: float  # Distance to fluorescence screen in mm
 
     def __init__(self, prefix: str, name: str = ""):
 
@@ -137,7 +134,51 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
                 pitch_angle=self.xtal1_pitch.user_readback,
             )
 
+        # Fetch and set the monochromator constants from the beamline configuration
+        for k, v in fetch_beamline_constants("monochromator").items():
+            setattr(self, f"_{k}", v)
+
         super().__init__(name=name)
+
+    @property
+    def beam_stop_in(self) -> float:
+        return self._beam_stop_in
+
+    @property
+    def beam_stop_out(self) -> float:
+        return self._beam_stop_out
+
+    @property
+    def xtal1_in(self) -> float:
+        return self._xtal1_in
+
+    @property
+    def xtal1_out(self) -> float:
+        return self._xtal1_out
+
+    @property
+    def bragg_angle_offset(self) -> float:
+        return self._bragg_angle_offset
+
+    @property
+    def bragg_factor(self) -> float:
+        return self._bragg_factor
+    
+    @property
+    def fixed_beam_offset(self) -> float:
+        return self._fixed_beam_offset
+
+    @property
+    def fs_distance(self) -> float:
+        return self._fs_distance
+
+    @property
+    def fs_in(self) -> float:
+        return self._fs_in
+
+    @property
+    def fs_out(self) -> float:
+        return self._fs_out
 
     def _get_beam_mode(self, xtal1_pos: float, beam_stop_pos: float) -> BeamMode:
         """Determine the current beam mode."""

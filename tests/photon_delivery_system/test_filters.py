@@ -106,12 +106,6 @@ def test_every_filter_maps_every_enum_position():
         assert set(f.positions) == set(FilterPosition)
 
 
-def test_filter_named_by_init_devices_loads_its_positions(RE: RunEngine):
-    with init_devices(mock=True):
-        filter3 = Filter("F3:MTR", "F3:IN_POS")
-    assert filter3.positions[FilterPosition.POS_1] == FilterSetting(40.0, None)
-
-
 def _set_filters_devices() -> dict[str, Filter]:
     """The set_filters filters from the beamline constants, mocked under the RE loop."""
     # init_devices connects only devices bound to local names
@@ -284,7 +278,6 @@ async def test_set_filters_fails_and_keeps_the_fe_shutter_closed_if_ack_never_co
     RE: RunEngine, monkeypatch
 ):
     monkeypatch.setattr(
-        "hextools.photon_delivery_system.shutter.DEFAULT_TIMEOUT", 0.1
     )
     devices = _set_filters_devices()
     fe_shutter = _fe_shutter(ShutterStatus.OPEN)

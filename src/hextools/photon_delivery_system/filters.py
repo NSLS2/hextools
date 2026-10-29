@@ -71,25 +71,6 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
         in_pos_switch_pv: str,
         name: str = "",
     ):
-        self.positions: dict[FilterPosition, FilterSetting] = {}
-        self.in_position = epics_signal_r(bool, in_pos_switch_pv)
-        self.filter_motor = AsyncEpicsMotor(motor_pv)
-        with self.add_children_as_readables(Format.CONFIG_SIGNAL):
-            self.description = derived_signal_r(
-                self._get_description,
-                in_pos=self.in_position,
-                motor_pos=self.filter_motor.user_readback,
-            )
-        super().__init__(name=name)
-
-    def set_name(self, name: str, *, child_name_separator: str | None = None) -> None:
-        """Set the name, and load this filter's positions from the beamline constants.
-
-        Positions load here so filters named by ``init_devices`` get them too.
-        """
-        super().set_name(name, child_name_separator=child_name_separator)
-        if not name:
-            return
         try:
             self.positions = {
                 FilterPosition[pos.upper()]: (
@@ -101,13 +82,22 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
             }
         except KeyError as e:
             raise KeyError(f"Filter settings for '{name}' not found in beamline constants.") from e
+        self.in_position = epics_signal_r(bool, in_pos_switch_pv)
+        self.filter_motor = AsyncEpicsMotor(motor_pv)
+        with self.add_children_as_readables(Format.CONFIG_SIGNAL):
+            self.description = derived_signal_r(
+                self._get_description,
+                motor_pos=self.filter_motor.user_readback,
+            )
+        super().__init__(name=name)
+        
 
     def _get_description(self, in_pos: bool, motor_pos: float) -> str:
         """Get the description of the current filter setting based on motor position.
 
         Parameters
         ----------
-        in_pos : int
+        in_pos : bool
             Indicates whether the filter is in position.
         motor_pos : float
             Current position of the filter motor.
