@@ -4,7 +4,7 @@ monochromator:
   beam_stop_in: 0.0
   beam_stop_out: 48.3
   xtal1_in: 0.0
-  xtal1_out: 48.3
+  xtal1_out: -36.0
   fs_in: 25.0
   fs_out: 46.0
   bragg_factor: 1.977
