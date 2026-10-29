@@ -31,12 +31,7 @@ from hextools.photon_delivery_system.shutter import PPSShutter, ShutterStatus
 @pytest.fixture
 def test_filter() -> Filter:
     with init_devices(mock=True):
-        f = Filter(
-            "TEST:FILTER:MTR",
-            "TEST:FILTER:IN_POS",
-            name="filter1_upstream",
-            settings_key="filter1_upstream",
-        )
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter1_upstream")
     set_mock_value(f.in_position, True)
     return f
 
@@ -77,12 +72,7 @@ async def test_mock_filter_starts_in_pass_through_and_moves_into_position(
     RE: RunEngine,
 ):
     with init_devices(mock=True):
-        f = Filter(
-            "TEST:FILTER:MTR",
-            "TEST:FILTER:IN_POS",
-            name="filter2",
-            settings_key="filter2",
-        )
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter2")
     assert await f.in_position.get_value()
     assert await f.description.get_value() == "pass through"
 
@@ -97,12 +87,7 @@ async def test_mock_filter_starts_in_pass_through_and_moves_into_position(
 
 async def test_mock_filter_move_trips_interlocked_shutters(RE: RunEngine):
     with init_devices(mock=True):
-        f = Filter(
-            "TEST:FILTER:MTR",
-            "TEST:FILTER:IN_POS",
-            name="filter2",
-            settings_key="filter2",
-        )
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter2")
     fe_shutter = _fe_shutter(ShutterStatus.OPEN)
     assert isinstance(f._mock, FilterMock)
     f._mock.interlock(fe_shutter)
@@ -118,12 +103,7 @@ async def test_mock_filter_move_trips_interlocked_shutters(RE: RunEngine):
 
 async def test_mock_filter_trips_the_namespace_fe_shutter_by_default(RE: RunEngine):
     with init_devices(mock=True):
-        f = Filter(
-            "TEST:FILTER:MTR",
-            "TEST:FILTER:IN_POS",
-            name="filter2",
-            settings_key="filter2",
-        )
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter2")
     fe_shutter = _fe_shutter(ShutterStatus.OPEN)
     shell = InteractiveShell.instance()
     try:
@@ -136,16 +116,14 @@ async def test_mock_filter_trips_the_namespace_fe_shutter_by_default(RE: RunEngi
     assert not await fe_shutter.interlock_ack.acknowledged.get_value()
 
 
-def test_filter_requires_its_settings_key_in_the_beamline_constants():
+def test_filter_requires_its_name_in_the_beamline_constants():
     with pytest.raises(KeyError, match="not_a_filter"):
-        Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", settings_key="not_a_filter")
+        Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="not_a_filter")
 
 
 def _filters() -> dict[str, Filter]:
     return {
-        name: Filter(
-            f"TEST:{name}:MTR", f"TEST:{name}:IN_POS", name=name, settings_key=name
-        )
+        name: Filter(f"TEST:{name}:MTR", f"TEST:{name}:IN_POS", name=name)
         for name in fetch_beamline_constants("filters")
     }
 
@@ -182,19 +160,9 @@ def _set_filters_devices() -> dict[str, Filter]:
     """The set_filters filters from the beamline constants, mocked under the RE loop."""
     # init_devices connects only devices bound to local names
     with init_devices(mock=True):
-        filter1_upstream = Filter(
-            "F1U:MTR",
-            "F1U:IN_POS",
-            name="filter1_upstream",
-            settings_key="filter1_upstream",
-        )
-        filter1_downstream = Filter(
-            "F1D:MTR",
-            "F1D:IN_POS",
-            name="filter1_downstream",
-            settings_key="filter1_downstream",
-        )
-        filter2 = Filter("F2:MTR", "F2:IN_POS", name="filter2", settings_key="filter2")
+        filter1_upstream = Filter("F1U:MTR", "F1U:IN_POS", name="filter1_upstream")
+        filter1_downstream = Filter("F1D:MTR", "F1D:IN_POS", name="filter1_downstream")
+        filter2 = Filter("F2:MTR", "F2:IN_POS", name="filter2")
     devices = {
         "filter1_upstream": filter1_upstream,
         "filter1_downstream": filter1_downstream,

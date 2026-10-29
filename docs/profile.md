@@ -245,9 +245,9 @@ The devices, in order:
 | `germ`                                        | The GeRM detector for EDXD.                                                                              |
 | `sim_x`, `sim_y`, `sim_z`                     | Simulated motors for testing.                                                                            |
 
-Filters are constructed explicitly in the profile with a `settings_key` selecting
-their seven positions from `bl_constants.yml`, independently of their display
-name. For example, `Filter(..., name="filter2", settings_key="filter2")` exposes
+Filters are constructed explicitly in the profile, with their device names
+selecting their positions from `bl_constants.yml`.
+For example, `Filter(..., name="filter2")` exposes
 `filter2` directly in the session (`RE(bps.mv(filter2, ...))`).
 
 ```python

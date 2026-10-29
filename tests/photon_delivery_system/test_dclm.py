@@ -49,8 +49,8 @@ async def test_monochromator_beam_mode_switch(
 
     xtal1_pos = await dclm.xtal1_vertical_trans.user_readback.get_value()
     bs_pos = await dclm.cooled_beam_stop.user_readback.get_value()
-    assert xtal1_pos == pytest.approx(getattr(dclm.config, expected_xtal1))
-    assert bs_pos == pytest.approx(getattr(dclm.config, expected_bs))
+    assert xtal1_pos == pytest.approx(getattr(dclm, expected_xtal1))
+    assert bs_pos == pytest.approx(getattr(dclm, expected_bs))
 
     beam_mode = await dclm.beam_mode.get_value()
     assert beam_mode == mode
@@ -73,19 +73,19 @@ async def test_change_energy_moves_motors(RE: RunEngine, dclm: DCLM, energy: flo
     assert await dclm.xtal2_z.user_readback.get_value() == pytest.approx(expected_z)
     # The reset finalizer moves the fluorescence screen out at the end.
     assert await dclm.flourescence_screen.user_readback.get_value() == pytest.approx(
-        dclm.config.fs_out
+        dclm.fs_out
     )
     assert await dclm.xtal1_vertical_trans.user_readback.get_value() == pytest.approx(
-        dclm.config.xtal1_in
+        dclm.xtal1_in
     )
     assert await dclm.cooled_beam_stop.user_readback.get_value() == pytest.approx(
-        dclm.config.beam_stop_in
+        dclm.beam_stop_in
     )
 
 
 async def test_change_energy_raises_if_not_monochromatic(RE: RunEngine, dclm: DCLM):
-    set_mock_value(dclm.xtal1_vertical_trans.user_readback, dclm.config.xtal1_out)
-    set_mock_value(dclm.cooled_beam_stop.user_readback, dclm.config.beam_stop_out)
+    set_mock_value(dclm.xtal1_vertical_trans.user_readback, dclm.xtal1_out)
+    set_mock_value(dclm.cooled_beam_stop.user_readback, dclm.beam_stop_out)
 
     with pytest.raises(RuntimeError, match="not in monochromatic mode"):
         RE(change_energy(10.0, dclm=dclm, auto_tune=False))
@@ -129,7 +129,7 @@ async def test_change_energy_with_auto_tune(RE: RunEngine, dclm: DCLM):
     )
     # Fluorescence screen moved out after tuning.
     assert await dclm.flourescence_screen.user_readback.get_value() == pytest.approx(
-        dclm.config.fs_out
+        dclm.fs_out
     )
 
 

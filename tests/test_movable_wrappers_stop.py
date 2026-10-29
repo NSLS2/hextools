@@ -36,9 +36,7 @@ def _slits() -> tuple[Device, list[Motor]]:
 
 def _filter() -> tuple[Device, list[Motor]]:
     with init_devices(mock=True):
-        filt = Filter(
-            "TEST:FLT:MTR", "TEST:FLT:IN_POS", name="filter2", settings_key="filter2"
-        )
+        filt = Filter("TEST:FLT:MTR", "TEST:FLT:IN_POS", name="filter2")
     return filt, [filt.filter_motor]
 
 
