@@ -16,13 +16,6 @@ from hextools.gui.plan_status import PlanMonitor, QtPlanHistory  # noqa: E402
 from hextools.utils.nl_msg_hook import MsgHookNarrator  # noqa: E402
 
 
-@pytest.fixture
-def det(RE):
-    with init_devices():
-        det = SimPointDetector(PatternGenerator())
-    return det
-
-
 def _history(RE, path):
     if QApplication.instance() is None:
         QApplication([])
