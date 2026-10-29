@@ -5,12 +5,16 @@ from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, TypeAlias
 
 import bluesky.plan_stubs as bps
+from bluesky.protocols import Reading
 from ophyd_async.core import (
     AsyncMovable,
+    DeviceMock,
     StandardReadable,
     WatchableAsyncStatus,
+    default_mock_class,
     derived_signal_r,
     forward_watcher_updates,
+    set_mock_value,
     wait_for_value,
 )
 from ophyd_async.core import StandardReadableFormat as Format
@@ -23,7 +27,7 @@ from hextools.bl_constants import (
 )
 
 from ..utils import ensure_available
-from .shutter import PPSShutter, ShutterStatus
+from .shutter import PPSShutter, ShutterStatus, ensure_shutter_closed
 
 
 @dataclass
@@ -46,6 +50,32 @@ class FilterPosition(IntEnum):
     LOWER_LIMIT = 6
 
 
+class FilterMock(DeviceMock["Filter"]):
+    """Starts at pass through; in position while the motor rests on a setting."""
+
+    #: How close (motor units) the readback must be to a setting's position.
+    tolerance = 0.01
+
+    async def connect(self, device: "Filter") -> None:
+        motor = device.filter_motor
+        start = device.positions[FilterPosition.PASS_THROUGH].position
+        set_mock_value(motor.user_setpoint, start)
+        set_mock_value(motor.user_readback, start)
+
+        def _update_in_position(reading: dict[str, Reading[float]]) -> None:
+            readback = reading[motor.user_readback.name]["value"]
+            set_mock_value(
+                device.in_position,
+                any(
+                    abs(readback - setting.position) <= self.tolerance
+                    for setting in device.positions.values()
+                ),
+            )
+
+        motor.user_readback.subscribe_reading(_update_in_position)
+
+
+@default_mock_class(FilterMock)
 class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
     """Filter device with multiple positions.
 
@@ -200,6 +230,7 @@ def set_filters(
     filter1_upstream = ensure_available(Filter, filter1_upstream=filter1_upstream)
     filter1_downstream = ensure_available(Filter, filter1_downstream=filter1_downstream)
     filter2 = ensure_available(Filter, filter2=filter2)
+    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
 
     args = []
     for device, setting, choices in (
@@ -214,9 +245,8 @@ def set_filters(
     if not args:
         raise ValueError("Choose a setting for at least one filter.")
 
-    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
     fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
-
+    yield from ensure_shutter_closed(fe_shutter)
     yield from bps.mv(*args)
     yield from bps.mv(fe_shutter.interlock_ack, True)
     if fe_was_open:

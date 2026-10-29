@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 import bluesky.plan_stubs as bps
+import bluesky.preprocessors as bpp
 import pytest
 from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
@@ -64,6 +65,23 @@ async def test_filter_rejects_undefined_position(RE: RunEngine, test_filter: Fil
     with pytest.raises(FailedStatus) as exc_info:
         RE(bps.mv(test_filter, cast(FilterPosition, len(FilterPosition))))
     assert "Invalid filter position" in str(exc_info.value.__cause__)
+
+
+async def test_mock_filter_starts_in_pass_through_and_moves_into_position(
+    RE: RunEngine,
+):
+    with init_devices(mock=True):
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter2")
+    assert await f.in_position.get_value()
+    assert await f.description.get_value() == "pass through"
+
+    set_mock_value(f.filter_motor.user_readback, 12.345)
+    assert not await f.in_position.get_value()
+
+    RE(bps.mv(f, FilterPosition.POS_1))
+    assert await f.in_position.get_value()
+    expected = f.positions[FilterPosition.POS_1].description
+    assert await f.description.get_value() == expected
 
 
 def test_filter_requires_its_name_in_the_beamline_constants():
@@ -145,7 +163,7 @@ def _set_filters(
     filter2: str | None = None,
 ):
     """``set_filters`` with every filter passed in, setting the given materials."""
-    return set_filters(
+    plan = set_filters(
         filter1_upstream_setting=(
             Filter1UpstreamPosition(filter1_upstream) if filter1_upstream else None
         ),
@@ -159,6 +177,10 @@ def _set_filters(
         filter1_downstream=devices["filter1_downstream"],
         filter2=devices["filter2"],
         fe_shutter=fe_shutter,
+    )
+    # The shutter settling sleep is only for hardware.
+    return bpp.msg_mutator(
+        plan, lambda msg: msg._replace(args=(0,)) if msg.command == "sleep" else msg
     )
 
 
@@ -301,6 +323,8 @@ async def test_filter_move_reports_progress(RE: RunEngine):
 async def test_set_filters_fails_and_keeps_the_fe_shutter_closed_if_ack_never_comes(
     RE: RunEngine, monkeypatch
 ):
+    monkeypatch.setattr("random.uniform", lambda *_: 0.0)
+    monkeypatch.setattr("hextools.photon_delivery_system.shutter.DEFAULT_TIMEOUT", 0.1)
     devices = _set_filters_devices()
     fe_shutter = _fe_shutter(ShutterStatus.OPEN)
     _trip_fe_interlock_on_move(devices["filter2"], fe_shutter)
