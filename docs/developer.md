@@ -258,26 +258,42 @@ and the GUI's Scan Browser find runs of a given kind. To add one:
 
 ## Adding a plan to the GUI
 
-The GUI lives in `src/hextools/gui/`. Each technique tab (Beamline, Tomography,
-EDXD, ...) is a class in `src/hextools/gui/__main__.py` with a column of plan
-tabs. Each plan tab is a `QtPlanWidget`, which builds its form from the plan's
-signature, so adding a plan is usually one line.
+The GUI is in two parts:
+
+- `src/hextools/gui/` is the generic GUI. It knows nothing about HEX and does
+  not import the rest of `hextools` (`tests/gui/test_gui_is_generic.py`
+  enforces this).
+- `src/hextools/gui_config.py` is the HEX configuration: a `GuiSpec` called
+  `HEX_GUI` listing the technique tabs, their plans and cameras, the expected
+  devices, the shutters box, the proposal system and the site.
+
+`python -m hextools.gui` builds the GUI from `HEX_GUI`. Each technique tab
+(Beamline, Tomography, EDXD, ...) is a `Technique` in that spec, with a column
+of plan tabs. Each plan tab is a `QtPlanWidget`, which builds its form from the
+plan's signature, so adding a plan is usually one line.
 
 ### Adding a plan tab
 
-Import the plan at the top of `__main__.py` and add a tab to the technique's
-`plan_tabs`, e.g. in `QtTomographyView.__init__`:
+Import the plan in `gui_config.py` and add a `(label, plan)` pair to the
+technique's `plans`:
 
 ```python
 from hextools.tomography.survey import height_survey
 ...
-plan_tabs.addTab(QtPlanWidget(re_client, tomo_flyscan), "Flyscan")
-plan_tabs.addTab(QtPlanWidget(re_client, height_survey), "Height Survey")
+Technique(
+    "Tomography",
+    plans=[
+        ("Flyscan", tomo_flyscan),
+        ("Height Survey", height_survey),
+        ...
+    ],
+    ...
+)
 ```
 
-`QtPlanWidget(re_client, plan, title=None)` takes the RunEngine (in-process
-mode) or Queue Server client, and the plan function. The form's title defaults
-to the function name in title case; pass `title=` to override it.
+The GUI wraps each plan in `QtPlanWidget(re_client, plan, title=None)`, which
+takes the RunEngine (in-process mode) or Queue Server client, and the plan
+function. The form's title defaults to the function name in title case.
 
 When the user presses **Run Plan**, the widget:
 
@@ -329,54 +345,152 @@ def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = Non
 
 ### Adding a technique tab
 
-To add a new technique, create a view class next to the existing ones and add
-it to `QtTabbedTechniqueSelector`:
+Add a `Technique` to `HEX_GUI.techniques` in `gui_config.py`:
 
 ```python
-class QtImagingView(QWidget):
-    """Imaging view: live camera and imaging plans."""
-
-    def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        top = QHBoxLayout()
-
-        detectors = QtTabbedDetectorsWidget(re_client)
-        detectors.add_detector("kinetix1", "XF:27ID1-BI{Kinetix-Det:1}")
-        top.addWidget(detectors, stretch=3)
-
-        plan_tabs = QTabWidget()
-        plan_tabs.addTab(QtPlanWidget(re_client, height_survey), "Height Survey")
-        top.addWidget(plan_tabs, stretch=1)
-
-        vbox = QVBoxLayout()
-        vbox.addLayout(top, stretch=1)
-        self.setLayout(vbox)
+Technique(
+    "Imaging",
+    plans=[("Height Survey", height_survey)],
+    detectors=[DetectorView("kinetix1", "XF:27ID1-BI{Kinetix-Det:1}")],
+    combined=[("Dual Cam", ["kinetix1", "kinetix3"])],
+),
 ```
 
-and in `QtTabbedTechniqueSelector.__init__`:
-
-```python
-self._imaging = QtImagingView(self._re_client)
-tabs.addTab(self._imaging, "Imaging")
-```
-
-`QtTabbedDetectorsWidget.add_detector(name, prefix)` adds a live viewer for the
-device called `name` in the session, reading images from the PV Access prefix
-`prefix`. It is only shown if the device exists, so the GUI still starts when a
-detector is missing. `add_combined(label, [names])` adds a side-by-side view
-of several detectors.
+Each `DetectorView(name, prefix)` adds a live viewer for the device called
+`name` in the session, reading images from the PV Access prefix `prefix`. It is
+only shown if the device exists, so the GUI still starts when a detector is
+missing. Each `combined` entry adds a side-by-side view of several detectors.
 
 ### Other extension points
 
-- **Available Devices tab** — `EXPECTED_DEVICES` in `__main__.py` lists the
-  devices the beamline should have, with their types; add new devices there.
-- **Scan Browser actions** — `QtScanBrowser.add_callback(spec, label, callback)`
-  adds a button (and right-click action) for runs of a given spec. `callback`
-  is called with the selected run's uid.
-- **Top-row widgets** — `QtTabbedTechniqueSelector.__init__` builds the shared
-  top row; add widgets to `controls`.
-- **Menus** — `QtDataAcquisitionWindow._build_menus`.
+All of these are fields of `GuiSpec` (see its docstring in
+`src/hextools/gui/spec.py`):
+
+- **Available Devices tab** — `expected_devices` lists the devices the beamline
+  should have, with their types; add new devices there.
+- **Top-row widgets** — `status_widgets` holds factories called as
+  `factory(run_engine, namespace)` in local mode; HEX uses one for its
+  shutters box.
+- **Extra tabs** — `extra_tabs` holds `(title, factory)` pairs added after the
+  built-in tabs; HEX uses one for NXS Export.
+- **Proposals** — `proposals` connects Proposal Info's **Change Proposal** to
+  the facility's proposal system. Without it, that button is hidden.
+- **Date, time and weather** — `site`; the box is omitted without one.
+- **Scan Browser** — `run_specs` lists the Tiled specs it offers.
+  `QtScanBrowser.add_callback(spec, label, callback)` adds a button (and
+  right-click action) for runs of a given spec; `callback` is called with the
+  selected run's uid.
+- **Menus** — `QtDataAcquisitionWindow._build_menus` in
+  `src/hextools/gui/window.py`.
+- **Technique-specific layouts** — `Technique.widget_factory` builds a custom
+  widget from `(run_engine_or_client, spec)` when the standard detector/plan
+  layout is not sufficient. The factory belongs to the beamline composition,
+  not to the generic GUI.
+- **History location** — `default_plan_history_file` supplies a beamline-owned
+  default path; the generic GUI owns only the save/load behavior.
+
+### The GUI for another beamline
+
+Another beamline's tools package writes its own spec and launches the same GUI
+with it, e.g. a `pdftools/gui_config.py` (the plan and PV names here are
+placeholders):
+
+```python
+from hextools.gui.spec import DetectorView, GuiSpec, Technique
+from pdftools.plans import pdf_count
+
+PDF_GUI = GuiSpec(
+    name="PDF",
+    techniques=[
+        Technique(
+            "PDF",
+            plans=[("Count", pdf_count)],
+            detectors=[DetectorView("pe1", "XF:28ID1-ES{Det:PE1}")],
+        ),
+    ],
+    logger_name="pdftools",
+)
+```
+
+and a short `pdftools/gui/__main__.py`:
+
+```python
+from hextools.gui.window import run
+
+run("pdftools.gui_config:PDF_GUI")
+```
+
+Fields left out keep their defaults: no shutters box, no extra tabs, no Change
+Proposal, no weather box.
+
+Import the generic entrypoint and spec interface from `hextools.gui` or
+`hextools.gui.spec`; importing `hextools.gui` does not load Qt or HEX device
+modules. Run `hextools.gui.run("package.module:SPEC")` to start the generic GUI.
+The installed `python -m hextools.gui` command remains the HEX launcher.
+HEX's composition now lives in `src/hextools/gui_config.py`; the former
+`hextools.gui.hex_config` helper is not a supported import path. The old
+`hextools.gui.__main__.launch_local_viewer()` call remains as a compatibility
+wrapper, while reusable callers should import
+`hextools.gui.window.launch_local_viewer(spec)`.
+
+### GUI/config separation verification (2026-10-29)
+
+The separation was checked after merging canonical `main` at
+`1bcaa5bb0f33511adef446db86f0983847fc2acd`, including operator fixes from #126
+and the DCLM constants changes from #127. The latter's implementation and tests
+are unchanged by the separation.
+
+The merge reintroduced `gui/hex_config.py` from #126 alongside the extracted
+`gui_config.py`. The generic import and identity tests failed on that duplicate
+HEX adapter before it was removed. HEX shutter discovery and the manual
+`allow_actuation=True, sleep_time=0.0` command policy remain in `gui_config.py`;
+the generic shutter widget and operator behavior are unchanged.
+
+Validation used this checkout's own locked Pixi `dev` environment (Python
+3.13.18), without another checkout's environment or `PYTHONPATH`:
+
+- `pixi run --locked -e dev pytest -o addopts='' -q tests/gui tests/test_gui_expected_devices.py tests/photon_delivery_system/test_dclm.py`:
+  **129 passed**, including theme, history, window-close and temporary-file tests,
+  synthetic non-HEX composition and import-boundary tests.
+- `pixi run --locked -e dev pytest -o addopts='' -q tests/photon_delivery_system tests/test_nl_msg_hook.py tests/test_edxd*`:
+  **195 passed**, covering the inherited operator behavior and moved narrator.
+- `pixi run --locked -e dev lint`: every configured pre-commit hook passed,
+  including Ruff lint/format and import contracts.
+- `pixi run --locked -e dev type-check`: **0 errors, 0 warnings**.
+
+The actual `python -m hextools.gui --mock --profile <isolated-profile>
+--history-file <isolated-history>` launcher was also exercised through its
+interactive IPython session, not a separately constructed widget. The profile
+was a copy of `collection.py` with detector output and document backup paths
+redirected to local validation storage; IPython, Qt configuration and history
+also used isolated local storage. All four technique tabs were selected, the
+**Frontend Aperture** and **Filters** forms were visible, and **Save As Tiff**
+was initially checked and remained editable in both EDXD scan forms. Both
+mock shutter buttons executed their real manual plans: both buttons disabled
+while a command was pending, then re-enabled after the RunEngine returned idle
+and both readbacks showed open. The GUI process exited after verification.
+
+CA/PVA automatic discovery was disabled and address lists contained loopback
+only. An additional Python socket audit hook denied non-loopback networking:
+the only blocked lookup was the optional Open-Meteo weather service. There
+was no Redis or beamline-host lookup/connection attempt. Mock mode uses
+in-memory RunEngine metadata, mock device connections and the local Tiled
+`simple` client despite the unused Redis hostname in the profile.
+
+The following captures are from that actual offscreen main window and were
+visually inspected, replacing the earlier standalone-widget captures:
+[Beamline](_static/screenshots/gui_config_separation_validation/gui_beamline.png),
+[Tomography](_static/screenshots/gui_config_separation_validation/gui_tomography.png),
+[EDXD](_static/screenshots/gui_config_separation_validation/gui_edxd.png),
+[XRD](_static/screenshots/gui_config_separation_validation/gui_xrd.png),
+[Frontend Aperture](_static/screenshots/gui_config_separation_validation/gui_frontend_aperture.png),
+[Filters](_static/screenshots/gui_config_separation_validation/gui_filters.png),
+[TIFF default](_static/screenshots/gui_config_separation_validation/gui_plan_default_tiff.png),
+[pending shutters](_static/screenshots/gui_config_separation_validation/gui_shutter_pending.png),
+[open shutters](_static/screenshots/gui_config_separation_validation/gui_shutters_ready.png).
+Camera panes had no live image source; no acquisition plan, TST beamline,
+real beamline or QueueServer service was exercised. This is mock GUI/control
+validation, not detector-stream or live-beamline certification.
 
 ## Updating the documentation
 
@@ -384,7 +498,7 @@ Generic GUI widgets must not import or branch on HEX device/plan identities,
 PVs, specialized labels/defaults, or beamline policy. Configure those through
 generic extension points; where none exists, defer the request. For example,
 `QtShutterStatus` takes explicit readbacks and a command-builder callback;
-`gui/hex_config.py` owns HEX discovery and manual-shutter settling policy.
+`gui_config.py` owns HEX discovery and manual-shutter settling policy.
 `QtPlanWidget` has no device-specific overrides. This is a blocking
 architectural boundary, not a feature-restoration mechanism.
 

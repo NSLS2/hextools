@@ -91,7 +91,8 @@ There are no device-specific overrides in `QtPlanWidget`.
 
 Live views of the visible-light cameras (sample camera, F-hutch camera,
 diamond window and fluorescence screen cameras), and plans to move motors,
-change the beam mode and change the energy.
+set the front-end aperture and filter positions, change the beam mode and
+change the energy.
 
 ### Tomography
 

@@ -13,8 +13,7 @@ from bluesky.utils import RunEngineInterrupted
 from ophyd_async.core import init_devices
 from qtpy.QtWidgets import QApplication
 
-from hextools.gui.hex_config import shutter_controls
-from hextools.gui.shutter_status import QtShutterStatus
+from hextools.gui_config import _shutters
 from hextools.photon_delivery_system import Shutter
 
 
@@ -29,7 +28,7 @@ def test_shutter_buttons_exclude_duplicate_and_counterpart_submissions(
     with init_devices(mock=True):
         fe = Shutter("FE:", name="fe")
         photon = Shutter("PH:", name="photon")
-    widget = QtShutterStatus(re, *shutter_controls({"fe": fe, "photon": photon}))
+    widget = _shutters(re, {"fe": fe, "photon": photon})
     calls = []
 
     def execute(code):
@@ -60,7 +59,7 @@ def test_busy_or_paused_engine_blocks_shutters_until_abort(monkeypatch, queued):
     with init_devices(mock=True):
         fe = Shutter("FE:", name="fe")
         photon = Shutter("PH:", name="photon")
-    widget = QtShutterStatus(re, *shutter_controls({"fe": fe, "photon": photon}))
+    widget = _shutters(re, {"fe": fe, "photon": photon})
     calls = []
     monkeypatch.setattr(
         "hextools.gui.shutter_status.run_in_ipython", lambda code: calls.append(code)
