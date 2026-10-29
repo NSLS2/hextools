@@ -78,7 +78,8 @@ class GuiSpec:
     logger_name : str
         Logger whose records the Plan Status and Log views show.
     run_specs : sequence
-        Tiled specs offered by the Scan Browser.
+        Tiled specs offered by the Scan Browser. Without specs the browser is
+        omitted, even when the profile provides a catalog.
     status_widgets : sequence of callables
         Extra boxes for the top row in local mode, each built as
         ``factory(run_engine, namespace)``.
@@ -94,7 +95,8 @@ class GuiSpec:
     default_profile : str
         Profile started when none is named.
     environment : mapping
-        Environment variables set before the profile starts.
+        Base environment variables set before the profile starts, overridden
+        by ``mock_environment`` and explicit command-line options.
     mock_environment : mapping
         Environment variables set for ``--mock``.
     plan_history_env : str

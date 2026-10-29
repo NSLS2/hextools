@@ -205,7 +205,11 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         if self._plan_monitor is not None:
             execution_view = QtPlanExecutionView(self._plan_monitor, spec.logger_name)
             tiled_client = user_ns.get("tiled_reading_client") or user_ns.get("c")
-            if tiled_client is not None and isinstance(re_client, RunEngine):
+            if (
+                tiled_client is not None
+                and isinstance(re_client, RunEngine)
+                and spec.run_specs
+            ):
                 self.scan_browser = QtScanBrowser(
                     tiled_client, list(spec.run_specs), re_client
                 )
@@ -640,13 +644,12 @@ def run(spec_ref: str, argv: list[str] | None = None):
 
     args = parser.parse_args(argv)
 
+    os.environ.update(spec.environment)
     if args.mock:
         os.environ.update(spec.mock_environment)
     if args.history_file:
         # An env var, so it reaches the GUI built later inside the IPython session.
         os.environ[spec.plan_history_env] = args.history_file
-
-    os.environ.update(spec.environment)
 
     if args.queueserver_uri:
         with gui_qt(spec.title):
