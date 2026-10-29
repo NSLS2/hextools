@@ -433,6 +433,65 @@ HEX's composition now lives in `src/hextools/gui_config.py`; the former
 wrapper, while reusable callers should import
 `hextools.gui.window.launch_local_viewer(spec)`.
 
+### GUI/config separation verification (2026-10-29)
+
+The separation was checked after merging canonical `main` at
+`1bcaa5bb0f33511adef446db86f0983847fc2acd`, including operator fixes from #126
+and the DCLM constants changes from #127. The latter's implementation and tests
+are unchanged by the separation.
+
+The merge reintroduced `gui/hex_config.py` from #126 alongside the extracted
+`gui_config.py`. The generic import and identity tests failed on that duplicate
+HEX adapter before it was removed. HEX shutter discovery and the manual
+`allow_actuation=True, sleep_time=0.0` command policy remain in `gui_config.py`;
+the generic shutter widget and operator behavior are unchanged.
+
+Validation used this checkout's own locked Pixi `dev` environment (Python
+3.13.18), without another checkout's environment or `PYTHONPATH`:
+
+- `pixi run --locked -e dev pytest -o addopts='' -q tests/gui tests/test_gui_expected_devices.py tests/photon_delivery_system/test_dclm.py`:
+  **129 passed**, including theme, history, window-close and temporary-file tests,
+  synthetic non-HEX composition and import-boundary tests.
+- `pixi run --locked -e dev pytest -o addopts='' -q tests/photon_delivery_system tests/test_nl_msg_hook.py tests/test_edxd*`:
+  **195 passed**, covering the inherited operator behavior and moved narrator.
+- `pixi run --locked -e dev lint`: every configured pre-commit hook passed,
+  including Ruff lint/format and import contracts.
+- `pixi run --locked -e dev type-check`: **0 errors, 0 warnings**.
+
+The actual `python -m hextools.gui --mock --profile <isolated-profile>
+--history-file <isolated-history>` launcher was also exercised through its
+interactive IPython session, not a separately constructed widget. The profile
+was a copy of `collection.py` with detector output and document backup paths
+redirected to local validation storage; IPython, Qt configuration and history
+also used isolated local storage. All four technique tabs were selected, the
+**Frontend Aperture** and **Filters** forms were visible, and **Save As Tiff**
+was initially checked and remained editable in both EDXD scan forms. Both
+mock shutter buttons executed their real manual plans: both buttons disabled
+while a command was pending, then re-enabled after the RunEngine returned idle
+and both readbacks showed open. The GUI process exited after verification.
+
+CA/PVA automatic discovery was disabled and address lists contained loopback
+only. An additional Python socket audit hook denied non-loopback networking:
+the only blocked lookup was the optional Open-Meteo weather service. There
+was no Redis or beamline-host lookup/connection attempt. Mock mode uses
+in-memory RunEngine metadata, mock device connections and the local Tiled
+`simple` client despite the unused Redis hostname in the profile.
+
+The following captures are from that actual offscreen main window and were
+visually inspected, replacing the earlier standalone-widget captures:
+[Beamline](_static/screenshots/gui_config_separation_validation/gui_beamline.png),
+[Tomography](_static/screenshots/gui_config_separation_validation/gui_tomography.png),
+[EDXD](_static/screenshots/gui_config_separation_validation/gui_edxd.png),
+[XRD](_static/screenshots/gui_config_separation_validation/gui_xrd.png),
+[Frontend Aperture](_static/screenshots/gui_config_separation_validation/gui_frontend_aperture.png),
+[Filters](_static/screenshots/gui_config_separation_validation/gui_filters.png),
+[TIFF default](_static/screenshots/gui_config_separation_validation/gui_plan_default_tiff.png),
+[pending shutters](_static/screenshots/gui_config_separation_validation/gui_shutter_pending.png),
+[open shutters](_static/screenshots/gui_config_separation_validation/gui_shutters_ready.png).
+Camera panes had no live image source; no acquisition plan, TST beamline,
+real beamline or QueueServer service was exercised. This is mock GUI/control
+validation, not detector-stream or live-beamline certification.
+
 ## Updating the documentation
 
 Generic GUI widgets must not import or branch on HEX device/plan identities,
