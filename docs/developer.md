@@ -9,7 +9,7 @@ test it, and how to make it available in the GUI.
 pixi install -e dev
 pixi run tests                 # pytest with coverage
 pixi run lint                  # pre-commit hooks (ruff, ...)
-pixi run type-check            # ty
+pixi run type-check            # pyright
 pixi run start-mock            # try your code in a mock IPython session
 pixi run hex-gui-mock          # try it in the GUI
 ```

@@ -42,7 +42,8 @@ def _open_window(RE, tmp_path, request):
     The child records a SIGTERM to ``tmp_path / "sigterm"``, so a graceful stop
     is distinguishable from the kill QProcess's destructor does.
     """
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     InteractiveShell.instance()
     window = QtDataAcquisitionWindow(re_client=RE)
     exporter = window.qt_widget.auto_exporter
@@ -91,7 +92,9 @@ def test_closing_the_window_tears_down(RE, det, tmp_path, request):
     window, _, marker = _open_window(RE, tmp_path, request)
     assert _hooks(RE) != before
     # Closing one deletes its viewport mid-teardown, as the camera viewers do.
-    window.qt_widget.layout().addWidget(pg.GraphicsLayoutWidget())
+    layout = window.qt_widget.layout()
+    assert layout is not None
+    layout.addWidget(pg.GraphicsLayoutWidget())
 
     window._qt_window.close()
 
@@ -117,7 +120,8 @@ def test_interpreter_exit_tears_down_an_open_window(
 # older window closes first; they must stop calling into the deleted window.
 @pytest.mark.parametrize("first", ["older", "newer"])
 def test_closing_windows_that_share_a_run_engine(RE, det, first):
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     InteractiveShell.instance()
     before = _hooks(RE)
     older = QtDataAcquisitionWindow(re_client=RE)
@@ -137,7 +141,8 @@ def test_closing_windows_that_share_a_run_engine(RE, det, first):
 # session running underneath.
 @pytest.mark.parametrize("end_ipython", [False, True])
 def test_closing_the_window_can_end_the_ipython_session(RE, monkeypatch, end_ipython):
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     InteractiveShell.instance()
     ended = []
     monkeypatch.setattr(gui_main, "_end_ipython_session", lambda: ended.append(True))

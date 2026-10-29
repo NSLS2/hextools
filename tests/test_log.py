@@ -264,7 +264,7 @@ def test_log_state_changes_logs_transitions_and_chains_existing_hook(
     handler = _ListHandler()
     logger.addHandler(handler)
     states: list[str] = []
-    RE.state_hook = lambda new, old: states.append(str(new))
+    RE.state_hook = lambda new, old: states.append(str(new))  # type: ignore
     log_state_changes(RE, logger_name)
 
     def plan():

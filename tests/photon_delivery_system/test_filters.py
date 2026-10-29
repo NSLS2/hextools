@@ -1,10 +1,10 @@
-from importlib import resources
+from typing import Any, cast
 
 import bluesky.plan_stubs as bps
 import pytest
-import yaml
 from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
+from IPython.core.interactiveshell import InteractiveShell
 from ophyd_async.core import (
     callback_on_mock_put,
     get_mock_put,
@@ -12,33 +12,26 @@ from ophyd_async.core import (
     set_mock_value,
 )
 
+from hextools.bl_constants import fetch_beamline_constants
 from hextools.photon_delivery_system.filters import (
-    SET_FILTERS_NAMES,
-    SETTING_POSITIONS,
     Filter,
+    Filter1DownstreamPosition,
+    Filter1UpstreamPosition,
+    Filter2Position,
+    Filter3Position,
+    Filter4Position,
+    FilterMock,
     FilterPosition,
     FilterSetting,
-    load_filters,
     set_filters,
 )
 from hextools.photon_delivery_system.shutter import PPSShutter, ShutterStatus
-
-_TEST_FILTER_POSITIONS = {
-    FilterPosition.PASS_THROUGH: FilterSetting(0.0, "pass through"),
-    FilterPosition.POS_1: FilterSetting(10.0, "Cu 100um"),
-    FilterPosition.POS_2: FilterSetting(20.0, "Cu 50um"),
-}
 
 
 @pytest.fixture
 def test_filter() -> Filter:
     with init_devices(mock=True):
-        f = Filter(
-            "TEST:FILTER:MTR",
-            _TEST_FILTER_POSITIONS,
-            "TEST:FILTER:IN_POS",
-            name="test_filter",
-        )
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter1_upstream")
     set_mock_value(f.in_position, True)
     return f
 
@@ -47,8 +40,8 @@ def test_filter() -> Filter:
     "position, expected_description",
     [
         (FilterPosition.PASS_THROUGH, "pass through"),
-        (FilterPosition.POS_1, "Cu 100um"),
-        (FilterPosition.POS_2, "Cu 50um"),
+        (FilterPosition.POS_1, "6 mm Cu"),
+        (FilterPosition.POS_3, "pos 3"),
     ],
 )
 async def test_filter_description_changes_with_position(
@@ -71,25 +64,72 @@ async def test_filter_description_changes_with_position(
 
 async def test_filter_rejects_undefined_position(RE: RunEngine, test_filter: Filter):
     with pytest.raises(FailedStatus) as exc_info:
-        RE(bps.mv(test_filter, FilterPosition.POS_3))
+        RE(bps.mv(test_filter, cast(FilterPosition, len(FilterPosition))))
     assert "Invalid filter position" in str(exc_info.value.__cause__)
 
 
-def _raw_filter_config() -> dict:
-    source = resources.files("hextools.photon_delivery_system").joinpath("filters.yml")
-    return yaml.safe_load(source.read_text(encoding="utf-8"))["filters"]
+async def test_mock_filter_starts_in_pass_through_and_moves_into_position(
+    RE: RunEngine,
+):
+    with init_devices(mock=True):
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter2")
+    assert await f.in_position.get_value()
+    assert await f.description.get_value() == "pass through"
+
+    set_mock_value(f.filter_motor.user_readback, 12.345)
+    assert not await f.in_position.get_value()
+
+    RE(bps.mv(f, FilterPosition.POS_1))
+    assert await f.in_position.get_value()
+    expected = f.positions[FilterPosition.POS_1].description
+    assert await f.description.get_value() == expected
 
 
-def test_load_filters_returns_all_entries_in_order():
-    raw = _raw_filter_config()
-    filters = load_filters()
-    assert [f.name for f in filters] == list(raw.keys())
-    assert all(isinstance(f, Filter) for f in filters)
+async def test_mock_filter_move_trips_interlocked_shutters(RE: RunEngine):
+    with init_devices(mock=True):
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter2")
+    fe_shutter = _fe_shutter(ShutterStatus.OPEN)
+    assert isinstance(f._mock, FilterMock)
+    f._mock.interlock(fe_shutter)
+    # Connecting doesn't trip it; only a move does.
+    assert await fe_shutter.status.get_value() == ShutterStatus.OPEN
+    assert await fe_shutter.interlock_ack.acknowledged.get_value()
+
+    RE(bps.mv(f, FilterPosition.POS_1))
+
+    assert await fe_shutter.status.get_value() == ShutterStatus.CLOSED
+    assert not await fe_shutter.interlock_ack.acknowledged.get_value()
 
 
-def test_load_filters_parses_named_and_described_positions():
-    filters = {f.name: f for f in load_filters()}
-    positions = filters["filter1_upstream"].positions
+async def test_mock_filter_trips_the_namespace_fe_shutter_by_default(RE: RunEngine):
+    with init_devices(mock=True):
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter2")
+    fe_shutter = _fe_shutter(ShutterStatus.OPEN)
+    shell = InteractiveShell.instance()
+    try:
+        shell.user_ns["fe_shutter"] = fe_shutter
+        RE(bps.mv(f, FilterPosition.POS_1))
+    finally:
+        InteractiveShell.clear_instance()
+
+    assert await fe_shutter.status.get_value() == ShutterStatus.CLOSED
+    assert not await fe_shutter.interlock_ack.acknowledged.get_value()
+
+
+def test_filter_requires_its_name_in_the_beamline_constants():
+    with pytest.raises(KeyError, match="not_a_filter"):
+        Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="not_a_filter")
+
+
+def _filters() -> dict[str, Filter]:
+    return {
+        name: Filter(f"TEST:{name}:MTR", f"TEST:{name}:IN_POS", name=name)
+        for name in fetch_beamline_constants("filters")
+    }
+
+
+def test_filter_parses_named_and_described_positions():
+    positions = _filters()["filter1_upstream"].positions
     assert positions[FilterPosition.UPPER_LIMIT] == FilterSetting(68.0, None)
     assert positions[FilterPosition.PASS_THROUGH] == FilterSetting(66.6, None)
     assert positions[FilterPosition.POS_1] == FilterSetting(41.5, "6 mm Cu")
@@ -99,8 +139,8 @@ def test_load_filters_parses_named_and_described_positions():
     assert positions[FilterPosition.LOWER_LIMIT] == FilterSetting(-63.2, None)
 
 
-def test_load_filters_supports_undescribed_middle_positions():
-    positions = {f.name: f for f in load_filters()}["filter3"].positions
+def test_filter_supports_undescribed_middle_positions():
+    positions = _filters()["filter3"].positions
     for slot in (
         FilterPosition.POS_1,
         FilterPosition.POS_2,
@@ -111,43 +151,18 @@ def test_load_filters_supports_undescribed_middle_positions():
     assert positions[FilterPosition.POS_1].position == pytest.approx(40.0)
 
 
-def test_load_filters_matches_raw_yaml_pvs_and_counts():
-    raw = _raw_filter_config()
-    filters = {f.name: f for f in load_filters()}
-    for name, spec in raw.items():
-        f = filters[name]
-        assert len(f.positions) == len(spec["positions"])
-        assert spec["motor_pv"] in f.filter_motor.user_readback.source
-        assert f.in_position.source.endswith(spec["in_position_switch"])
-
-
-def test_load_filters_maps_every_enum_position():
-    for f in load_filters():
+def test_every_filter_maps_every_enum_position():
+    for f in _filters().values():
         assert set(f.positions) == set(FilterPosition)
 
 
-def test_load_filters_requires_one_position_per_enum(monkeypatch):
-    bad_config = {
-        "filters": {
-            "filter_bad": {
-                "motor_pv": "TEST:MTR",
-                "in_position_switch": "TEST:IN_POS",
-                "positions": {"upper_limit": 1.0, "pass_through": 2.0},
-            }
-        }
-    }
-    monkeypatch.setattr(yaml, "safe_load", lambda *_a, **_k: bad_config)
-    with pytest.raises(ValueError, match="exactly 7 positions"):
-        load_filters()
-
-
 def _set_filters_devices() -> dict[str, Filter]:
-    """The set_filters filters from filters.yml, mocked under the RE loop."""
+    """The set_filters filters from the beamline constants, mocked under the RE loop."""
     # init_devices connects only devices bound to local names
     with init_devices(mock=True):
-        filter1_upstream, filter1_downstream, filter2 = (
-            f for f in load_filters() if f.name in SET_FILTERS_NAMES
-        )
+        filter1_upstream = Filter("F1U:MTR", "F1U:IN_POS", name="filter1_upstream")
+        filter1_downstream = Filter("F1D:MTR", "F1D:IN_POS", name="filter1_downstream")
+        filter2 = Filter("F2:MTR", "F2:IN_POS", name="filter2")
     devices = {
         "filter1_upstream": filter1_upstream,
         "filter1_downstream": filter1_downstream,
@@ -171,20 +186,43 @@ def _fe_shutter(status: ShutterStatus = ShutterStatus.CLOSED) -> PPSShutter:
     return fe_shutter
 
 
-def test_set_filters_choices_are_each_filters_materials():
-    raw = _raw_filter_config()
-    for name in SET_FILTERS_NAMES:
-        slots = [raw[name]["positions"][f"pos_{i}"] for i in range(1, 5)]
-        materials = [s["description"] for s in slots if isinstance(s, dict)]
-        assert list(SETTING_POSITIONS[name]) == ["pass through", *materials]
-    assert list(SETTING_POSITIONS["filter1_upstream"]) == [
-        "pass through",
-        "6 mm Cu",
-        "6 mm Al",
-        "Bo-Hori.",
-    ]
-    assert "6 mm Al" in SETTING_POSITIONS["filter1_downstream"]
-    assert "1 mm Cu" in SETTING_POSITIONS["filter2"]
+def _set_filters(
+    devices: dict[str, Filter],
+    fe_shutter: PPSShutter,
+    *,
+    filter1_upstream: str | None = None,
+    filter1_downstream: str | None = None,
+    filter2: str | None = None,
+):
+    """``set_filters`` with every filter passed in, setting the given materials."""
+    return set_filters(
+        filter1_upstream_setting=(
+            Filter1UpstreamPosition(filter1_upstream) if filter1_upstream else None
+        ),
+        filter1_downstream_setting=(
+            Filter1DownstreamPosition(filter1_downstream)
+            if filter1_downstream
+            else None
+        ),
+        filter2_setting=Filter2Position(filter2) if filter2 else None,
+        filter1_upstream=devices["filter1_upstream"],
+        filter1_downstream=devices["filter1_downstream"],
+        filter2=devices["filter2"],
+        fe_shutter=fe_shutter,
+    )
+
+
+def test_filter_choices_are_pass_through_and_each_filters_materials():
+    assert {p.name: p.value for p in Filter1UpstreamPosition} == {
+        "PASS_THROUGH": "Pass Through",
+        "POS_1": "6 mm Cu",
+        "POS_2": "6 mm Al",
+        "POS_4": "Bo-Hori.",
+    }
+    assert "6 mm Al" in list(Filter1DownstreamPosition)
+    assert "1 mm Cu" in list(Filter2Position)
+    # Filters 3 and 4 hold no described materials
+    assert list(Filter3Position) == list(Filter4Position) == ["Pass Through"]
 
 
 async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):
@@ -193,13 +231,8 @@ async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):
         set_mock_value(device.filter_motor.user_readback, 999.0)
 
     RE(
-        set_filters(
-            filter1_upstream_setting="6 mm Cu",
-            filter2_setting="1 mm Cu",
-            filter1_upstream=devices["filter1_upstream"],
-            filter1_downstream=devices["filter1_downstream"],
-            filter2=devices["filter2"],
-            fe_shutter=_fe_shutter(),
+        _set_filters(
+            devices, _fe_shutter(), filter1_upstream="6 mm Cu", filter2="1 mm Cu"
         )
     )
 
@@ -218,14 +251,12 @@ async def test_set_filters_sets_all_three(RE: RunEngine):
     devices = _set_filters_devices()
 
     RE(
-        set_filters(
-            filter1_upstream_setting="6 mm Cu",
-            filter1_downstream_setting="6 mm Al",
-            filter2_setting="1 mm Cu",
-            filter1_upstream=devices["filter1_upstream"],
-            filter1_downstream=devices["filter1_downstream"],
-            filter2=devices["filter2"],
-            fe_shutter=_fe_shutter(),
+        _set_filters(
+            devices,
+            _fe_shutter(),
+            filter1_upstream="6 mm Cu",
+            filter1_downstream="6 mm Al",
+            filter2="1 mm Cu",
         )
     )
 
@@ -241,12 +272,25 @@ async def test_set_filters_sets_all_three(RE: RunEngine):
     "kwargs, match",
     [
         ({}, "at least one"),
-        ({"filter2_setting": "6 mm Al"}, "not a setting of filter2"),
+        # Filter 1 upstream's material, which filter 2 doesn't have.
+        (
+            {"filter2_setting": Filter1UpstreamPosition("6 mm Al")},
+            "is not a valid Filter2Position",
+        ),
     ],
 )
 def test_set_filters_refuses_bad_input(RE: RunEngine, kwargs: dict, match: str):
+    devices = _set_filters_devices()
     with pytest.raises(ValueError, match=match):
-        RE(set_filters(**kwargs, **_set_filters_devices()))
+        RE(
+            set_filters(
+                **kwargs,
+                filter1_upstream=devices["filter1_upstream"],
+                filter1_downstream=devices["filter1_downstream"],
+                filter2=devices["filter2"],
+                fe_shutter=_fe_shutter(),
+            )
+        )
 
 
 def _trip_fe_interlock_on_move(filt: Filter, fe_shutter: PPSShutter) -> None:
@@ -254,7 +298,7 @@ def _trip_fe_interlock_on_move(filt: Filter, fe_shutter: PPSShutter) -> None:
 
     def move(value, **_):
         set_mock_value(fe_shutter.status, ShutterStatus.CLOSED)
-        set_mock_value(fe_shutter.interlock.acknowledged, False)
+        set_mock_value(fe_shutter.interlock_ack.acknowledged, False)
         set_mock_value(filt.filter_motor.user_readback, value)
 
     callback_on_mock_put(filt.filter_motor.user_setpoint, move)
@@ -271,16 +315,10 @@ async def test_set_filters_acknowledges_the_interlock_and_restores_the_fe_shutte
     )
     _trip_fe_interlock_on_move(devices["filter2"], fe_shutter)
 
-    RE(
-        set_filters(
-            filter2_setting="1 mm Cu",
-            filter2=devices["filter2"],
-            fe_shutter=fe_shutter,
-        )
-    )
+    RE(_set_filters(devices, fe_shutter, filter2="1 mm Cu"))
 
-    get_mock_put(fe_shutter.interlock.request).assert_called_once()
-    assert await fe_shutter.interlock.acknowledged.get_value()
+    get_mock_put(fe_shutter.interlock_ack.request).assert_called_once()
+    assert await fe_shutter.interlock_ack.acknowledged.get_value()
     expected = ShutterStatus.OPEN if fe_was_open else ShutterStatus.CLOSED
     assert await fe_shutter.status.get_value() == expected
 
@@ -289,15 +327,9 @@ async def test_set_filters_leaves_an_acknowledged_interlock_alone(RE: RunEngine)
     devices = _set_filters_devices()
     fe_shutter = _fe_shutter()
 
-    RE(
-        set_filters(
-            filter2_setting="1 mm Cu",
-            filter2=devices["filter2"],
-            fe_shutter=fe_shutter,
-        )
-    )
+    RE(_set_filters(devices, fe_shutter, filter2="1 mm Cu"))
 
-    get_mock_put(fe_shutter.interlock.request).assert_not_called()
+    get_mock_put(fe_shutter.interlock_ack.request).assert_not_called()
 
 
 async def test_filter_move_reports_progress(RE: RunEngine):
@@ -305,7 +337,11 @@ async def test_filter_move_reports_progress(RE: RunEngine):
     names: list[str] = []
 
     status = filt.set(FilterPosition.POS_1)
-    status.watch(lambda **kw: names.append(kw["name"]))  # type: ignore
+
+    def watcher(*_: Any, **kw: Any) -> None:
+        names.append(kw["name"])
+
+    status.watch(watcher)
     await status
 
     assert names
@@ -315,21 +351,14 @@ async def test_filter_move_reports_progress(RE: RunEngine):
 async def test_set_filters_fails_and_keeps_the_fe_shutter_closed_if_ack_never_comes(
     RE: RunEngine, monkeypatch
 ):
-    monkeypatch.setattr(
-        "hextools.photon_delivery_system.shutter.INTERLOCK_ACK_TIMEOUT", 0.1
-    )
+    monkeypatch.setattr("random.uniform", lambda *_: 0.0)
+    monkeypatch.setattr("hextools.photon_delivery_system.shutter.DEFAULT_TIMEOUT", 0.1)
     devices = _set_filters_devices()
     fe_shutter = _fe_shutter(ShutterStatus.OPEN)
     _trip_fe_interlock_on_move(devices["filter2"], fe_shutter)
-    callback_on_mock_put(fe_shutter.interlock.request, lambda *_, **__: None)
+    callback_on_mock_put(fe_shutter.interlock_ack.request, lambda *_, **__: None)
 
     with pytest.raises(FailedStatus):
-        RE(
-            set_filters(
-                filter2_setting="1 mm Cu",
-                filter2=devices["filter2"],
-                fe_shutter=fe_shutter,
-            )
-        )
+        RE(_set_filters(devices, fe_shutter, filter2="1 mm Cu"))
 
     assert await fe_shutter.status.get_value() == ShutterStatus.CLOSED

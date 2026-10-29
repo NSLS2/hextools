@@ -100,7 +100,7 @@ class _ReDeviceProgressBar(QWidget):
         # (matches bluesky's own progress bar). ophyd reports ``fraction`` as the
         # fraction *remaining*, so convert it when positions are unavailable.
         progress = None
-        if None not in (initial, current, target):
+        if initial is not None and current is not None and target is not None:
             span = abs(target - initial)
             if span:
                 progress = abs(current - initial) / span

@@ -11,18 +11,16 @@ from IPython.core.interactiveshell import InteractiveShell  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
-from hextools.photon_delivery_system.fe_slit import (  # noqa: E402
+from hextools.photon_delivery_system.slits import (  # noqa: E402
     SlitAperture,
-    set_fe_slit1_aperture,
+    set_fe_aperture,
 )
 
 
 def test_fe_slit1_form_is_one_aperture_dropdown_and_no_device_picker():
     app = QApplication.instance() or QApplication([])
     InteractiveShell.instance()
-    widget = QtPlanWidget(
-        RunEngine({}, call_returns_result=True), set_fe_slit1_aperture
-    )
+    widget = QtPlanWidget(RunEngine({}, call_returns_result=True), set_fe_aperture)
     try:
         combos = {name: combo for name, combo, _ in widget._enum_fields}
         assert list(combos) == ["aperture"]
@@ -32,8 +30,8 @@ def test_fe_slit1_form_is_one_aperture_dropdown_and_no_device_picker():
         assert options == [a.value for a in SlitAperture]
         assert widget._device_fields == []
 
-        combo.setCurrentIndex(combo.findText("Pinhole 0.89 mm"))
-        assert combo.currentData() == "Pinhole 0.89 mm"
+        combo.setCurrentIndex(combo.findText("Pinhole (0.89 mm)"))
+        assert combo.currentData() == "Pinhole (0.89 mm)"
     finally:
         widget.close()
         widget.deleteLater()

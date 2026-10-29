@@ -3,7 +3,6 @@
 import asyncio
 from collections.abc import Callable
 from functools import partial
-from typing import Final
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,7 +11,6 @@ from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.callbacks.fitting import PeakStats
-from bluesky.callbacks.mpl_plotting import QtAwareCallback, plot_peak_stats
 from bluesky.preprocessors import finalize_wrapper, subs_wrapper
 from IPython.core.getipython import get_ipython
 from matplotlib.figure import Figure
@@ -30,6 +28,7 @@ from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.epics.core import EpicsDevice
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
+from hextools.bl_constants import fetch_beamline_constants
 from hextools.detectors.utils import enable_preview_mode
 
 from ..utils import ensure_available
@@ -51,32 +50,6 @@ def _figure_factory() -> Callable[[str], Figure]:
             if isinstance(obj, BestEffortCallback):
                 return obj._fig_factory  # noqa: SLF001
     return partial(plt.figure, layout="constrained")
-
-
-class _PeakStatsPlot(QtAwareCallback):
-    """Plot a PeakStats' results when its run stops, on the Qt thread if any."""
-
-    def __init__(
-        self, peak_stats: PeakStats, title: str, fig_factory: Callable[[str], Figure]
-    ):
-        super().__init__()
-        self._peak_stats = peak_stats
-        self._title = title
-        self._fig_factory = fig_factory
-        self._scan_id = None
-
-    def start(self, doc):
-        self._scan_id = doc.get("scan_id")
-
-    def stop(self, doc):
-        if getattr(self._peak_stats, "x_data", None) is None:
-            return
-        title = f"{self._title} (scan {self._scan_id})"
-        figure = self._fig_factory(title)
-        ax = figure.add_subplot()
-        plot_peak_stats(self._peak_stats, ax=ax)
-        ax.set_title(title)
-        figure.canvas.draw_idle()
 
 
 class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
@@ -125,22 +98,18 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
     """
 
     # Constants for in/out positions of the monochromator components
-    beam_stop_in: Final[float] = 0.0
-    beam_stop_out: Final[float] = 48.3
-    xtal1_in: Final[float] = 0.0
-    xtal1_out: Final[float] = -36.0
-    fs_in: Final[float] = 25.0
-    fs_out: Final[float] = 46.0
+    _beam_stop_in: float
+    _beam_stop_out: float
+    _xtal1_in: float
+    _xtal1_out: float
+    _fs_in: float
+    _fs_out: float
 
     # Constants for the monochromator geometry
-    bragg_factor: Final[float] = 1.977  # Energy in keV for Si(111) at 2d = 6.271 Å
-    bragg_angle_offset: Final[float] = (
-        35.2544  # Bragg angle offset in degrees for Si(111)
-    )
-    fixed_beam_offset: Final[float] = (
-        25.0  # Crystal 2 z offset in mm for fixed beam offset
-    )
-    fs_distance: Final[float] = 1428.0  # Distance to fluorescence screen in mm
+    _bragg_factor: float  # Energy in keV for Si(111) at 2d = 6.271 Å
+    _bragg_angle_offset: float  # Bragg angle offset in degrees for Si(111)
+    _fixed_beam_offset: float  # Crystal 2 z offset in mm for fixed beam offset
+    _fs_distance: float  # Distance to fluorescence screen in mm
 
     def __init__(self, prefix: str, name: str = ""):
 
@@ -163,7 +132,51 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
                 pitch_angle=self.xtal1_pitch.user_readback,
             )
 
+        # Fetch and set the monochromator constants from the beamline configuration
+        for k, v in fetch_beamline_constants("monochromator").items():
+            setattr(self, f"_{k}", v)
+
         super().__init__(name=name)
+
+    @property
+    def beam_stop_in(self) -> float:
+        return self._beam_stop_in
+
+    @property
+    def beam_stop_out(self) -> float:
+        return self._beam_stop_out
+
+    @property
+    def xtal1_in(self) -> float:
+        return self._xtal1_in
+
+    @property
+    def xtal1_out(self) -> float:
+        return self._xtal1_out
+
+    @property
+    def bragg_angle_offset(self) -> float:
+        return self._bragg_angle_offset
+
+    @property
+    def bragg_factor(self) -> float:
+        return self._bragg_factor
+
+    @property
+    def fixed_beam_offset(self) -> float:
+        return self._fixed_beam_offset
+
+    @property
+    def fs_distance(self) -> float:
+        return self._fs_distance
+
+    @property
+    def fs_in(self) -> float:
+        return self._fs_in
+
+    @property
+    def fs_out(self) -> float:
+        return self._fs_out
 
     def _get_beam_mode(self, xtal1_pos: float, beam_stop_pos: float) -> BeamMode:
         """Determine the current beam mode."""
@@ -332,13 +345,10 @@ def change_energy(
         # set camera exposure time
         yield from bps.mv(fs_window_cam.driver.acquire_time, exposure_time)
 
-        fig_factory = _figure_factory()
-
         # Scan the crystal 2 pitch and return the center of the fluorescence peak.
         # A fresh PeakStats per scan, so the GUI can plot one while the next runs.
         def energy_auto_tune(scan_name: str, angle_range: float, num_steps: int):
             ps = PeakStats(dclm.xtal2_pitch.name, fs_stats.mean_value.name)
-            plotter = _PeakStatsPlot(ps, f"energy_auto_tune {scan_name}", fig_factory)
             # ps must come first so its stats are computed before plotter sees 'stop'.
             yield from subs_wrapper(
                 bp.scan(
@@ -349,7 +359,7 @@ def change_energy(
                     num_steps,
                     md={"plan_name": "energy_auto_tune"},
                 ),
-                [ps, plotter],
+                [ps],
             )
             if ps.cen is None:  # type: ignore
                 raise RuntimeError(

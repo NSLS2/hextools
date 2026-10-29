@@ -2,25 +2,32 @@
 
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
-from importlib import resources
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 import bluesky.plan_stubs as bps
-import yaml
+from bluesky.protocols import Reading
 from ophyd_async.core import (
     AsyncMovable,
+    DeviceMock,
     StandardReadable,
     WatchableAsyncStatus,
+    default_mock_class,
     derived_signal_r,
     forward_watcher_updates,
+    set_mock_value,
     wait_for_value,
 )
 from ophyd_async.core import StandardReadableFormat as Format
 from ophyd_async.epics.core import EpicsDevice, epics_signal_r
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
-from ..utils import ensure_available
-from .shutter import PPSShutter, ShutterStatus
+from hextools.bl_constants import (
+    build_enums_from_position_lists,
+    fetch_beamline_constants,
+)
+
+from ..utils import ensure_available, get_obj_from_ipython_ns
+from .shutter import PPSShutter, ShutterStatus, ensure_shutter_open
 
 
 @dataclass
@@ -43,6 +50,57 @@ class FilterPosition(IntEnum):
     LOWER_LIMIT = 6
 
 
+class FilterMock(DeviceMock["Filter"]):
+    """Starts at pass through; in position while the motor rests on a setting.
+
+    Like the beamline, moving the filter trips the front-end shutter's interlock. The
+    shutter is ``fe_shutter`` from the session namespace, unless :meth:`interlock`
+    gave one.
+    """
+
+    #: How close (motor units) the readback must be to a setting's position.
+    tolerance = 0.01
+
+    def __init__(self, name: str = "", parent: DeviceMock | None = None) -> None:
+        super().__init__(name, parent)
+        self._fe_shutter: PPSShutter | None = None
+
+    def interlock(self, shutter: PPSShutter) -> None:
+        """Trip ``shutter``'s interlock on every move, instead of ``fe_shutter``'s."""
+        self._fe_shutter = shutter
+
+    async def connect(self, device: "Filter") -> None:
+        motor = device.filter_motor
+        start = device.positions[FilterPosition.PASS_THROUGH].position
+        set_mock_value(motor.user_setpoint, start)
+        set_mock_value(motor.user_readback, start)
+
+        def _update_in_position(reading: dict[str, Reading[float]]) -> None:
+            readback = reading[motor.user_readback.name]["value"]
+            set_mock_value(
+                device.in_position,
+                any(
+                    abs(readback - setting.position) <= self.tolerance
+                    for setting in device.positions.values()
+                ),
+            )
+
+        def _trip_interlock(reading: dict[str, Reading[int]]) -> None:
+            if reading[motor.motor_done_move.name]["value"]:
+                return
+            # Looked up per move: the profile defines fe_shutter after the filters.
+            shutter = self._fe_shutter or get_obj_from_ipython_ns(
+                "fe_shutter", PPSShutter
+            )
+            if shutter is not None:
+                set_mock_value(shutter.status, ShutterStatus.CLOSED)
+                set_mock_value(shutter.interlock_ack.acknowledged, False)
+
+        motor.user_readback.subscribe_reading(_update_in_position)
+        motor.motor_done_move.subscribe_reading(_trip_interlock)
+
+
+@default_mock_class(FilterMock)
 class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
     """Filter device with multiple positions.
 
@@ -65,12 +123,23 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
     def __init__(
         self,
         motor_pv: str,
-        positions: dict[FilterPosition, FilterSetting],
         in_pos_switch_pv: str,
         name: str = "",
     ):
+        try:
+            self.positions = {
+                FilterPosition[pos.upper()]: (
+                    FilterSetting(**setting)
+                    if isinstance(setting, dict)
+                    else FilterSetting(setting)
+                )
+                for pos, setting in fetch_beamline_constants("filters")[name].items()
+            }
+        except KeyError as e:
+            raise KeyError(
+                f"Filter settings for '{name}' not found in beamline constants."
+            ) from e
         self.in_position = epics_signal_r(bool, in_pos_switch_pv)
-        self.positions = positions
         self.filter_motor = AsyncEpicsMotor(motor_pv)
         with self.add_children_as_readables(Format.CONFIG_SIGNAL):
             self.description = derived_signal_r(
@@ -85,7 +154,7 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
 
         Parameters
         ----------
-        in_pos : int
+        in_pos : bool
             Indicates whether the filter is in position.
         motor_pos : float
             Current position of the filter motor.
@@ -127,103 +196,29 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
         await self.filter_motor.stop()
 
 
-FILTERS_CONFIG_RESOURCE: str = "filters.yml"
-
-
-def _filters_config() -> dict:
-    """Read the packaged ``filters.yml``."""
-    source = resources.files(__package__ or "hextools").joinpath(
-        FILTERS_CONFIG_RESOURCE
-    )
-    return yaml.safe_load(source.read_text(encoding="utf-8"))
-
-
-def load_filters() -> list[Filter]:
-    """Create Filter devices from the packaged YAML configuration file.
-
-    The ``filters.yml`` file bundled with the ``hextools`` package is used.
-    Each top-level key defines a filter with its ``motor_pv``,
-    ``in_position_switch`` PV, and a ``positions`` mapping. The ``positions``
-    mapping must contain exactly one entry per :class:`FilterPosition`, keyed by
-    the lowercased enum name (``upper_limit``, ``pass_through``, ``pos_1`` ..
-    ``pos_4``, ``lower_limit``). Each value is either a number (the motor
-    position) or a mapping with ``position`` and optional ``description`` keys.
-
-    Returns
-    -------
-    list[Filter]
-        One configured Filter device per top-level entry, named after its key.
-    """
-    config = _filters_config()
-
-    filters: list[Filter] = []
-    for name, spec in config["filters"].items():
-        positions_spec = spec["positions"]
-        if len(positions_spec) != len(FilterPosition):
-            raise ValueError(
-                f"Filter {name!r} must define exactly {len(FilterPosition)} "
-                f"positions (one per FilterPosition), got {len(positions_spec)}."
-            )
-        positions: dict[FilterPosition, FilterSetting] = {}
-        for key, value in positions_spec.items():
-            filter_position = FilterPosition[key.upper()]
-            if isinstance(value, dict):
-                setting = FilterSetting(value["position"], value.get("description"))
-            else:
-                setting = FilterSetting(value)
-            positions[filter_position] = setting
-        filters.append(
-            Filter(
-                motor_pv=spec["motor_pv"],
-                positions=positions,
-                in_pos_switch_pv=spec["in_position_switch"],
-                name=name,
-            )
-        )
-    return filters
-
-
-SET_FILTERS_NAMES = ("filter1_upstream", "filter1_downstream", "filter2")
-
-
-def _setting_positions(filter_name: str) -> dict[str, FilterPosition]:
-    """Map a filter's choices (pass through and its materials) to positions."""
-    positions = _filters_config()["filters"][filter_name]["positions"]
-    choices = {"pass through": FilterPosition.PASS_THROUGH}
-    for position in (
-        FilterPosition.POS_1,
-        FilterPosition.POS_2,
-        FilterPosition.POS_3,
-        FilterPosition.POS_4,
-    ):
-        value = positions[position.name.lower()]
-        # A slot with no description holds no filter, so it is not offered
-        if isinstance(value, dict) and value.get("description"):
-            choices[value["description"]] = position
-    return choices
-
-
-SETTING_POSITIONS: dict[str, dict[str, FilterPosition]] = {
-    name: _setting_positions(name) for name in SET_FILTERS_NAMES
-}
-
+# Dynamically build enums for filter positions from beamline constants
 if TYPE_CHECKING:
-    Filter1UpstreamSetting = Filter1DownstreamSetting = Filter2Setting = str
+    Filter1UpstreamPosition: TypeAlias = StrEnum
+    Filter1DownstreamPosition: TypeAlias = StrEnum
+    Filter2Position: TypeAlias = StrEnum
+    Filter3Position: TypeAlias = StrEnum
+    Filter4Position: TypeAlias = StrEnum
 else:
-    # Enums built from filters.yml so the GUI offers each filter's own materials
-    Filter1UpstreamSetting, Filter1DownstreamSetting, Filter2Setting = (
-        StrEnum(
-            name.title().replace("_", "") + "Setting",
-            {label: label for label in SETTING_POSITIONS[name]},
-        )
-        for name in SET_FILTERS_NAMES
+    (
+        Filter1UpstreamPosition,
+        Filter1DownstreamPosition,
+        Filter2Position,
+        Filter3Position,
+        Filter4Position,
+    ) = build_enums_from_position_lists(
+        "filters", always_included_keys=["pass_through"]
     )
 
 
 def set_filters(
-    filter1_upstream_setting: Filter1UpstreamSetting | None = None,
-    filter1_downstream_setting: Filter1DownstreamSetting | None = None,
-    filter2_setting: Filter2Setting | None = None,
+    filter1_upstream_setting: Filter1UpstreamPosition | None = None,
+    filter1_downstream_setting: Filter1DownstreamPosition | None = None,
+    filter2_setting: Filter2Position | None = None,
     filter1_upstream: Filter | None = None,
     filter1_downstream: Filter | None = None,
     filter2: Filter | None = None,
@@ -231,8 +226,8 @@ def set_filters(
 ):
     """Set filter 1 upstream, filter 1 downstream and filter 2 by material.
 
-    Each setting is one of that filter's materials from ``filters.yml`` (for
-    example ``"6 mm Cu"``) or ``"pass through"``. A filter with no setting does
+    Each setting is one of that filter's materials from ``bl_constants.yml`` (for
+    example ``"6 mm Cu"``) or ``"Pass Through"``. A filter with no setting does
     not move; the others move together.
 
     Moving a filter closes the front-end shutter through its interlock. Once the
@@ -241,11 +236,11 @@ def set_filters(
 
     Parameters
     ----------
-    filter1_upstream_setting : str, optional
+    filter1_upstream_setting : Filter1UpstreamPosition, optional
         Material for filter 1 upstream.
-    filter1_downstream_setting : str, optional
+    filter1_downstream_setting : Filter1DownstreamPosition, optional
         Material for filter 1 downstream.
-    filter2_setting : str, optional
+    filter2_setting : Filter2Position, optional
         Material for filter 2.
     filter1_upstream, filter1_downstream, filter2 : Filter, optional
         The filter devices. If None, taken from the session namespace.
@@ -257,26 +252,26 @@ def set_filters(
     ValueError
         If no setting is given, or a setting is not one of that filter's choices.
     """
-    requests = (
-        ("filter1_upstream", filter1_upstream_setting, filter1_upstream),
-        ("filter1_downstream", filter1_downstream_setting, filter1_downstream),
-        ("filter2", filter2_setting, filter2),
-    )
+    filter1_upstream = ensure_available(Filter, filter1_upstream=filter1_upstream)
+    filter1_downstream = ensure_available(Filter, filter1_downstream=filter1_downstream)
+    filter2 = ensure_available(Filter, filter2=filter2)
+    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
+
     args = []
-    for name, setting, device in requests:
-        if setting is None:
-            continue
-        choices = SETTING_POSITIONS[name]
-        if str(setting) not in choices:
-            raise ValueError(
-                f"{setting!r} is not a setting of {name}; choose one of {list(choices)}"
-            )
-        args += [ensure_available(Filter, **{name: device}), choices[str(setting)]]
+    for device, setting, choices in (
+        (filter1_upstream, filter1_upstream_setting, Filter1UpstreamPosition),
+        (filter1_downstream, filter1_downstream_setting, Filter1DownstreamPosition),
+        (filter2, filter2_setting, Filter2Position),
+    ):
+        if setting is not None:
+            # Lookup by value accepts the member or its material string, and raises
+            # ValueError for anything that isn't one of this filter's choices.
+            args += [device, FilterPosition[choices(setting).name]]
     if not args:
         raise ValueError("Choose a setting for at least one filter.")
-    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
+
     fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
     yield from bps.mv(*args)
-    yield from bps.mv(fe_shutter.interlock, True)
+    yield from bps.mv(fe_shutter.interlock_ack, True)
     if fe_was_open:
-        yield from bps.mv(fe_shutter, True)
+        yield from ensure_shutter_open(fe_shutter, allow_actuation=True)

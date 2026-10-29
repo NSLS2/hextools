@@ -51,7 +51,7 @@ class WorkerBase(QRunnable):
         self._running = False
         self._signals = SignalsClass()
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         """Pass through attr requests to signals to simplify connection API.
 
         The goal is to enable ``worker.signal.connect`` instead of
@@ -68,6 +68,9 @@ class WorkerBase(QRunnable):
             # (which is of type `SignalInstance` in PySide and
             # `pyqtBoundSignal` in PyQt)
             return getattr(self._signals, name)
+        raise AttributeError(
+            f"{type(self).__name__!r} object has no attribute {name!r}"
+        )
 
     def quit(self) -> None:
         """Send a request to abort the worker.

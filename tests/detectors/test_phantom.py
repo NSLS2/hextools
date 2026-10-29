@@ -234,7 +234,10 @@ async def test_arm_logic_arm_success(
     set_mock_value(
         phantom_arm_logic.driver.array_counter, 10
     )  # Matches post_trig_frames
-    set_mock_value(phantom_arm_logic.driver.total_frame_count, 10)
+    # 11 frames requested for download, with more than that available in the cine
+    set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)
+    set_mock_value(phantom_arm_logic.driver.download_end_frame, 5)
+    set_mock_value(phantom_arm_logic.driver.total_frame_count, 20)
 
     await phantom_arm_logic.start_acquiring()  # Should complete without exceptions
     assert await phantom_arm_logic.driver.download.get_value()
@@ -246,6 +249,7 @@ async def test_arm_logic_wait_for_idle_timeout(
     monkeypatch.setattr(
         hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
     )  # Set a short timeout for the test
+    set_mock_value(phantom_arm_logic.driver.selected_cine, 1)
     set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)
     set_mock_value(phantom_arm_logic.driver.download_end_frame, 5)
     set_mock_value(phantom_arm_logic.driver.download, True)
@@ -264,12 +268,14 @@ async def test_arm_logic_wait_for_idle_success(
     monkeypatch.setattr(
         hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.5
     )  # Set a short timeout for the test
+    set_mock_value(phantom_arm_logic.driver.selected_cine, 1)
     set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)
     set_mock_value(phantom_arm_logic.driver.download_end_frame, 5)
     set_mock_value(phantom_arm_logic.driver.download, True)
     set_mock_value(phantom_arm_logic.driver.selected_cine, 1)
 
-    # Simulate frames being downloaded by incrementing download_count
+    # Simulate frames being downloaded by incrementing download_count, then mark
+    # the cine as saved once all frames have been downloaded
     async def _simulate_download():
         while True:
             await asyncio.sleep(0.001)
@@ -280,6 +286,7 @@ async def test_arm_logic_wait_for_idle_success(
                 )
                 break
             set_mock_value(phantom_arm_logic.driver.download_count, count + 1)
+        set_mock_value(phantom_arm_logic.driver.cines[1].cine_content_saved, True)
 
     download_task = asyncio.create_task(_simulate_download())
     try:
@@ -343,6 +350,8 @@ async def test_detector_full_stack(
     RE.subscribe(lambda name, doc: docs_cache.setdefault(name, []).append(doc))
 
     set_mock_value(phantom.hdf.file_path_exists, True)
+    assert phantom.proc is not None
+    set_mock_value(phantom.proc.num_filter, 1)
     set_mock_value(
         phantom.driver.select_pixel_data_format, PhantomPixelDataFormat.P_TEN
     )
@@ -362,6 +371,7 @@ async def test_detector_full_stack(
             set_mock_value(phantom.driver.trigger_received, True)
             set_mock_value(phantom.driver.array_counter, 15)
             set_mock_value(phantom.driver.complete_and_valid, True)
+            set_mock_value(phantom.driver.total_frame_count, 15)
 
     def _on_download(value, **kwargs):
         assert phantom.hdf is not None
@@ -419,5 +429,6 @@ async def test_detector_full_stack(
     assert "primary" in run
     assert "phantom" in run["primary"]
     data = run["primary"]["phantom"].read()
-    assert data.shape == (1, 11, 3, 4)  # one event of 11 frames
+    # A single event, containing all 11 downloaded frames
+    assert data.shape == (1, 11, 3, 4)
     assert data.dtype == np.uint16

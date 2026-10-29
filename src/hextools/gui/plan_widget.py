@@ -66,11 +66,7 @@ from qtpy.QtWidgets import (
 from hextools.edxd import edxd_2theta_tilt
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_selector_widget import DynamicDeviceSelector
-from hextools.gui.device_sources import (
-    NamespaceDeviceSource,
-    QueueServerDeviceSource,
-    device_display_name,
-)
+from hextools.gui.device_sources import NamespaceDeviceSource, QueueServerDeviceSource
 from hextools.log import _unwrap_failed_status
 from hextools.photon_delivery_system import move_slits
 
@@ -501,7 +497,7 @@ class QtPlanWidget(QWidget):
                 combo.clear()
                 combo.addItem(_NO_SELECTION, None)
                 for name in options:
-                    combo.addItem(device_display_name(name), name)
+                    combo.addItem(name, name)
                 index = combo.findData(current)
                 combo.setCurrentIndex(index if index >= 0 else 0)
                 combo.blockSignals(False)

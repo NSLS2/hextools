@@ -42,7 +42,7 @@ The import block pulls in three kinds of names:
   `PhantomDetector`, `GeRMDetector`, `NSLS2StorageRing`, filters).
 - **Plans** — everything a user should be able to run at the prompt:
   `bp` and `bps` (bluesky's built-in plans and stubs), `move_motor`,
-  `move_slits`, `set_fe_slit1_aperture`, `set_filters`, `change_energy`,
+  `move_slits`, `set_fe_aperture`, `set_filters`, `change_energy`,
   `change_beam_mode`, the tomography plans (`tomo_flyscan`,
   `tomo_alignment_scan`, `tomo_1d_step_scan`, `tomo_2d_step_scan`,
   `tomo_nd_step_scan`) and the EDXD plans (`edxd_scan`, `edxd_count`,
@@ -234,7 +234,7 @@ The devices, in order:
 | `optics_table`                                | Motors of the optics table.                                                                              |
 | `sample_tower`, `rot_motor`                   | The sample stage. `rot_motor` is an alias for its rotation axis, `sample_tower.ry2`, used by tomography. |
 | `edxd_table`, `collimator_table`              | The EDXD detector table and collimator table.                                                            |
-| `filters`, plus one variable per filter       | Filters built from the filter configuration file by `load_filters()`.                                    |
+| `filter1_upstream`, `filter1_downstream`, `filter2` … `filter4` | Filters whose positions come from `bl_constants.yml`.                                    |
 | `panda`                                       | The PandABox, which triggers detectors and records rotation angles in flyscans.                          |
 | `kinetix1` … `kinetix4`                       | The four Kinetix cameras used for imaging.                                                               |
 | `double_obj_camera`, `wide_fov_camera`        | Motors of the two Optique-Peter microscope objectives.                                                   |

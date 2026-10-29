@@ -7,6 +7,7 @@ from collections.abc import Callable, Hashable
 from bluesky import plan_stubs as bps
 from bluesky.protocols import Reading, Subscribable
 from ophyd_async.core import (
+    DEFAULT_TIMEOUT,
     AsyncMovable,
     AsyncStatus,
     Device,
@@ -24,9 +25,6 @@ from ophyd_async.epics.core import (
     epics_signal_rw,
     epics_triggerable_command,
 )
-
-DEFAULT_SHUTTER_TIMEOUT = 10
-INTERLOCK_ACK_TIMEOUT = 10
 
 
 class ShutterStatus(StrictEnum):
@@ -105,7 +103,7 @@ class Shutter(EpicsDevice, Subscribable[bool], AsyncMovable[bool]):
         await wait_for_value(
             self.status,
             ShutterStatus.OPEN if value else ShutterStatus.CLOSED,
-            timeout=DEFAULT_SHUTTER_TIMEOUT,
+            timeout=DEFAULT_TIMEOUT,
         )
 
     def subscribe_reading(
@@ -158,7 +156,7 @@ class MockInterlockAcknowledge(DeviceMock["InterlockAcknowledge"]):
 
 @default_mock_class(MockInterlockAcknowledge)
 class InterlockAcknowledge(Device, AsyncMovable[bool]):
-    """A PPS shutter's interlock acknowledge, the AcK button on the PPS screen.
+    """A PPS shutter's interlock acknowledge.
 
     Setting True acknowledges the interlock and waits until the PPS reports it
     acknowledged; nothing is written if it already is.
@@ -181,7 +179,7 @@ class InterlockAcknowledge(Device, AsyncMovable[bool]):
         if await self.acknowledged.get_value() == value:
             return
         await self.request.set(value)
-        await wait_for_value(self.acknowledged, value, timeout=INTERLOCK_ACK_TIMEOUT)
+        await wait_for_value(self.acknowledged, value, timeout=DEFAULT_TIMEOUT)
 
 
 class PPSShutter(Shutter):
@@ -189,12 +187,12 @@ class PPSShutter(Shutter):
 
     Attributes
     ----------
-    interlock : InterlockAcknowledge
+    interlock_ack : InterlockAcknowledge
         Move it to True to acknowledge the interlock.
     """
 
     def __init__(self, prefix: str, name: str = ""):
-        self.interlock = InterlockAcknowledge(prefix)
+        self.interlock_ack = InterlockAcknowledge(prefix)
         super().__init__(prefix, name=name)
 
 
@@ -221,6 +219,8 @@ def ensure_shutter_state(
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
         whether to wait for the shutter to reach the desired state after actuation
+    sleep_time : float, default 4.0
+        the time to sleep to ensure the shutter has reached the desired state
     """
     shutters = shutter if isinstance(shutter, list) else [shutter]
 
@@ -235,10 +235,13 @@ def ensure_shutter_state(
                 yield from bps.abs_set(s, desired_state, group=group, wait=False)
                 actuated = True
             else:
-                raise RuntimeError(f"Shutter {s.name} is not in the desired state!")
+                raise ValueError(
+                    f"Shutter {s.name} is {shutter_statuses[s.name].name.lower()}, but"
+                    f" the desired state is {'open' if desired_state else 'closed'}!"
+                )
 
     if wait and actuated:
-        yield from bps.wait(group=group, timeout=DEFAULT_SHUTTER_TIMEOUT)
+        yield from bps.wait(group=group, timeout=DEFAULT_TIMEOUT)
 
         # It seems that the shutter status in EPICS is not reliable enough to
         # consider the shutter fully opened/closed, so wait some extra time.
@@ -250,6 +253,7 @@ def ensure_shutter_open(
     allow_actuation: bool = False,
     group: Hashable | None = None,
     wait: bool = True,
+    sleep_time: float = 4.0,
 ):
     """Plan stub to guarantee that the shutter(s) is/are open.
 
@@ -264,9 +268,16 @@ def ensure_shutter_open(
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
         whether to wait for the shutter to reach the desired state after actuation
+    sleep_time : float, default 4.0
+        the time to sleep to ensure the shutter has reached the desired state
     """
     yield from ensure_shutter_state(
-        shutter, True, allow_actuation=allow_actuation, wait=wait, group=group
+        shutter,
+        True,
+        allow_actuation=allow_actuation,
+        wait=wait,
+        group=group,
+        sleep_time=sleep_time,
     )
 
 
@@ -275,6 +286,7 @@ def ensure_shutter_closed(
     allow_actuation: bool = True,
     group: Hashable | None = None,
     wait: bool = True,
+    sleep_time: float = 4.0,
 ):
     """Plan stub to guarantee that the shutter is closed.
 
@@ -289,7 +301,14 @@ def ensure_shutter_closed(
         the Bluesky group to use for the actuation, if any
     wait : bool, default True
             whether to wait for the shutter to reach the desired state after actuation
+    sleep_time : float, default 4.0
+        the time to sleep to ensure the shutter has reached the desired state
     """
     yield from ensure_shutter_state(
-        shutter, False, allow_actuation=allow_actuation, wait=wait, group=group
+        shutter,
+        False,
+        allow_actuation=allow_actuation,
+        wait=wait,
+        group=group,
+        sleep_time=sleep_time,
     )

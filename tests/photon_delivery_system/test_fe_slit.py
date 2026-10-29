@@ -10,12 +10,10 @@ from ophyd_async.core import (
     set_mock_value,
 )
 
-from hextools.photon_delivery_system.fe_slit import (
-    APERTURE_POSITIONS,
-    BETWEEN_APERTURES,
+from hextools.photon_delivery_system.slits import (
     FrontEndSlit,
     SlitAperture,
-    set_fe_slit1_aperture,
+    set_fe_aperture,
 )
 
 
@@ -30,13 +28,13 @@ def _re_slit() -> FrontEndSlit:
     return fe_slit1
 
 
-def test_aperture_positions_match_the_hex_table():
-    assert {a.value: y for a, y in APERTURE_POSITIONS.items()} == {
+def test_aperture_positions_match_the_hex_table(RE: RunEngine):
+    assert {a.value: y for a, y in _re_slit()._settings.items()} == {
         "Fully open (24 x 4.55 mm)": -30.0,
-        "7.13 x 3.56 mm": -10.0,
+        "Large (7.13 x 3.56 mm)": -10.0,
         "Fully closed": 0.0,
-        "3.56 x 3.56 mm": 10.0,
-        "Pinhole 0.89 mm": 30.0,
+        "Small (3.56 x 3.56 mm)": 10.0,
+        "Pinhole (0.89 mm)": 30.0,
     }
 
 
@@ -44,35 +42,35 @@ def test_aperture_positions_match_the_hex_table():
     "y, expected",
     [
         (-30.0, "Fully open (24 x 4.55 mm)"),
-        (-10.02, "7.13 x 3.56 mm"),
+        (-10.02, "Large (7.13 x 3.56 mm)"),
         (0.0, "Fully closed"),
-        (30.0, "Pinhole 0.89 mm"),
-        (5.0, BETWEEN_APERTURES),
-        (-30.67, BETWEEN_APERTURES),
+        (30.0, "Pinhole (0.89 mm)"),
+        (4.0, "Fully closed"),
+        (-30.67, "Fully open (24 x 4.55 mm)"),
     ],
 )
-async def test_aperture_reads_from_y(RE: RunEngine, y: float, expected: str):
+async def test_aperture_reads_closest_to_y(RE: RunEngine, y: float, expected: str):
     fe_slit1 = _re_slit()
     set_mock_value(fe_slit1.y.user_readback, y)
     assert await fe_slit1.aperture.get_value() == expected
 
 
 @pytest.mark.parametrize("aperture", list(SlitAperture))
-async def test_set_fe_slit1_aperture_moves_y(RE: RunEngine, aperture: SlitAperture):
+async def test_set_fe_aperture_moves_y(RE: RunEngine, aperture: SlitAperture):
     fe_slit1 = _re_slit()
 
     # The GUI submits the dropdown's string value.
-    RE(set_fe_slit1_aperture(cast(SlitAperture, aperture.value), fe_slit1=fe_slit1))
+    RE(set_fe_aperture(cast(SlitAperture, aperture.value), fe_slit1=fe_slit1))
 
     assert await fe_slit1.y.user_readback.get_value() == pytest.approx(
-        APERTURE_POSITIONS[aperture]
+        fe_slit1._settings[aperture]
     )
     assert await fe_slit1.aperture.get_value() == aperture.value
 
 
-def test_set_fe_slit1_aperture_refuses_unknown_aperture(RE: RunEngine):
+def test_set_fe_aperture_refuses_unknown_aperture(RE: RunEngine):
     with pytest.raises(ValueError):
-        RE(set_fe_slit1_aperture(cast(SlitAperture, "2 x 2 mm"), fe_slit1=_re_slit()))
+        RE(set_fe_aperture(cast(SlitAperture, "2 x 2 mm"), fe_slit1=_re_slit()))
 
 
 async def test_stop_stops_y_while_moving(RE: RunEngine):

@@ -164,7 +164,7 @@ class QtTabbedDetectorsWidget(QTabWidget):
     def _sync_running(self, *_):
         """Run only the viewers in the current tab, and only while shown."""
         current = self.currentWidget() if self.isVisible() else None
-        wanted = set(self._tab_viewers.get(current, []))
+        wanted = set(self._tab_viewers.get(current, [])) if current else set()
         # Stop before starting so the same PV is never subscribed twice at once.
         for viewer in self._running - wanted:
             try:

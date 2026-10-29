@@ -1,0 +1,66 @@
+---
+
+monochromator:
+  beam_stop_in: 0.0
+  beam_stop_out: 48.3
+  xtal1_in: 0.0
+  xtal1_out: -36.0
+  fs_in: 25.0
+  fs_out: 46.0
+  bragg_factor: 1.977
+  bragg_angle_offset: 35.2544
+  fixed_beam_offset: 25.0
+  fs_distance: 1428.0
+
+filters:
+  filter1_upstream:
+    upper_limit: 68.0
+    pass_through: 66.6
+    pos_1: {position: 41.5, description: 6 mm Cu}
+    pos_2: {position: 6.5, description: 6 mm Al}
+    pos_3: -28.5
+    pos_4: {position: -58.0, description: Bo-Hori.}
+    lower_limit: -63.2
+
+  filter1_downstream:
+    upper_limit: 62.8
+    pass_through: 60.3
+    pos_1: {position: 35.3, description: 4 mm Cu}
+    pos_2: {position: 0.3, description: 2 mm Cu}
+    pos_3: {position: -34.7, description: 6 mm Al}
+    pos_4: {position: -69.7, description: Bo-Ver.}
+    lower_limit: -73.5
+
+  filter2:
+    upper_limit: 72.2
+    pass_through: 70.2
+    pos_1: {position: 45.2, description: 2 mm Cu}
+    pos_2: {position: 10.2, description: 1.5 mm Cu}
+    pos_3: {position: -24.8, description: 1 mm Cu}
+    pos_4: {position: -58.0, description: 0.5 mm Cu}
+    lower_limit: -61.2
+
+  filter3:
+    upper_limit: 66.6
+    pass_through: 66.0
+    pos_1: 40.0
+    pos_2: 5.0
+    pos_3: -30.0
+    pos_4: -63.0
+    lower_limit: -64.9
+
+  filter4:
+    upper_limit: 71.8
+    pass_through: 70.0
+    pos_1: 45.0
+    pos_2: 10.0
+    pos_3: -25.0
+    pos_4: -57.0
+    lower_limit: -59.8
+
+fe_aperture:
+  fully_open: -30.0
+  large: -10.0
+  fully_closed: 0.0
+  small: 10.0
+  pinhole: 30.0

@@ -165,7 +165,10 @@ class QtShutterStatus(QWidget):
         plan = ensure_shutter_closed if button.is_open else ensure_shutter_open
         # Make the plan resolvable when the command is echoed and run in IPython.
         self._namespace.setdefault(plan.__name__, plan)  # type: ignore
-        code = f"RE({plan.__name__}({button.var_name}, allow_actuation=True))"
+        code = (
+            f"RE({plan.__name__}({button.var_name}, "
+            "allow_actuation=True, sleep_time=0.0))"
+        )
         # Reserve both controls before the deferred cell can run or Qt reenters.
         self._pending = True
         self._update_enabled()
