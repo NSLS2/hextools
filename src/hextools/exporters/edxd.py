@@ -4,6 +4,7 @@ from pathlib import Path
 
 import h5py
 from bluesky_tiled_plugins import CatalogOfBlueskyRuns
+from bluesky_tiled_plugins.clients.bluesky_event_stream import BlueskyEventStreamV3
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 
 from hextools.exporters.utils import confirm_required_start_fields
@@ -38,9 +39,12 @@ def export_edxd_run_to_h5(
     if not isinstance(run, BlueskyRunV3):
         raise ValueError("Failed to resolve EDXD run to a BlueskyRunV3 instance")
 
-    primary_data = run["primary"].read(
-        variables=[key for key in run["primary"] if key != "germ"]
-    )
+    primary = run["primary"]
+    if not isinstance(primary, BlueskyEventStreamV3):
+        raise TypeError(
+            f"Expected a BlueskyEventStreamV3, got {type(primary).__name__}"
+        )
+    primary_data = primary.read(variables=[key for key in primary if key != "germ"])
     baseline_data = run["baseline"].read()
     proposal, cycle, scan_id = confirm_required_start_fields(run.start)
 
@@ -67,7 +71,10 @@ def export_edxd_run_to_h5(
 
     run_metadata_to_json(run, scan_id, metadata_dir_path)
 
-    for data_source in run["primary"]["germ"].data_sources():
+    germ_data_sources = run["primary"]["germ"].data_sources()
+    if germ_data_sources is None:
+        return
+    for data_source in germ_data_sources:
         for asset in data_source.assets:
             asset_path = Path(asset.data_uri.split("localhost")[1])
             raw_path = raw_export_dir_path / asset_path.name
