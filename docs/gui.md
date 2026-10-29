@@ -56,8 +56,9 @@ The window has four areas:
 | **Plan Status**    | The running plan, its scan ID(s), and the last step it reported. When a plan runs another plan internally (e.g. a step scan running flyscans), both are shown. |
 | **Shutters**       | One button per shutter: green when open, red when closed. Click to toggle; both controls are disabled until that action finishes, and whenever the RunEngine is busy or paused. |
 
-Shutter controls wait for the actual plan, including its settling delays; the
-slow photon shutter and faster front-end shutter do not share a fixed timeout.
+Shutter controls wait for actual completion; manual button actions skip the
+extra settling sleep, while acquisition plans retain their settling delays.
+The slow photon shutter and faster front-end shutter do not share a fixed timeout.
 After a pause, use the execution controls to resume or abort before actuating
 another shutter. Errors are reported and controls become available when the
 RunEngine returns to idle.
@@ -71,6 +72,10 @@ Switching devices discards late results from the previous selection.
 current positions. These are selection-time snapshots, not continuously updated
 readbacks. Queue Server mode cannot read local devices and keeps optional
 targets blank.
+
+On the EDXD scan and custom-position grid forms, **Save as TIFF** starts checked.
+Uncheck it to request HDF5 instead. This is a GUI default only; the Python plan
+defaults are unchanged.
 
 ### Menus
 

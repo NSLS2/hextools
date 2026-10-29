@@ -29,6 +29,7 @@ def test_shutter_buttons_exclude_duplicate_and_counterpart_submissions(
 
     def execute(code):
         calls.append(code)
+        assert "sleep_time=0.0" in code
         assert not any(b.isEnabled() for b in widget._buttons)
         widget._toggle(widget._buttons[1])
         return error

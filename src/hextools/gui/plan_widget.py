@@ -63,7 +63,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.edxd import edxd_2theta_tilt
+from hextools.edxd import edxd_2theta_tilt, edxd_custom_pos_list_grid, edxd_scan
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_selector_widget import DynamicDeviceSelector
 from hextools.gui.device_sources import NamespaceDeviceSource, QueueServerDeviceSource
@@ -339,7 +339,7 @@ class QtPlanWidget(QWidget):
                 f["widget"] for f in self._device_fields if f["name"] == "slits"
             )
             combo.currentIndexChanged.connect(self._refresh_slit_values)
-            self._slit_fields()["relative"].toggled.connect(self._refresh_slit_values)
+            self._slit_relative().toggled.connect(self._refresh_slit_values)
             self._refresh_slit_values()
 
     # -- Form construction -----------------------------------------------------
@@ -415,7 +415,13 @@ class QtPlanWidget(QWidget):
     def _add_scalar_field(self, form, name, kind, param, required):
         if kind is bool:
             widget = QCheckBox()
-            widget.setChecked(bool(param.default) if not required else False)
+            default = bool(param.default) if not required else False
+            if (
+                self._plan in (edxd_scan, edxd_custom_pos_list_grid)
+                and name == "save_as_tiff"
+            ):
+                default = True
+            widget.setChecked(default)
         else:
             widget = QLineEdit()
             if kind is int:
@@ -512,8 +518,18 @@ class QtPlanWidget(QWidget):
 
     # -- Submission ------------------------------------------------------------
 
-    def _slit_fields(self):
-        return {name: widget for name, _, widget, _ in self._scalar_fields}
+    def _slit_fields(self) -> dict[str, QLineEdit]:
+        return {
+            name: widget
+            for name, _, widget, _ in self._scalar_fields
+            if isinstance(widget, QLineEdit)
+        }
+
+    def _slit_relative(self) -> QCheckBox:
+        widget = next(w for n, _, w, _ in self._scalar_fields if n == "relative")
+        if not isinstance(widget, QCheckBox):
+            raise TypeError("The slit relative-mode field must be a checkbox")
+        return widget
 
     def _refresh_slit_values(self, *_):
         if not isinstance(self._device_source, NamespaceDeviceSource):
@@ -522,8 +538,7 @@ class QtPlanWidget(QWidget):
         request = self._slit_request
         if self._slit_future is not None:
             self._slit_future.cancel()
-        fields = self._slit_fields()
-        values = {name: w for name, w in fields.items() if name != "relative"}
+        values = self._slit_fields()
         for widget in values.values():
             widget.clear()
             widget.setEnabled(False)
@@ -533,7 +548,7 @@ class QtPlanWidget(QWidget):
         if name is None:
             self._set_status("Select slits to load their current values.")
             return
-        if fields["relative"].isChecked():
+        if self._slit_relative().isChecked():
             self._apply_slit_values(request, dict.fromkeys(values, 0.0), None)
             return
 
@@ -579,7 +594,7 @@ class QtPlanWidget(QWidget):
             widget.setText(str(value))
             widget.setEnabled(True)
         self._submit_button.setEnabled(True)
-        relative = self._slit_fields()["relative"].isChecked()
+        relative = self._slit_relative().isChecked()
         self._set_status(
             "Relative offsets (zero leaves each axis unchanged)."
             if relative
