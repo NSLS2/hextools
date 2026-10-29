@@ -10,8 +10,10 @@ import bluesky.plans as bp  # noqa: E402
 import matplotlib  # noqa: E402
 from bluesky import RunEngine  # noqa: E402
 from bluesky import plan_stubs as bps  # noqa: E402
+from bluesky.run_engine import call_in_bluesky_event_loop  # noqa: E402
 from IPython.core.interactiveshell import InteractiveShell  # noqa: E402
-from ophyd.sim import det, motor  # noqa: E402  # type: ignore
+from ophyd_async.core import init_devices  # noqa: E402
+from ophyd_async.sim import PatternGenerator, SimMotor, SimPointDetector  # noqa: E402
 from qtpy.QtCore import QTimer  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
@@ -22,6 +24,14 @@ from hextools.gui.re_execution_controls import QtReExecutionControls  # noqa: E4
 def _slow_step(detectors, step, pos_cache):
     yield from bps.one_nd_step(detectors, step, pos_cache)
     yield from bps.sleep(0.1)
+
+
+def _sim_devices():
+    # Connects in the bluesky event loop, so a RunEngine must exist first.
+    with init_devices():
+        det = SimPointDetector(PatternGenerator())
+        motor = SimMotor()
+    return det, motor
 
 
 # RE.resume() installs a SIGINT handler, which Python allows only on the main
@@ -35,6 +45,7 @@ def test_resume_button_resumes_a_paused_plan(given):
     app = QApplication.instance() or QApplication([])
     shell = InteractiveShell.instance()
     RE = RunEngine({})
+    det, motor = _sim_devices()
     shell.user_ns.update(
         RE=RE if given == "shell" else RunEngine({}),
         test_RE=RE,
@@ -69,7 +80,8 @@ def test_resume_button_resumes_a_paused_plan(given):
 
     assert seen == ["paused"]
     assert RE.state == "idle", f"plan did not resume: state={RE.state}"
-    assert motor.position == pytest.approx(1)
+    position = call_in_bluesky_event_loop(motor.user_readback.get_value())
+    assert position == pytest.approx(1)
 
 
 # PR 94 review: a double-click on Resume must resume once, not queue a second
@@ -79,6 +91,7 @@ def test_double_click_on_resume_resumes_once():
     app = QApplication.instance() or QApplication([])
     shell = InteractiveShell.instance()
     RE = RunEngine({})
+    det, motor = _sim_devices()
     shell.user_ns.update(RE=RE, bp=bp, det=det, motor=motor, _slow_step=_slow_step)
     controls = QtReExecutionControls(local=True, namespace=shell.user_ns)
     resumes = []
