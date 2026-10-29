@@ -1,7 +1,6 @@
 """Slit device for the photon delivery system."""
 
 import asyncio
-from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 
@@ -17,8 +16,10 @@ from ophyd_async.core import (
 from ophyd_async.core import StandardReadableFormat as Format
 from ophyd_async.epics.core import EpicsDevice
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+
 from hextools.bl_constants import fetch_beamline_constants
 from hextools.utils import ensure_available
+
 
 class SlitAperture(StrEnum):
     """Apertures of front-end Slit1; the values are what the GUI offers."""
@@ -28,6 +29,7 @@ class SlitAperture(StrEnum):
     FULLY_CLOSED = "Fully closed"
     SMALL = "Small (3.56 x 3.56 mm)"
     PINHOLE = "Pinhole (0.89 mm)"
+
 
 class FrontEndSlit(StandardReadable, AsyncMovable[SlitAperture]):
     """A front-end slit whose aperture is chosen by moving its Y axis.
@@ -42,17 +44,18 @@ class FrontEndSlit(StandardReadable, AsyncMovable[SlitAperture]):
     """
 
     def __init__(self, prefix: str, name: str = ""):
-        self._settings = {SlitAperture[k.upper()]: v for k, v in fetch_beamline_constants("fe_aperture").items()}
+        self._settings = {
+            SlitAperture[k.upper()]: v
+            for k, v in fetch_beamline_constants("fe_aperture").items()
+        }
         with self.add_children_as_readables():
             self.y = AsyncEpicsMotor(prefix + "Mtr")
         with self.add_children_as_readables(Format.CONFIG_SIGNAL):
             self.aperture = derived_signal_r(self._aperture, y=self.y.user_readback)
         super().__init__(name=name)
 
-
     def _aperture(self, y: float) -> str:
         return min(self._settings, key=lambda a: abs(self._settings[a] - y)).value
-
 
     @WatchableAsyncStatus.wrap
     async def set(self, value: SlitAperture):
@@ -64,15 +67,20 @@ class FrontEndSlit(StandardReadable, AsyncMovable[SlitAperture]):
             The aperture, or its value as a string.
         """
         if value not in self._settings:
-            raise ValueError(f"Aperture setting not found for {value}, available settings: {list(self._settings.keys())}")
+            raise ValueError(
+                f"Aperture setting not found for {value}, "
+                f"available settings: {list(self._settings.keys())}"
+            )
         move_status = self.y.set(self._settings[value])
-        async for update in forward_watcher_updates([move_status], self.name, combine=False):
+        async for update in forward_watcher_updates(
+            [move_status], self.name, combine=False
+        ):
             yield update
-
 
     async def stop(self, success: bool = False):
         """Stop Y, so pausing or aborting the RunEngine stops a move."""
         await self.y.stop()
+
 
 def set_fe_aperture(aperture: SlitAperture, fe_slit1: FrontEndSlit | None = None):
     """Move front-end slit Y to a named aperture.

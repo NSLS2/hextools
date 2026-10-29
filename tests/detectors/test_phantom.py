@@ -350,6 +350,7 @@ async def test_detector_full_stack(
     RE.subscribe(lambda name, doc: docs_cache.setdefault(name, []).append(doc))
 
     set_mock_value(phantom.hdf.file_path_exists, True)
+    assert phantom.proc is not None
     set_mock_value(phantom.proc.num_filter, 1)
     set_mock_value(
         phantom.driver.select_pixel_data_format, PhantomPixelDataFormat.P_TEN

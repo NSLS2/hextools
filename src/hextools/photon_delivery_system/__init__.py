@@ -11,7 +11,7 @@ from .shutter import (
     ensure_shutter_open,
     ensure_shutter_state,
 )
-from .slits import Slits, move_slits, FrontEndSlit, SlitAperture, set_fe_aperture
+from .slits import FrontEndSlit, SlitAperture, Slits, move_slits, set_fe_aperture
 
 __all__ = [
     "Shutter",

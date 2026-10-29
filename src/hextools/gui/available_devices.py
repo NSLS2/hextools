@@ -23,7 +23,6 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-
 _DEVICE_BASES: list[type] = []
 try:
     from ophyd_async.core import Device as _AsyncDevice

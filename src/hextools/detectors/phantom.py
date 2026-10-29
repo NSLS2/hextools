@@ -543,6 +543,7 @@ class PhantomDetector(AreaDetector[PhantomIO]):
     """Detector class for Phantom cameras."""
 
     hdf: NDFileHDF5IO | None = None
+    proc: NDProcessIO | None = None
 
     def __init__(
         self,

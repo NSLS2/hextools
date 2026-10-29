@@ -722,7 +722,7 @@ def test_tomo_flyscan_fails_if_fe_shutter_closed(
     rig = fly_rig([ktx])
     docs, cache = _doc_cache()
 
-    with pytest.raises(ValueError, match="is closed but the desired state is open"):
+    with pytest.raises(ValueError, match="is closed, but the desired state is open"):
         RE(
             rig.flyscan([ktx], two_shutters, num_projections=5, exposure_time=0.01),
             cache,  # type: ignore

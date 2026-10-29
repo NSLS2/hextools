@@ -3,7 +3,6 @@
 import asyncio
 from collections.abc import Callable
 from functools import partial
-from typing import Final
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,7 +11,6 @@ from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.callbacks.fitting import PeakStats
-from bluesky.callbacks.mpl_plotting import QtAwareCallback, plot_peak_stats
 from bluesky.preprocessors import finalize_wrapper, subs_wrapper
 from IPython.core.getipython import get_ipython
 from matplotlib.figure import Figure
@@ -163,7 +161,7 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
     @property
     def bragg_factor(self) -> float:
         return self._bragg_factor
-    
+
     @property
     def fixed_beam_offset(self) -> float:
         return self._fixed_beam_offset
@@ -346,8 +344,6 @@ def change_energy(
 
         # set camera exposure time
         yield from bps.mv(fs_window_cam.driver.acquire_time, exposure_time)
-
-        fig_factory = _figure_factory()
 
         # Scan the crystal 2 pitch and return the center of the fluorescence peak.
         # A fresh PeakStats per scan, so the GUI can plot one while the next runs.

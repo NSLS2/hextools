@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
-from importlib import resources
 from typing import TYPE_CHECKING, TypeAlias
 
 import bluesky.plan_stubs as bps
@@ -18,11 +17,12 @@ from ophyd_async.core import StandardReadableFormat as Format
 from ophyd_async.epics.core import EpicsDevice, epics_signal_r
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
-from ..utils import ensure_available
 from hextools.bl_constants import (
     build_enums_from_position_lists,
     fetch_beamline_constants,
 )
+
+from ..utils import ensure_available
 from .shutter import PPSShutter, ShutterStatus
 
 
@@ -81,16 +81,18 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
                 for pos, setting in fetch_beamline_constants("filters")[name].items()
             }
         except KeyError as e:
-            raise KeyError(f"Filter settings for '{name}' not found in beamline constants.") from e
+            raise KeyError(
+                f"Filter settings for '{name}' not found in beamline constants."
+            ) from e
         self.in_position = epics_signal_r(bool, in_pos_switch_pv)
         self.filter_motor = AsyncEpicsMotor(motor_pv)
         with self.add_children_as_readables(Format.CONFIG_SIGNAL):
             self.description = derived_signal_r(
                 self._get_description,
+                in_pos=self.in_position,
                 motor_pos=self.filter_motor.user_readback,
             )
         super().__init__(name=name)
-        
 
     def _get_description(self, in_pos: bool, motor_pos: float) -> str:
         """Get the description of the current filter setting based on motor position.
@@ -199,17 +201,17 @@ def set_filters(
     if filter1_upstream_setting is not None:
         args += [
             ensure_available(Filter, filter1_upstream=filter1_upstream),
-            FilterPosition[Filter1UpstreamPosition(filter1_upstream_setting).name],
+            FilterPosition[Filter1UpstreamPosition(filter1_upstream_setting).name],  # type: ignore
         ]
     if filter1_downstream_setting is not None:
         args += [
             ensure_available(Filter, filter1_downstream=filter1_downstream),
-            FilterPosition[Filter1DownstreamPosition(filter1_downstream_setting).name],
+            FilterPosition[Filter1DownstreamPosition(filter1_downstream_setting).name],  # type: ignore
         ]
     if filter2_setting is not None:
         args += [
             ensure_available(Filter, filter2=filter2),
-            FilterPosition[Filter2Position(filter2_setting).name],
+            FilterPosition[Filter2Position(filter2_setting).name],  # type: ignore
         ]
     if not args:
         raise ValueError("Choose a setting for at least one filter.")

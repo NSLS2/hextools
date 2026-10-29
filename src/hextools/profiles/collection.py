@@ -234,11 +234,31 @@ with auto_init_devices(timeout=2.0):
     collimator_table = CollimatorTable("XF:27IDF-OP:1{", name="collimator-table")
 
     # Filters, first the two filter 1 (upstream/downstream), then filters 2, 3, and 4
-    filter1_upstream = Filter("XF:27IDA-OP:1{Fltr:1-Ax:Yu}Mtr", "XF:27IDA-OP:0{Fltr:1_US}Sw:InPos-Sts", name="filter1_upstream")
-    filter1_downstream = Filter("XF:27IDA-OP:1{Fltr:1-Ax:Yd}Mtr", "XF:27IDA-OP:0{Fltr:1_DS}Sw:InPos-Sts", name="filter1_downstream")
-    filter2 = Filter("XF:27IDA-OP:1{Fltr:2-Ax:Y}Mtr", "XF:27IDA-OP:0{Fltr:2}Sw:InPos-Sts", name="filter2")
-    filter3 = Filter("XF:27IDA-OP:3{Fltr:3-Ax:Y}Mtr", "XF:27IDA-OP:0{Fltr:3}Sw:InPos-Sts", name="filter3")
-    filter4 = Filter("XF:27IDA-OP:2{Fltr:4-Ax:Y}Mtr", "XF:27IDA-OP:0{Fltr:4}Sw:InPos-Sts", name="filter4")
+    filter1_upstream = Filter(
+        "XF:27IDA-OP:1{Fltr:1-Ax:Yu}Mtr",
+        "XF:27IDA-OP:0{Fltr:1_US}Sw:InPos-Sts",
+        name="filter1_upstream",
+    )
+    filter1_downstream = Filter(
+        "XF:27IDA-OP:1{Fltr:1-Ax:Yd}Mtr",
+        "XF:27IDA-OP:0{Fltr:1_DS}Sw:InPos-Sts",
+        name="filter1_downstream",
+    )
+    filter2 = Filter(
+        "XF:27IDA-OP:1{Fltr:2-Ax:Y}Mtr",
+        "XF:27IDA-OP:0{Fltr:2}Sw:InPos-Sts",
+        name="filter2",
+    )
+    filter3 = Filter(
+        "XF:27IDA-OP:3{Fltr:3-Ax:Y}Mtr",
+        "XF:27IDA-OP:0{Fltr:3}Sw:InPos-Sts",
+        name="filter3",
+    )
+    filter4 = Filter(
+        "XF:27IDA-OP:2{Fltr:4-Ax:Y}Mtr",
+        "XF:27IDA-OP:0{Fltr:4}Sw:InPos-Sts",
+        name="filter4",
+    )
 
     # PandABox
     panda = HDFPanda("XF:27ID1-ES{PANDA:1}:", path_provider, name="panda1")

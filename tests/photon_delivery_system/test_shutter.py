@@ -59,6 +59,8 @@ async def test_shutter_open_close_behavior(
         shutter.close_cmd,
         lambda *_: asyncio.ensure_future(_delayed_readback(shutter, False, delay)),
     )
+    # The first plan in a process pays a one-off startup cost; keep it out of the timing
+    RE(bps.null())
 
     t0 = time.monotonic()
     RE(bps.mv(shutter, True))
@@ -120,7 +122,7 @@ async def test_ensure_shutter_state(
             ValueError,
             match=(
                 f"Shutter {shutter.name} is "
-                f"{'open' if initial_state else 'closed'} but the desired state is "
+                f"{'open' if initial_state else 'closed'}, but the desired state is "
                 f"{'open' if desired_state else 'closed'}!"
             ),
         ):
@@ -260,9 +262,7 @@ async def test_interlock_already_acknowledged_is_not_written(RE: RunEngine):
 async def test_interlock_acknowledge_fails_if_the_pps_never_reports_it(
     RE: RunEngine, monkeypatch
 ):
-    monkeypatch.setattr(
-        "hextools.photon_delivery_system.shutter.DEFAULT_TIMEOUT", 0.1
-    )
+    monkeypatch.setattr("hextools.photon_delivery_system.shutter.DEFAULT_TIMEOUT", 0.1)
     interlock = _interlock()
     set_mock_value(interlock.acknowledged, False)
     callback_on_mock_put(interlock.request, lambda *_, **__: None)

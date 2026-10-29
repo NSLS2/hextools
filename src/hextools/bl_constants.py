@@ -1,11 +1,14 @@
+"""Utility functions for dealing with beamline constants."""
+
 from dataclasses import dataclass
-from typing import Any, cast
+from enum import StrEnum
+from importlib import resources
+from typing import cast
 
 import yaml
-from importlib import resources
-from enum import StrEnum
 
 HEX_BEAMLINE_CONSTANTS_RESOURCE: str = "bl_constants.yml"
+
 
 def fetch_beamline_constants(key: str | None = None) -> dict:
     """Fetch the beamline constants associated with a given key.
@@ -13,14 +16,14 @@ def fetch_beamline_constants(key: str | None = None) -> dict:
     Parameters
     ----------
     key : str, optional
-        The key for the specific beamline constants to fetch. If None, all constants are returned.
+        The key for the specific beamline constants to fetch.
+        If None, all constants are returned.
 
     Returns
     -------
     dict
-        The beamline constants corresponding to the given key, or all constants if key is None.
+        The beamline constants corresponding to the given key.
     """
-
     source = resources.files(__package__ or "hextools").joinpath(
         HEX_BEAMLINE_CONSTANTS_RESOURCE
     )
@@ -32,8 +35,11 @@ def fetch_beamline_constants(key: str | None = None) -> dict:
 
 @dataclass
 class Position:
+    """Represents a motor position with an optional description."""
+
     position: float
     description: str | None = None
+
 
 def build_enum_from_position_list(
     key: str,
@@ -72,7 +78,7 @@ def build_enum_from_position_list(
             members[name.upper()] = (
                 position.description or name.replace("_", " ").title()
             )
-    return cast(
+    return cast(  # type: ignore
         type[StrEnum], StrEnum(key.title().replace("_", "") + "Position", members)
     )
 

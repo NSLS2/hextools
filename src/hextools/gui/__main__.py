@@ -458,9 +458,7 @@ class QtBeamlineView(QWidget):
         plan_tabs = QTabWidget()
         plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
         plan_tabs.addTab(QtPlanWidget(re_client, move_slits), "Slits")
-        plan_tabs.addTab(
-            QtPlanWidget(re_client, set_fe_aperture), "Frontend Aperture"
-        )
+        plan_tabs.addTab(QtPlanWidget(re_client, set_fe_aperture), "Frontend Aperture")
         plan_tabs.addTab(QtPlanWidget(re_client, set_filters), "Filters")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")

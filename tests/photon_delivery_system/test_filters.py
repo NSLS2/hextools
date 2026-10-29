@@ -156,8 +156,8 @@ async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):
 
     RE(
         set_filters(
-            filter1_upstream_setting="6 mm Cu",
-            filter2_setting="1 mm Cu",
+            filter1_upstream_setting="6 mm Cu",  # type: ignore
+            filter2_setting="1 mm Cu",  # type: ignore
             filter1_upstream=devices["filter1_upstream"],
             filter1_downstream=devices["filter1_downstream"],
             filter2=devices["filter2"],
@@ -181,9 +181,9 @@ async def test_set_filters_sets_all_three(RE: RunEngine):
 
     RE(
         set_filters(
-            filter1_upstream_setting="6 mm Cu",
-            filter1_downstream_setting="6 mm Al",
-            filter2_setting="1 mm Cu",
+            filter1_upstream_setting="6 mm Cu",  # type: ignore
+            filter1_downstream_setting="6 mm Al",  # type: ignore
+            filter2_setting="1 mm Cu",  # type: ignore
             filter1_upstream=devices["filter1_upstream"],
             filter1_downstream=devices["filter1_downstream"],
             filter2=devices["filter2"],
@@ -235,7 +235,7 @@ async def test_set_filters_acknowledges_the_interlock_and_restores_the_fe_shutte
 
     RE(
         set_filters(
-            filter2_setting="1 mm Cu",
+            filter2_setting="1 mm Cu",  # type: ignore
             filter2=devices["filter2"],
             fe_shutter=fe_shutter,
         )
@@ -253,7 +253,7 @@ async def test_set_filters_leaves_an_acknowledged_interlock_alone(RE: RunEngine)
 
     RE(
         set_filters(
-            filter2_setting="1 mm Cu",
+            filter2_setting="1 mm Cu",  # type: ignore
             filter2=devices["filter2"],
             fe_shutter=fe_shutter,
         )
@@ -277,8 +277,6 @@ async def test_filter_move_reports_progress(RE: RunEngine):
 async def test_set_filters_fails_and_keeps_the_fe_shutter_closed_if_ack_never_comes(
     RE: RunEngine, monkeypatch
 ):
-    monkeypatch.setattr(
-    )
     devices = _set_filters_devices()
     fe_shutter = _fe_shutter(ShutterStatus.OPEN)
     _trip_fe_interlock_on_move(devices["filter2"], fe_shutter)
@@ -287,7 +285,7 @@ async def test_set_filters_fails_and_keeps_the_fe_shutter_closed_if_ack_never_co
     with pytest.raises(FailedStatus):
         RE(
             set_filters(
-                filter2_setting="1 mm Cu",
+                filter2_setting="1 mm Cu",  # type: ignore
                 filter2=devices["filter2"],
                 fe_shutter=fe_shutter,
             )

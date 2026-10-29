@@ -7,9 +7,9 @@ from collections.abc import Callable, Hashable
 from bluesky import plan_stubs as bps
 from bluesky.protocols import Reading, Subscribable
 from ophyd_async.core import (
+    DEFAULT_TIMEOUT,
     AsyncMovable,
     AsyncStatus,
-    DEFAULT_TIMEOUT,
     Device,
     DeviceMock,
     StrictEnum,
@@ -233,7 +233,10 @@ def ensure_shutter_state(
                 yield from bps.abs_set(s, desired_state, group=group, wait=False)
                 actuated = True
             else:
-                raise ValueError(f"Shutter {s.name} is {shutter_statuses[s.name].name.lower()} but the desired state is {'open' if desired_state else 'closed'}!")
+                raise ValueError(
+                    f"Shutter {s.name} is {shutter_statuses[s.name].name.lower()}, but"
+                    f" the desired state is {'open' if desired_state else 'closed'}!"
+                )
 
     if wait and actuated:
         yield from bps.wait(group=group, timeout=DEFAULT_TIMEOUT)
