@@ -1,19 +1,14 @@
 """Double crystal Laue monochromator (DCLM) device and energy change plan."""
 
 import asyncio
-from collections.abc import Callable
-from functools import partial
+from dataclasses import dataclass
 
-import matplotlib.pyplot as plt
 import numpy as np
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky import preprocessors as bpp
-from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.callbacks.fitting import PeakStats
 from bluesky.preprocessors import finalize_wrapper, subs_wrapper
-from IPython.core.getipython import get_ipython
-from matplotlib.figure import Figure
 from ophyd_async.core import (
     AsyncMovable,
     StandardReadable,
@@ -42,14 +37,20 @@ class BeamMode(StrictEnum):
     WHITE = "White"
 
 
-def _figure_factory() -> Callable[[str], Figure]:
-    """Return the session BestEffortCallback's figure factory, which the GUI embeds."""
-    ipython = get_ipython()
-    if ipython is not None:
-        for obj in ipython.user_ns.values():
-            if isinstance(obj, BestEffortCallback):
-                return obj._fig_factory  # noqa: SLF001
-    return partial(plt.figure, layout="constrained")
+@dataclass(frozen=True)
+class DCLMConstants:
+    """Monochromator positions and geometry, from ``bl_constants.yml``."""
+
+    beam_stop_in: float
+    beam_stop_out: float
+    xtal1_in: float
+    xtal1_out: float
+    fs_in: float
+    fs_out: float
+    bragg_factor: float  # Energy in keV for Si(111) at 2d = 6.271 Å
+    bragg_angle_offset: float  # Bragg angle offset in degrees for Si(111)
+    fixed_beam_offset: float  # Crystal 2 z offset in mm for fixed beam offset
+    fs_distance: float  # Distance to fluorescence screen in mm
 
 
 class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
@@ -78,18 +79,8 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
         Derived signal representing the current beam mode (white or monochromatic).
     energy : derived_signal_r
         Derived signal representing the current energy of the monochromatic beam.
-    beam_stop_in : float
-        Position of the beam stop when it is in the beam path.
-    beam_stop_out : float
-        Position of the beam stop when it is out of the beam path.
-    crystal_1_in : float
-        Position of the first crystal when it is in the beam path.
-    crystal_1_out : float
-        Position of the first crystal when it is out of the beam path.
-    fluo_y_direct : float
-        Position of the fluorescence screen when it is in the direct beam path.
-    fluo_y_direct_out : float
-        Position of the fluorescence screen when it is out of the beam path.
+    constants : DCLMConstants
+        In/out positions and geometry of the monochromator.
 
     Methods
     -------
@@ -97,21 +88,8 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
         Set the beam mode to either white or monochromatic.
     """
 
-    # Constants for in/out positions of the monochromator components
-    _beam_stop_in: float
-    _beam_stop_out: float
-    _xtal1_in: float
-    _xtal1_out: float
-    _fs_in: float
-    _fs_out: float
-
-    # Constants for the monochromator geometry
-    _bragg_factor: float  # Energy in keV for Si(111) at 2d = 6.271 Å
-    _bragg_angle_offset: float  # Bragg angle offset in degrees for Si(111)
-    _fixed_beam_offset: float  # Crystal 2 z offset in mm for fixed beam offset
-    _fs_distance: float  # Distance to fluorescence screen in mm
-
     def __init__(self, prefix: str, name: str = ""):
+        self.constants = DCLMConstants(**fetch_beamline_constants("monochromator"))
 
         self.xtal1_vertical_trans = AsyncEpicsMotor(prefix + "C1Y}Mtr")
         self.cooled_beam_stop = AsyncEpicsMotor(
@@ -131,72 +109,28 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
                 self._get_energy,
                 pitch_angle=self.xtal1_pitch.user_readback,
             )
-
-        # Fetch and set the monochromator constants from the beamline configuration
-        for k, v in fetch_beamline_constants("monochromator").items():
-            setattr(self, f"_{k}", v)
-
         super().__init__(name=name)
-
-    @property
-    def beam_stop_in(self) -> float:
-        return self._beam_stop_in
-
-    @property
-    def beam_stop_out(self) -> float:
-        return self._beam_stop_out
-
-    @property
-    def xtal1_in(self) -> float:
-        return self._xtal1_in
-
-    @property
-    def xtal1_out(self) -> float:
-        return self._xtal1_out
-
-    @property
-    def bragg_angle_offset(self) -> float:
-        return self._bragg_angle_offset
-
-    @property
-    def bragg_factor(self) -> float:
-        return self._bragg_factor
-
-    @property
-    def fixed_beam_offset(self) -> float:
-        return self._fixed_beam_offset
-
-    @property
-    def fs_distance(self) -> float:
-        return self._fs_distance
-
-    @property
-    def fs_in(self) -> float:
-        return self._fs_in
-
-    @property
-    def fs_out(self) -> float:
-        return self._fs_out
 
     def _get_beam_mode(self, xtal1_pos: float, beam_stop_pos: float) -> BeamMode:
         """Determine the current beam mode."""
-        xtal1_out = abs(xtal1_pos - self.xtal1_out) < 0.01
-        beam_stop_out = abs(beam_stop_pos - self.beam_stop_out) < 0.01
+        xtal1_out = abs(xtal1_pos - self.constants.xtal1_out) < 0.01
+        beam_stop_out = abs(beam_stop_pos - self.constants.beam_stop_out) < 0.01
         if xtal1_out and beam_stop_out:
             return BeamMode.WHITE
         return BeamMode.MONOCHROMATIC
 
     def _get_energy(self, pitch_angle: float) -> float:
         """Compute the energy of the monochromatic beam based on the pitch angle."""
-        bragg_angle = np.deg2rad(self.bragg_angle_offset - pitch_angle)
-        return float(self.bragg_factor / np.sin(bragg_angle))
+        bragg_angle = np.deg2rad(self.constants.bragg_angle_offset - pitch_angle)
+        return float(self.constants.bragg_factor / np.sin(bragg_angle))
 
     @WatchableAsyncStatus.wrap
     async def set(self, value: BeamMode):
+        c = self.constants
         if value == BeamMode.WHITE:
-            xtal1_target, bs_target = self.xtal1_out, self.beam_stop_out
+            xtal1_target, bs_target = c.xtal1_out, c.beam_stop_out
         else:
-            xtal1_target, bs_target = self.xtal1_in, self.beam_stop_in
+            xtal1_target, bs_target = c.xtal1_in, c.beam_stop_in
         statuses = [
             self.xtal1_vertical_trans.set(xtal1_target),
             self.cooled_beam_stop.set(bs_target),
@@ -300,33 +234,26 @@ def change_energy(
         if mode != BeamMode.MONOCHROMATIC:
             raise RuntimeError("Monochromator is not in monochromatic mode.")
 
-        if not np.isfinite(energy) or energy <= dclm.bragg_factor:
+        c = dclm.constants
+        if not np.isfinite(energy) or energy <= c.bragg_factor:
             raise ValueError(
-                f"Energy must be finite and greater than {dclm.bragg_factor} keV."
+                f"Energy must be finite and greater than {c.bragg_factor} keV."
             )
-        bragg_angle = np.arcsin(
-            dclm.bragg_factor / energy
-        )  # Si(111), 2d = 6.271 Å, energy in keV
-        angle = dclm.bragg_angle_offset - np.rad2deg(
-            bragg_angle
-        )  # Bragg angle to motor coordinate
-        z = dclm.fixed_beam_offset / np.tan(
-            2 * bragg_angle
-        )  # Crystal 2 z for fixed beam offset of 25 mm
+        bragg_angle = np.arcsin(c.bragg_factor / energy)
+        angle = c.bragg_angle_offset - np.rad2deg(bragg_angle)
+        z = c.fixed_beam_offset / np.tan(2 * bragg_angle)
         if not auto_tune:
-            fluo_y = dclm.fs_distance * np.tan(
-                2 * bragg_angle
-            )  # Fluorescence screen y at 1428 mm downstream
+            fluo_y = c.fs_distance * np.tan(2 * bragg_angle)
         else:
-            fluo_y = dclm.fs_in
+            fluo_y = c.fs_in
 
         # fmt: off
         yield from bps.mv(
             dclm.xtal2_z, z,
             dclm.xtal2_pitch, angle,
             dclm.xtal1_pitch, angle,
-            dclm.xtal1_vertical_trans, dclm.xtal1_in,
-            dclm.cooled_beam_stop, dclm.beam_stop_in,
+            dclm.xtal1_vertical_trans, c.xtal1_in,
+            dclm.cooled_beam_stop, c.beam_stop_in,
             dclm.flourescence_screen, fluo_y,
         )
         # fmt: on
@@ -346,10 +273,9 @@ def change_energy(
         yield from bps.mv(fs_window_cam.driver.acquire_time, exposure_time)
 
         # Scan the crystal 2 pitch and return the center of the fluorescence peak.
-        # A fresh PeakStats per scan, so the GUI can plot one while the next runs.
+        # A fresh PeakStats per scan, so each fit sees only its own scan's data.
         def energy_auto_tune(scan_name: str, angle_range: float, num_steps: int):
             ps = PeakStats(dclm.xtal2_pitch.name, fs_stats.mean_value.name)
-            # ps must come first so its stats are computed before plotter sees 'stop'.
             yield from subs_wrapper(
                 bp.scan(
                     [fs_window_cam],  # type: ignore  # TODO: allow AsyncReadable
@@ -383,7 +309,7 @@ def change_energy(
 
     def _cleanup():
         # Reset the fluorescence screen and close the shutter on the way out.
-        yield from bps.mv(dclm.flourescence_screen, dclm.fs_out)
+        yield from bps.mv(dclm.flourescence_screen, dclm.constants.fs_out)
         if fs_window_cam is not None:
             yield from enable_preview_mode(fs_window_cam)
 
