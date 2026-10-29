@@ -14,7 +14,7 @@ This page walks through the file from top to bottom.
 
 import os
 
-from hextools.detectors.germ import GeRMDetector, GeRMStatsDataLogic
+from hextools.detectors.germ import GeRMDetector
 
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
@@ -245,16 +245,10 @@ The devices, in order:
 | `germ`                                        | The GeRM detector for EDXD.                                                                              |
 | `sim_x`, `sim_y`, `sim_z`                     | Simulated motors for testing.                                                                            |
 
-A few lines inside the block need a closer look:
-
-```python
-    if ipython is not None:
-        for filter in filters:
-            ipython.user_ns[filter.name] = filter
-```
-
-Puts each filter in the namespace under its own name so it can be moved
-directly (`RE(bps.mv(filter2, ...))`).
+Filters are constructed explicitly in the profile, with their device names
+selecting their positions from `bl_constants.yml`.
+For example, `Filter(..., name="filter2")` exposes
+`filter2` directly in the session (`RE(bps.mv(filter2, ...))`).
 
 ```python
     fs_window_cam.add_detector_logics(

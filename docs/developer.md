@@ -380,6 +380,14 @@ of several detectors.
 
 ## Updating the documentation
 
+Generic GUI widgets must not import or branch on HEX device/plan identities,
+PVs, specialized labels/defaults, or beamline policy. Configure those through
+generic extension points; where none exists, defer the request. For example,
+`QtShutterStatus` takes explicit readbacks and a command-builder callback;
+`gui/hex_config.py` owns HEX discovery and manual-shutter settling policy.
+`QtPlanWidget` has no device-specific overrides. This is a blocking
+architectural boundary, not a feature-restoration mechanism.
+
 The documentation is built with Sphinx and MyST Markdown from `docs/`. The GUI
 screenshots are generated, not taken by hand; regenerate them after changing
 the GUI:

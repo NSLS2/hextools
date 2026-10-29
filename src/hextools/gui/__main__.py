@@ -517,7 +517,10 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             controls.addWidget(QtPlanStatus(self._plan_monitor, "hextools"))
         controls.addStretch()
         if isinstance(re_client, RunEngine) and ipython is not None:
-            controls.addWidget(QtShutterStatus(re_client, user_ns))
+            from hextools.gui.hex_config import shutter_controls
+
+            shutters, shutter_command = shutter_controls(user_ns)
+            controls.addWidget(QtShutterStatus(re_client, shutters, shutter_command))
         vbox.addLayout(controls)
 
         # Technique tabs.
