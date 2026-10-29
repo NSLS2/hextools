@@ -4,6 +4,7 @@ from pathlib import Path
 
 import h5py
 from bluesky_tiled_plugins import CatalogOfBlueskyRuns
+from bluesky_tiled_plugins.clients.bluesky_event_stream import BlueskyEventStreamV3
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 
 from hextools.exporters.utils import confirm_required_start_fields
@@ -38,19 +39,28 @@ def export_edxd_run_to_h5(
     if not isinstance(run, BlueskyRunV3):
         raise ValueError("Failed to resolve EDXD run to a BlueskyRunV3 instance")
 
-    primary_data = run["primary"].read()
+    primary = run["primary"]
+    if not isinstance(primary, BlueskyEventStreamV3):
+        raise TypeError(
+            f"Expected a BlueskyEventStreamV3, got {type(primary).__name__}"
+        )
+    primary_data = primary.read(variables=[key for key in primary if key != "germ"])
     baseline_data = run["baseline"].read()
     proposal, cycle, scan_id = confirm_required_start_fields(run.start)
 
-    scan_id_dir_path = Path(
+    metadata_dir_path = Path(
         f"/nsls2/data/hex/proposals/{cycle}/{proposal}/edxd/metadata/scan_{scan_id:05}"
     )
-    if not scan_id_dir_path.exists():
-        scan_id_dir_path.mkdir(parents=True, exist_ok=True)
+    raw_export_dir_path = Path(
+        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/edxd/raw_data/scan_{scan_id:05}"
+    )
+    for dir_path in (metadata_dir_path, raw_export_dir_path):
+        if not dir_path.exists():
+            dir_path.mkdir(parents=True, exist_ok=True)
 
-    h5_file_path = scan_id_dir_path / f"scan_{scan_id:05}.nxs"
+    metadata_nxs_path = metadata_dir_path / f"scan_{scan_id:05}.nxs"
 
-    with h5py.File(h5_file_path, "w") as f:
+    with h5py.File(metadata_nxs_path, "w") as f:
         primary_group = f.create_group("primary")
         for key, value in primary_data.items():
             primary_group.create_dataset(key, data=value)
@@ -59,4 +69,14 @@ def export_edxd_run_to_h5(
         for key, value in baseline_data.items():
             baseline_group.create_dataset(key, data=value)
 
-    run_metadata_to_json(run, scan_id, scan_id_dir_path)
+    run_metadata_to_json(run, scan_id, metadata_dir_path)
+
+    germ_data_sources = run["primary"]["germ"].data_sources()
+    if germ_data_sources is None:
+        return
+    for data_source in germ_data_sources:
+        for asset in data_source.assets:
+            asset_path = Path(asset.data_uri.split("localhost")[1])
+            raw_path = raw_export_dir_path / asset_path.name
+            raw_path.unlink(missing_ok=True)
+            raw_path.symlink_to(asset_path)

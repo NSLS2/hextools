@@ -71,7 +71,6 @@ from hextools.edxd import (
 )
 from hextools.gui._hook_chain import install_hook, uninstall_hook
 from hextools.gui._theme import apply_bnl_theme, saved_theme
-from hextools.gui.auto_exporter_view import QtAutoExporterView
 from hextools.gui.available_devices import QtAvailableDevices
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor
 from hextools.gui.live_re_md_viewer import QtProposalInfo
@@ -557,8 +556,9 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         else:
             self.plan_history = None
             self.scan_browser = None
-        self.auto_exporter = QtAutoExporterView(autostart=not is_running_in_ci())
-        tabs.addTab(self.auto_exporter, "NXS Export")
+        # self.auto_exporter = QtAutoExporterView(autostart=not is_running_in_ci())
+        # tabs.addTab(self.auto_exporter, "NXS Export")
+
         vbox.addWidget(tabs, stretch=1)
 
         # Shared live per-device progress bars pinned to the bottom.
