@@ -67,9 +67,12 @@ RunEngine returns to idle.
 
 The generic plan forms follow each plan's signature and defaults. Slit
 readback-prefilled targets (operator item 5), a specialized **Two theta** label
-(item 9), and checked-by-default TIFF controls (item 11) are deferred pending
-a generic solution. Slit targets remain blank until entered; the tilt argument
-is labelled **Theta**; **Save as TIFF** follows the Python default (`False`).
+(item 9) are deferred pending a generic solution. Slit targets remain blank
+until entered; the tilt argument is labelled **Theta**.
+For item 11, `edxd_scan` and `edxd_custom_pos_list_grid` now default
+`save_as_tiff=True`, so **Save as TIFF** starts checked automatically.
+This also applies to Python calls that omit the argument; pass
+`save_as_tiff=False` (or uncheck the box) to select HDF5.
 There are no device-specific overrides in `QtPlanWidget`.
 
 ### Menus

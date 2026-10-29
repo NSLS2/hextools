@@ -115,7 +115,7 @@ def edxd_scan(
     num_iterations: int = 1,
     time_between_iterations: float = 0.0,
     description: str | None = None,
-    save_as_tiff: bool = False,
+    save_as_tiff: bool = True,
     reset_position: bool = True,
     use_shutter: bool = True,
     germ: GeRMDetector | None = None,
@@ -142,8 +142,8 @@ def edxd_scan(
         The time to wait between iterations.
     description : str | None, optional
         A description for the scan, if any.
-    save_as_tiff : bool, default False
-        Whether to save the data as a TIFF file.
+    save_as_tiff : bool, default True
+        Save as TIFF by default; False selects HDF5.
     reset_position : bool, default True
         Restore the pre-scan motor position on completion, failure or abort.
         A pause does not restore the position. False leaves the final position.
@@ -207,7 +207,7 @@ def edxd_custom_pos_list_grid(
     inner_stop: list[float],
     inner_num_points: list[int],
     count_time: float,
-    save_as_tiff: bool = False,
+    save_as_tiff: bool = True,
     use_shutter: bool = True,
     reset_positions: bool = True,
     description: str | None = None,
@@ -215,7 +215,7 @@ def edxd_custom_pos_list_grid(
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
 ):
-    """Plan stub for a custom position list grid scan for the EDXD detector."""
+    """Run a custom-position EDXD grid, saving TIFF unless save_as_tiff=False."""
     germ = ensure_available(GeRMDetector, germ=germ)
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)

@@ -195,20 +195,23 @@ async def test_edxd_count(
 # --- edxd_scan ------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("save_as_tiff", "mimetype"), [(False, HDF5), (True, TIFF)])
+@pytest.mark.parametrize(
+    ("save_as_tiff", "mimetype"), [(None, TIFF), (False, HDF5), (True, TIFF)]
+)
 async def test_edxd_scan(
     RE: RunEngine,
     germ: GeRMDetector,
     stage: tuple[AsyncEpicsMotor, AsyncEpicsMotor],
     two_shutters: tuple[Shutter, Shutter],
     tiled: CatalogOfBlueskyRuns,
-    save_as_tiff: bool,
+    save_as_tiff: bool | None,
     mimetype: str,
 ):
     x, _ = stage
     fe_shutter, photon_shutter = two_shutters
     messages: list[Msg] = []
     RE.msg_hook = messages.append  # type: ignore
+    format_kwargs = {} if save_as_tiff is None else {"save_as_tiff": save_as_tiff}
 
     docs, _ = _run(
         RE,
@@ -216,7 +219,7 @@ async def test_edxd_scan(
             x, 0, 2, 3,
             0.02,
             description="strain map",
-            save_as_tiff=save_as_tiff,
+            **format_kwargs,
             germ=germ,
             fe_shutter=fe_shutter,
             photon_shutter=photon_shutter,
@@ -357,16 +360,19 @@ async def test_edxd_grid_scan_without_reset_stays_at_last_point(
 # --- edxd_custom_pos_list_grid --------------------------------------------------------
 
 
-@pytest.mark.parametrize(("save_as_tiff", "mimetype"), [(False, HDF5), (True, TIFF)])
+@pytest.mark.parametrize(
+    ("save_as_tiff", "mimetype"), [(None, TIFF), (False, HDF5), (True, TIFF)]
+)
 async def test_edxd_custom_pos_list_grid(
     RE: RunEngine,
     germ: GeRMDetector,
     stage: tuple[AsyncEpicsMotor, AsyncEpicsMotor],
     two_shutters: tuple[Shutter, Shutter],
-    save_as_tiff: bool,
+    save_as_tiff: bool | None,
     mimetype: str,
 ):
     x, y = stage
+    format_kwargs = {} if save_as_tiff is None else {"save_as_tiff": save_as_tiff}
     fe_shutter, photon_shutter = two_shutters
     for motor, position in ((x, 5.0), (y, -1.0)):
         set_mock_value(motor.user_setpoint, position)
@@ -378,7 +384,7 @@ async def test_edxd_custom_pos_list_grid(
             x, [0.0, 1.0],
             y, [0.0], [1.0], [3],
             0.02,
-            save_as_tiff=save_as_tiff,
+            **format_kwargs,
             description="pos list",
             germ=germ,
             fe_shutter=fe_shutter,
