@@ -13,11 +13,16 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+import IPython
 from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
+from IPython.terminal.prompts import Prompts
+from pygments.token import Token
 from tiled.client import from_uri
-from tiled.client.stream import LiveChildMetadataUpdated
+from tiled.client.stream import CallbackRegistry, LiveChildMetadataUpdated
+from traitlets.config import Config
 
+from hextools import exporters
 from hextools.exporters.edxd import export_edxd_run_to_h5
 from hextools.exporters.tomography import (
     export_tomo_dark_flat_to_h5,
@@ -135,6 +140,9 @@ class RunEndSubscription:
             "Closing the Tiled subscription."
             "Waiting for any in-progress callback to finish"
         )
+        # Closing the socket makes the receive thread fire stream_closed after the
+        # executor is shut down, so swap in an empty registry first
+        self._subscription.stream_closed = CallbackRegistry(self._subscription.executor)
         self._subscription.disconnect()
         logger.info(
             f"Closed the Tiled subscription after handling {len(self._handled)} run(s)"
@@ -147,6 +155,11 @@ class RunEndSubscription:
         # after dropped connections
         self._subscription.start(start=None, max_size=MAX_MESSAGE_BYTES)
         logger.info("Tiled subscription stopped")
+
+    def run_in_thread(self) -> None:
+        """Handle run close events in a background thread; stopped on context exit."""
+        logger.info(f"Listening for closed runs on {self._catalog.uri} in a thread")
+        self._subscription.start_in_thread(start=None, max_size=MAX_MESSAGE_BYTES)
 
     def _on_metadata_updated(self, update: LiveChildMetadataUpdated) -> None:
         # TiledWriter adds the stop document to the run's metadata when the run closes
@@ -189,6 +202,17 @@ class RunEndSubscription:
         logger.warning(f"Tiled closed the stream for {sub}")
 
 
+class ExporterPrompt(Prompts):
+    """IPython prompt for the auto exporter session."""
+
+    def in_prompt_tokens(self, cli=None):
+        return [
+            (Token.Prompt, "HEX Exporter ["),
+            (Token.PromptNum, str(self.shell.execution_count)),
+            (Token.Prompt, "]: "),
+        ]
+
+
 def main() -> None:
     """Entry point for the auto exporter script."""
     parser = argparse.ArgumentParser(
@@ -214,12 +238,24 @@ def main() -> None:
     for segment in args.catalog.strip("/").split("/"):
         catalog = catalog[segment]
 
-    try:
-        callback = partial(auto_export_run, catalog=catalog, csv_path=args.csv)
-        with RunEndSubscription(catalog, callback) as subscription:
-            subscription.run()
-    except KeyboardInterrupt:
-        logger.info("Interrupted; closed the Tiled subscription and exiting")
+    callback = partial(auto_export_run, catalog=catalog, csv_path=args.csv)
+    ipython_config = Config()
+    ipython_config.TerminalInteractiveShell.prompts_class = ExporterPrompt
+    with RunEndSubscription(catalog, callback) as subscription:
+        subscription.run_in_thread()
+        IPython.start_ipython(
+            argv=[],
+            config=ipython_config,
+            user_ns={
+                **{name: getattr(exporters, name) for name in exporters.__all__},
+                "c": catalog,
+                "tiled_client": catalog,
+                "subscription": subscription,
+                "auto_export_run": callback,
+                "EXPORTERS": EXPORTERS,
+            },
+        )
+    logger.info("IPython session exited; closed the Tiled subscription and exiting")
 
 
 if __name__ == "__main__":
