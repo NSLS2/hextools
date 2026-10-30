@@ -9,6 +9,7 @@ test it, and how to make it available in the GUI.
 pixi install -e dev
 pixi run tests                 # unit tests, no coverage
 pixi run gui-tests             # GUI tests (their own process, as in CI)
+pixi run all-tests             # both, each in its own process
 pixi run tests-cov             # both, with one combined coverage report
 pixi run lint                  # pre-commit hooks (ruff, ...)
 pixi run type-check            # pyright

@@ -167,6 +167,11 @@ default-environment = "dev"
 cmd = "pytest tests/gui"
 default-environment = "dev"
 
+[feature.dev.tasks.all-tests]
+# Both suites, one after the other, each in its own process.
+cmd = "pytest --ignore=tests/gui && pytest tests/gui"
+default-environment = "dev"
+
 [feature.dev.tasks.tests-cov]
 # Both suites, in their own processes, with one combined coverage report.
 cmd = "pytest --ignore=tests/gui --cov=src/hextools --cov-report= && pytest tests/gui --cov=src/hextools --cov-append --cov-report=term"
