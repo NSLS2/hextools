@@ -98,6 +98,7 @@ yamale = ">=6.1.0,<7"
 hdf5plugin = ">=6.0.0,<8"
 h5py = ">=3.16.0,<4"
 greenlet = ">=3.5.6,<4"
+pytest-xdist = ">=3.8.0,<4"
 
 # Runs the profile in mock mode; mock mode needs dev-only packages (uvicorn via
 # tiled-server). Sets its own env because task env does not propagate through
@@ -158,7 +159,13 @@ py312 = { features = ["dev", "terminal", "py312"], solve-group = "py312" }
 py313 = { features = ["dev", "terminal", "py313"], solve-group = "py313" }
 
 [feature.dev.tasks.tests]
-cmd = "pytest --cov=src/hextools --cov-report=term"
+# Fast loop: parallel, no coverage. The GUI tests run in their own process, as in
+# CI: in one process with the rest, Qt objects they leave behind crash later tests.
+cmd = "pytest -n auto --ignore=tests/gui && pytest -n auto tests/gui"
+default-environment = "dev"
+
+[feature.dev.tasks.tests-cov]
+cmd = "pytest -n auto --ignore=tests/gui --cov=src/hextools --cov-report=term"
 default-environment = "dev"
 
 # Run the tests, then serve the html coverage report whether or not they passed.

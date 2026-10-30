@@ -20,6 +20,7 @@ from hextools.photon_delivery_system import Shutter, ShutterStatus
 from hextools.tomography.radiography import FRAME_PERIOD_MARGIN, take_radiograph
 
 
+@pytest.mark.usefixtures("skip_long_sleeps")
 async def test_take_radiograph_single_row(
     RE: RunEngine,
     kinetix_det_factory: Callable[[int], KinetixDetector],

@@ -259,7 +259,7 @@ async def test_edxd_scan_repeats_without_shutters_or_reset(
             x, 0, 2, 3,
             0.02,
             num_iterations=2,
-            time_between_iterations=5.0,
+            time_between_iterations=60.0,
             use_shutter=False,
             reset_position=False,
             germ=germ,
@@ -269,12 +269,15 @@ async def test_edxd_scan_repeats_without_shutters_or_reset(
     )  # fmt: skip
 
     assert [len(events) for events in _events_by_run(docs)] == [3, 3]
-    # the delay, less the time the first iteration took, falls between the runs
+    # bps.repeat counts the delay from the start of one iteration to the start of
+    # the next, so it requests 60 s less the time the first iteration took. The
+    # delay is far longer than an iteration even on a loaded machine (with 5 s, a
+    # slow iteration left no time to wait); _run skips it, so it costs nothing.
     commands = [m.command for m in messages]
     first_close = commands.index("close_run")
     second_open = commands.index("open_run", first_close)
     assert "sleep" in commands[first_close:second_open]
-    assert sleeps[0] == pytest.approx(5.0, abs=1.0)
+    assert 0 < sleeps[0] < 60.0
     assert not get_mock_execute(fe_shutter.open_cmd).called
     assert not get_mock_execute(photon_shutter.open_cmd).called
     assert await x.user_readback.get_value() == pytest.approx(2)
@@ -484,7 +487,7 @@ async def test_edxd_custom_pos_list_grid_repeats_with_shutters_closed_between(
             y, [0.0], [1.0], [3],
             0.02,
             num_iterations=2,
-            time_between_iterations=5.0,
+            time_between_iterations=60.0,
             germ=germ,
             fe_shutter=fe_shutter,
             photon_shutter=photon_shutter,
@@ -506,8 +509,9 @@ async def test_edxd_custom_pos_list_grid_repeats_with_shutters_closed_between(
     # _run shortens long sleeps to 0 before the hook sees them, so the pause's
     # requested length comes from ``sleeps``. As in edxd_scan, bps.repeat counts
     # time_between_iterations from the start of one iteration to the start of the
-    # next, so it asks for 5 s less the time the iteration took; the shutters'
-    # 4 s settles are the other sleeps.
+    # next, so it asks for 60 s less the time the iteration took (60 s is far
+    # longer than an iteration even on a loaded machine); the shutters' 4 s
+    # settles are the other sleeps.
     def _shutter_sets(msgs: list[Msg], value: bool) -> list[int]:
         return [
             i
@@ -531,7 +535,7 @@ async def test_edxd_custom_pos_list_grid_repeats_with_shutters_closed_between(
     assert {after[i].obj for i in _shutter_sets(after, True)} == set(shutters)
     pauses = [s for s in sleeps if s != 4.0]
     assert pauses
-    assert all(0 < s < 5.0 for s in pauses)
+    assert all(0 < s < 60.0 for s in pauses)
 
     await _assert_closed(fe_shutter, photon_shutter)
     assert await x.user_readback.get_value() == pytest.approx(5.0)

@@ -76,6 +76,7 @@ dev = [
     "pytest-insubprocess",
     "pytest-rerunfailures",
     "pytest-timeout",
+    "pytest-xdist",
     "ruff",
     "scanspec>=1.0a1",
     "types-mock",

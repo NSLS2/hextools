@@ -304,6 +304,7 @@ def _trip_fe_interlock_on_move(filt: Filter, fe_shutter: PPSShutter) -> None:
     callback_on_mock_put(filt.filter_motor.user_setpoint, move)
 
 
+@pytest.mark.usefixtures("skip_long_sleeps")
 @pytest.mark.parametrize("fe_was_open", [True, False])
 async def test_set_filters_acknowledges_the_interlock_and_restores_the_fe_shutter(
     RE: RunEngine, monkeypatch, fe_was_open: bool

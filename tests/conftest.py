@@ -1,5 +1,9 @@
 import asyncio
 import pprint
+import re
+import threading
+import time
+import uuid
 import warnings
 from pathlib import Path
 
@@ -26,6 +30,8 @@ with warnings.catch_warnings():
 from collections.abc import Callable, Generator
 
 import pytest
+from bluesky import Msg
+from bluesky import preprocessors as bpp
 from bluesky._vendor.super_state_machine.errors import TransitionError  # noqa: PLC2701
 from bluesky.run_engine import RunEngine
 from pytest import FixtureRequest
@@ -34,6 +40,104 @@ from tiled.client.container import Container
 from tiled.server import SimpleTiledServer
 
 _ALLOWED_PYTEST_TASKS = {"async_finalizer", "async_setup", "async_teardown"}
+
+# ==================================================================================
+# One Tiled server per test run
+# ==================================================================================
+# Starting a SimpleTiledServer takes seconds (it creates its catalog and storage),
+# so the whole run shares one. Under pytest-xdist the controller process, which
+# otherwise only waits for the workers, starts it in the background while the
+# workers import and collect, and hands them its address through a file. Without
+# xdist the `_tiled_uri` fixture starts one on first use. Either way the server may
+# read anything under pytest's base temporary directory, which holds every test's
+# ``tmp_path`` (the workers' too), and each test writes into its own container.
+
+_TILED_URI_FILE = "hextools-tiled-uri"
+_TILED_START_TIMEOUT = 120.0
+
+
+def _is_xdist_controller(config: pytest.Config) -> bool:
+    return bool(getattr(config.option, "numprocesses", None)) and not hasattr(
+        config, "workerinput"
+    )
+
+
+class _BackgroundTiledServer:
+    """Start a SimpleTiledServer in a thread; write its URI to a file when ready."""
+
+    def __init__(self, base: Path):
+        self._base = base
+        self.uri_file = base / _TILED_URI_FILE
+        self._server: SimpleTiledServer | None = None
+        self._thread = threading.Thread(target=self._start, daemon=True)
+        self._thread.start()
+
+    def _start(self) -> None:
+        try:
+            self._server = SimpleTiledServer(
+                self._base / "tiled_server", readable_storage=[self._base]
+            )
+            self.uri_file.write_text(self._server.uri)
+        except Exception as ex:
+            self.uri_file.write_text(f"ERROR: {ex!r}")
+            raise
+
+    def close(self) -> None:
+        self._thread.join(timeout=_TILED_START_TIMEOUT)
+        if self._server is not None:
+            self._server.close()
+
+
+_tiled_server_key = pytest.StashKey["_BackgroundTiledServer"]()
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_configure(config: pytest.Config) -> None:
+    if _is_xdist_controller(config):
+        # tmp_path_factory's base directory, which contains every worker's. pytest
+        # offers no public way to reach it from a hook.
+        base = config._tmp_path_factory.getbasetemp()  # noqa: SLF001  # pyright: ignore[reportAttributeAccessIssue]
+        config.stash[_tiled_server_key] = _BackgroundTiledServer(base)
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    server = config.stash.get(_tiled_server_key, None)
+    if server is not None:
+        server.close()
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node) -> None:
+    """Tell each xdist worker where the controller's Tiled server will be."""
+    server = node.config.stash.get(_tiled_server_key, None)
+    if server is not None:
+        node.workerinput["hextools_tiled_uri_file"] = str(server.uri_file)
+
+
+@pytest.fixture(scope="session")
+def _tiled_uri(
+    request: FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> Generator[str, None, None]:
+    workerinput = getattr(request.config, "workerinput", {})
+    uri_file = workerinput.get("hextools_tiled_uri_file")
+    if uri_file is not None:
+        path = Path(uri_file)
+        deadline = time.monotonic() + _TILED_START_TIMEOUT
+        while not path.exists():
+            if time.monotonic() > deadline:
+                raise TimeoutError(f"The shared Tiled server never wrote {path}")
+            time.sleep(0.05)
+        uri = path.read_text()
+        if uri.startswith("ERROR:"):
+            raise RuntimeError(f"The shared Tiled server failed to start: {uri}")
+        yield uri
+        return
+    base = tmp_path_factory.getbasetemp()
+    server = SimpleTiledServer(
+        tmp_path_factory.mktemp("tiled_server"), readable_storage=[base]
+    )
+    yield server.uri
+    server.close()
 
 
 @pytest.fixture(autouse=True)
@@ -168,15 +272,42 @@ def RE(request: FixtureRequest) -> RunEngine:
 
 
 @pytest.fixture
-def tiled_client(tmp_path: Path) -> Generator[tuple[Path, Container], None, None]:
+def tiled_client(
+    tmp_path: Path, _tiled_uri: str, request: FixtureRequest
+) -> Generator[tuple[Path, Container], None, None]:
+    """A data directory, and a container of the run's Tiled server for this test only.
+
+    Each test writes its runs into its own container, so no test sees another's.
+    """
     (tmp_path / "data").mkdir(parents=True, exist_ok=True)
-    server = SimpleTiledServer(
-        tmp_path / "tiled_data", readable_storage=[tmp_path / "data"]
-    )
-    client = from_uri(server.uri)
+    root = from_uri(_tiled_uri)
+    name = re.sub(r"[^A-Za-z0-9_-]+", "-", request.node.name)[:80]
+    client = root.create_container(key=f"{name}-{uuid.uuid4().hex[:12]}")
     yield tmp_path / "data", client
-    client.context.close()
-    server.close()
+    root.context.close()
+
+
+@pytest.fixture
+def skip_long_sleeps(RE: RunEngine) -> Generator[list[float], None, None]:
+    """Make the plan's sleeps of a second or more return at once.
+
+    Settling waits (e.g. 4 s after a shutter moves) are real time a test doesn't
+    need. Yields the requested lengths of the sleeps it shortened.
+    """
+    requested: list[float] = []
+
+    def _shorten(msg: Msg) -> Msg:
+        if msg.command == "sleep" and msg.args and msg.args[0] >= 1:
+            requested.append(msg.args[0])
+            return msg._replace(args=(0,))
+        return msg
+
+    def _preprocessor(plan):
+        return bpp.msg_mutator(plan, _shorten)
+
+    RE.preprocessors.append(_preprocessor)
+    yield requested
+    RE.preprocessors.remove(_preprocessor)
 
 
 @pytest.fixture
