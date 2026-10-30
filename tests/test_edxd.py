@@ -462,6 +462,82 @@ def test_edxd_custom_pos_list_grid_rejects_mismatched_ranges(
     assert not get_mock_put(x.user_setpoint).called
 
 
+async def test_edxd_custom_pos_list_grid_repeats_with_shutters_closed_between(
+    RE: RunEngine,
+    germ: GeRMDetector,
+    stage: tuple[AsyncEpicsMotor, AsyncEpicsMotor],
+    two_shutters: tuple[Shutter, Shutter],
+):
+    x, y = stage
+    fe_shutter, photon_shutter = two_shutters
+    shutters = (fe_shutter, photon_shutter)
+    for motor, position in ((x, 5.0), (y, -1.0)):
+        set_mock_value(motor.user_setpoint, position)
+        set_mock_value(motor.user_readback, position)
+    messages: list[Msg] = []
+    RE.msg_hook = messages.append  # type: ignore
+
+    docs, sleeps = _run(
+        RE,
+        edxd_custom_pos_list_grid(
+            x, [0.0, 1.0],
+            y, [0.0], [1.0], [3],
+            0.02,
+            num_iterations=2,
+            time_between_iterations=5.0,
+            germ=germ,
+            fe_shutter=fe_shutter,
+            photon_shutter=photon_shutter,
+        ),
+    )  # fmt: skip
+
+    # Each iteration is the whole grid: one run per outer position, twice over,
+    # and each iteration's runs link back to that iteration's first run.
+    starts = docs["start"]
+    assert [s["outer_position"] for s in starts] == [0.0, 1.0, 0.0, 1.0]
+    assert "initial_scan_uid" not in starts[0]
+    assert starts[1]["initial_scan_uid"] == starts[0]["uid"]
+    assert "initial_scan_uid" not in starts[2]
+    assert starts[3]["initial_scan_uid"] == starts[2]["uid"]
+    assert [len(events) for events in _events_by_run(docs)] == [3, 3, 3, 3]
+
+    # Between the iterations: the shutters close, the plan waits, and then
+    # (bps.repeat's checkpoint starts the next iteration) they open again.
+    # _run shortens long sleeps to 0 before the hook sees them, so the pause's
+    # requested length comes from ``sleeps``. As in edxd_scan, bps.repeat counts
+    # time_between_iterations from the start of one iteration to the start of the
+    # next, so it asks for 5 s less the time the iteration took; the shutters'
+    # 4 s settles are the other sleeps.
+    def _shutter_sets(msgs: list[Msg], value: bool) -> list[int]:
+        return [
+            i
+            for i, m in enumerate(msgs)
+            if m.command == "set" and m.obj in shutters and m.args[0] is value
+        ]
+
+    run_bounds = [i for i, m in enumerate(messages) if m.command == "close_run"]
+    next_open = next(
+        i
+        for i, m in enumerate(messages)
+        if m.command == "open_run" and i > run_bounds[1]
+    )
+    between = messages[run_bounds[1] : next_open]
+    checkpoint = next(i for i, m in enumerate(between) if m.command == "checkpoint")
+    before, after = between[:checkpoint], between[checkpoint:]
+    closed = _shutter_sets(before, False)
+    assert {before[i].obj for i in closed} == set(shutters)
+    assert not _shutter_sets(before, True)
+    assert before[-1].command == "sleep", "no pause after the shutters closed"
+    assert {after[i].obj for i in _shutter_sets(after, True)} == set(shutters)
+    pauses = [s for s in sleeps if s != 4.0]
+    assert pauses
+    assert all(0 < s < 5.0 for s in pauses)
+
+    await _assert_closed(fe_shutter, photon_shutter)
+    assert await x.user_readback.get_value() == pytest.approx(5.0)
+    assert await y.user_readback.get_value() == pytest.approx(-1.0)
+
+
 # --- edxd_2theta_tilt -----------------------------------------------------------------
 
 
