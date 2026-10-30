@@ -65,16 +65,15 @@ def test_busy_or_paused_engine_blocks_shutters_until_abort(monkeypatch, queued):
     monkeypatch.setattr(
         "hextools.gui.shutter_status.run_in_ipython", lambda code: calls.append(code)
     )
-    monkeypatch.setattr(
-        "hextools.gui.shutter_status.QMessageBox.warning", lambda *args: None
-    )
     try:
+        assert widget._buttons[0].toolTip() == "Click to open the fe."
         if queued:
             widget._toggle(widget._buttons[0])
         with pytest.raises(RunEngineInterrupted):
             re(bps.pause())
         widget._update_enabled()
         assert not any(b.isEnabled() for b in widget._buttons)
+        assert all("not idle" in b.toolTip() for b in widget._buttons)
         if not queued:
             widget._toggle(widget._buttons[1])
         app.processEvents()
