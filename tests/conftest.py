@@ -69,6 +69,13 @@ class _BackgroundTiledServer:
         self._base = base
         self.uri_file = base / _TILED_URI_FILE
         self._server: SimpleTiledServer | None = None
+        # The server converts tables with pandas/pyarrow in its request threads.
+        # The controller imports neither otherwise, and their first import on a
+        # non-main thread segfaults on Python 3.11/3.12 (seen in CI and locally,
+        # 3 of 3 runs); a test process always imports them on its main thread.
+        import pandas  # noqa: F401
+        import pyarrow  # noqa: F401
+
         self._thread = threading.Thread(target=self._start, daemon=True)
         self._thread.start()
 
