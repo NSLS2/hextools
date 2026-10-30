@@ -1,8 +1,6 @@
 import asyncio
 import pprint
 import re
-import threading
-import time
 import uuid
 import warnings
 from pathlib import Path
@@ -41,107 +39,18 @@ from tiled.server import SimpleTiledServer
 
 _ALLOWED_PYTEST_TASKS = {"async_finalizer", "async_setup", "async_teardown"}
 
-# ==================================================================================
-# One Tiled server per test run
-# ==================================================================================
-# Starting a SimpleTiledServer takes seconds (it creates its catalog and storage),
-# so the whole run shares one. Under pytest-xdist the controller process, which
-# otherwise only waits for the workers, starts it in the background while the
-# workers import and collect, and hands them its address through a file. Without
-# xdist the `_tiled_uri` fixture starts one on first use. Either way the server may
-# read anything under pytest's base temporary directory, which holds every test's
-# ``tmp_path`` (the workers' too), and each test writes into its own container.
-
-_TILED_URI_FILE = "hextools-tiled-uri"
-_TILED_START_TIMEOUT = 120.0
-
-
-def _is_xdist_controller(config: pytest.Config) -> bool:
-    return bool(getattr(config.option, "numprocesses", None)) and not hasattr(
-        config, "workerinput"
-    )
-
-
-class _BackgroundTiledServer:
-    """Start a SimpleTiledServer in a thread; write its URI to a file when ready."""
-
-    def __init__(self, base: Path):
-        self._base = base
-        self.uri_file = base / _TILED_URI_FILE
-        self._server: SimpleTiledServer | None = None
-        # The server converts tables with pandas/pyarrow in its request threads.
-        # The controller imports neither otherwise, and their first import on a
-        # non-main thread segfaults on Python 3.11/3.12 (seen in CI and locally,
-        # 3 of 3 runs); a test process always imports them on its main thread.
-        import pandas  # noqa: F401
-        import pyarrow  # noqa: F401
-
-        self._thread = threading.Thread(target=self._start, daemon=True)
-        self._thread.start()
-
-    def _start(self) -> None:
-        try:
-            self._server = SimpleTiledServer(
-                self._base / "tiled_server", readable_storage=[self._base]
-            )
-            self.uri_file.write_text(self._server.uri)
-        except Exception as ex:
-            self.uri_file.write_text(f"ERROR: {ex!r}")
-            raise
-
-    def close(self) -> None:
-        self._thread.join(timeout=_TILED_START_TIMEOUT)
-        if self._server is not None:
-            self._server.close()
-
-
-_tiled_server_key = pytest.StashKey["_BackgroundTiledServer"]()
-
-
-@pytest.hookimpl(trylast=True)
-def pytest_configure(config: pytest.Config) -> None:
-    if _is_xdist_controller(config):
-        # tmp_path_factory's base directory, which contains every worker's. pytest
-        # offers no public way to reach it from a hook.
-        base = config._tmp_path_factory.getbasetemp()  # noqa: SLF001  # pyright: ignore[reportAttributeAccessIssue]
-        config.stash[_tiled_server_key] = _BackgroundTiledServer(base)
-
-
-def pytest_unconfigure(config: pytest.Config) -> None:
-    server = config.stash.get(_tiled_server_key, None)
-    if server is not None:
-        server.close()
-
-
-@pytest.hookimpl(optionalhook=True)
-def pytest_configure_node(node) -> None:
-    """Tell each xdist worker where the controller's Tiled server will be."""
-    server = node.config.stash.get(_tiled_server_key, None)
-    if server is not None:
-        node.workerinput["hextools_tiled_uri_file"] = str(server.uri_file)
-
 
 @pytest.fixture(scope="session")
-def _tiled_uri(
-    request: FixtureRequest, tmp_path_factory: pytest.TempPathFactory
-) -> Generator[str, None, None]:
-    workerinput = getattr(request.config, "workerinput", {})
-    uri_file = workerinput.get("hextools_tiled_uri_file")
-    if uri_file is not None:
-        path = Path(uri_file)
-        deadline = time.monotonic() + _TILED_START_TIMEOUT
-        while not path.exists():
-            if time.monotonic() > deadline:
-                raise TimeoutError(f"The shared Tiled server never wrote {path}")
-            time.sleep(0.05)
-        uri = path.read_text()
-        if uri.startswith("ERROR:"):
-            raise RuntimeError(f"The shared Tiled server failed to start: {uri}")
-        yield uri
-        return
-    base = tmp_path_factory.getbasetemp()
+def _tiled_uri(tmp_path_factory: pytest.TempPathFactory) -> Generator[str, None, None]:
+    """One Tiled server for the whole test run, started on first use.
+
+    Starting a SimpleTiledServer takes seconds (it creates its catalog and
+    storage), so tests share one. It may read anything under pytest's base
+    temporary directory, which holds every test's ``tmp_path``.
+    """
     server = SimpleTiledServer(
-        tmp_path_factory.mktemp("tiled_server"), readable_storage=[base]
+        tmp_path_factory.mktemp("tiled_server"),
+        readable_storage=[tmp_path_factory.getbasetemp()],
     )
     yield server.uri
     server.close()

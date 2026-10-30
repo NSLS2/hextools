@@ -86,7 +86,7 @@ jobs:
         env:
           COVERAGE_CORE: sysmon
         run: >-
-          pixi run --as-is -e ${{ steps.pixi.outputs.env }} pytest --ignore=tests/gui -n auto
+          pixi run --as-is -e ${{ steps.pixi.outputs.env }} pytest --ignore=tests/gui
           ${{ matrix.python-version == '3.13' && '--cov=src/hextools --cov-report=xml --cov-report=term' || '' }}
 
   gui-test:
@@ -112,7 +112,8 @@ jobs:
       - name: Run GUI tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pixi run --as-is -e dev pytest tests/gui -n auto
+          COVERAGE_CORE: sysmon
+        run: pixi run --as-is -e dev pytest tests/gui --cov=src/hextools --cov-report=xml:coverage-gui.xml --cov-report=term
 
       # Uncomment once codecov is enabled.
       # - name: Upload coverage to Codecov

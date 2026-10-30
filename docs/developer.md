@@ -7,8 +7,9 @@ test it, and how to make it available in the GUI.
 
 ```bash
 pixi install -e dev
-pixi run tests                 # pytest, in parallel, no coverage
-pixi run tests-cov             # the same with a coverage report
+pixi run tests                 # unit tests, no coverage
+pixi run gui-tests             # GUI tests (their own process, as in CI)
+pixi run tests-cov             # both, with one combined coverage report
 pixi run lint                  # pre-commit hooks (ruff, ...)
 pixi run type-check            # pyright
 pixi run start-mock            # try your code in a mock IPython session
@@ -243,7 +244,7 @@ explicitly in tests: there is no IPython namespace for `ensure_available` to
 search. See `tests/tomography/` for fixtures that build mock shutters which
 respond to open/close commands and mock Kinetix detectors with file writers.
 
-Keep tests fast; `pixi run tests` runs them in parallel (pytest-xdist):
+Keep tests fast:
 
 - **Tiled**: use the `tiled_client` fixture. It hands each test its own container
   in one Tiled server shared by the whole run (starting a server takes seconds),
