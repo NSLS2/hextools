@@ -1,5 +1,7 @@
 import asyncio
 import pprint
+import re
+import uuid
 import warnings
 from pathlib import Path
 
@@ -26,6 +28,8 @@ with warnings.catch_warnings():
 from collections.abc import Callable, Generator
 
 import pytest
+from bluesky import Msg
+from bluesky import preprocessors as bpp
 from bluesky._vendor.super_state_machine.errors import TransitionError  # noqa: PLC2701
 from bluesky.run_engine import RunEngine
 from pytest import FixtureRequest
@@ -34,6 +38,22 @@ from tiled.client.container import Container
 from tiled.server import SimpleTiledServer
 
 _ALLOWED_PYTEST_TASKS = {"async_finalizer", "async_setup", "async_teardown"}
+
+
+@pytest.fixture(scope="session")
+def _tiled_uri(tmp_path_factory: pytest.TempPathFactory) -> Generator[str, None, None]:
+    """One Tiled server for the whole test run, started on first use.
+
+    Starting a SimpleTiledServer takes seconds (it creates its catalog and
+    storage), so tests share one. It may read anything under pytest's base
+    temporary directory, which holds every test's ``tmp_path``.
+    """
+    server = SimpleTiledServer(
+        tmp_path_factory.mktemp("tiled_server"),
+        readable_storage=[tmp_path_factory.getbasetemp()],
+    )
+    yield server.uri
+    server.close()
 
 
 @pytest.fixture(autouse=True)
@@ -168,15 +188,42 @@ def RE(request: FixtureRequest) -> RunEngine:
 
 
 @pytest.fixture
-def tiled_client(tmp_path: Path) -> Generator[tuple[Path, Container], None, None]:
+def tiled_client(
+    tmp_path: Path, _tiled_uri: str, request: FixtureRequest
+) -> Generator[tuple[Path, Container], None, None]:
+    """A data directory, and a container of the run's Tiled server for this test only.
+
+    Each test writes its runs into its own container, so no test sees another's.
+    """
     (tmp_path / "data").mkdir(parents=True, exist_ok=True)
-    server = SimpleTiledServer(
-        tmp_path / "tiled_data", readable_storage=[tmp_path / "data"]
-    )
-    client = from_uri(server.uri)
+    root = from_uri(_tiled_uri)
+    name = re.sub(r"[^A-Za-z0-9_-]+", "-", request.node.name)[:80]
+    client = root.create_container(key=f"{name}-{uuid.uuid4().hex[:12]}")
     yield tmp_path / "data", client
-    client.context.close()
-    server.close()
+    root.context.close()
+
+
+@pytest.fixture
+def skip_long_sleeps(RE: RunEngine) -> Generator[list[float], None, None]:
+    """Make the plan's sleeps of a second or more return at once.
+
+    Settling waits (e.g. 4 s after a shutter moves) are real time a test doesn't
+    need. Yields the requested lengths of the sleeps it shortened.
+    """
+    requested: list[float] = []
+
+    def _shorten(msg: Msg) -> Msg:
+        if msg.command == "sleep" and msg.args and msg.args[0] >= 1:
+            requested.append(msg.args[0])
+            return msg._replace(args=(0,))
+        return msg
+
+    def _preprocessor(plan):
+        return bpp.msg_mutator(plan, _shorten)
+
+    RE.preprocessors.append(_preprocessor)
+    yield requested
+    RE.preprocessors.remove(_preprocessor)
 
 
 @pytest.fixture
