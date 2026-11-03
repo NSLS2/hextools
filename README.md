@@ -54,7 +54,7 @@ pixi run hex-gui-mock     # against simulated devices
 The GUI can also be launched directly, which exposes additional options:
 
 ```bash
-python -m hextools.gui [--mock] [--profile NAME] [--queueserver-uri URI] [--history-file PATH]
+pixi run -e dev python -m hextools.gui [--mock] [--profile NAME] [--queueserver-uri URI] [--history-file PATH]
 ```
 
 Queue Server components and the auto-exporter service have their own tasks:
