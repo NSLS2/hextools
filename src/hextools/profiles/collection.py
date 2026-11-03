@@ -81,6 +81,7 @@ DEFAULT_TIMEOUT = 60.0
 MOCK_DETECTOR_DATA_DIR = "/tmp/hextools_dets"
 
 TILED_BACKUP_ROOT = "/nsls2/data/hex/shared/config/bluesky/tiled_backup"
+TILED_LOCAL_BACKUP_ROOT = "/tmp/bluesky-docs"
 
 # Environment variables for Redis host and ophyd_async detector state preservation
 os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"
@@ -126,7 +127,7 @@ if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
 
 
 # Construct our tiled clients for writing and (in an interactive session) reading.
-# If we're running in CI, we use a simple client for both.
+# If we're running in CI, we use a simple client for both. Also create TiledWriters
 if not is_running_in_ci():
     tiled_writing_client = from_uri(
         "https://tiled.nsls2.bnl.gov",
@@ -134,14 +135,13 @@ if not is_running_in_ci():
     )["hex"]["raw"]
     if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
         tiled_reading_client = c = from_uri("https://tiled.nsls2.bnl.gov")["hex"]["raw"]
+    tw = BufferingWrapper(TiledWriter(tiled_writing_client, backup_directory=f"{TILED_BACKUP_ROOT}/raw"))
 else:
     tiled_writing_client = tiled_reading_client = c = simple(
         readable_storage=MOCK_DETECTOR_DATA_DIR
     )
+    tw = BufferingWrapper(TiledWriter(tiled_writing_client, backup_directory=f"{TILED_LOCAL_BACKUP_ROOT}/raw"))
 
-
-# Subscribe the buffering wrapper (which wraps Tiled writer) to the RunEngine
-tw = BufferingWrapper(TiledWriter(tiled_writing_client, backup_directory=f"{TILED_BACKUP_ROOT}/raw"))
 RE.subscribe(tw)
 
 # Subscribe the best effort callback, for its plots. The GUI's live table and plan
