@@ -141,8 +141,7 @@ else:
 
 
 # Subscribe the buffering wrapper (which wraps Tiled writer) to the RunEngine
-tw = TiledWriter(tiled_writing_client, backup_directory=f"{TILED_BACKUP_ROOT}/raw")
-tw = BufferingWrapper(tw)
+tw = BufferingWrapper(TiledWriter(tiled_writing_client, backup_directory=f"{TILED_BACKUP_ROOT}/raw"))
 RE.subscribe(tw)
 
 # Subscribe the best effort callback, for its plots. The GUI's live table and plan
