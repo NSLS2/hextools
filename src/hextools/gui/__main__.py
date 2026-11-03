@@ -552,12 +552,12 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         if self._plan_monitor is not None:
             execution_view = QtPlanExecutionView(self._plan_monitor, "hextools")
             tiled_client = user_ns.get("tiled_reading_client") or user_ns.get("c")
-            if tiled_client is not None and isinstance(re_client, RunEngine):
+            tabs.addTab(execution_view, "Plan Execution")
+            if tiled_client is not None:
                 self.scan_browser = QtScanBrowser(tiled_client, ALL_SPECS, re_client)
-                execution_view.add_tab(self.scan_browser, "Scan Browser")
+                tabs.addTab(self.scan_browser, "Scan Browser")
             else:
                 self.scan_browser = None
-            tabs.addTab(execution_view, "Plan Execution")
             self.plan_history = QtPlanHistory(
                 self._plan_monitor,
                 history_file=os.environ.get(PLAN_HISTORY_FILE_ENV)
