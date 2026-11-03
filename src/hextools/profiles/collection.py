@@ -25,7 +25,6 @@ from nslsii.ophyd_async.providers import NSLS2PathProvider
 from ophyd_async.core import PathInfo
 from ophyd_async.epics.adcore import (
     ADWriterFactory,
-    ContAcqDetector,
     NDStatsIO,
     PluginSignalDataLogic,
 )
@@ -40,6 +39,7 @@ from hextools.detectors.germ import (
     GeRMStatsDataLogic,  # noqa: F401 - operator namespace
 )
 from hextools.detectors.kinetix import kinetix_factory
+from hextools.detectors.perkin_elmer import PerkinElmerDetector
 from hextools.detectors.phantom import PhantomDetector
 from hextools.edxd import *
 from hextools.edxd import edxd_grid_scan  # noqa: F401 - operator namespace
@@ -47,6 +47,7 @@ from hextools.log import *
 from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
 from hextools.motors import (
     CollimatorTable,
+    DiffractionTable,
     EDXDTable,
     FOV_2_4_mm_Camera,
     FOV_20_40_mm_Camera,
@@ -228,6 +229,8 @@ with auto_init_devices(timeout=2.0):
     edxd_table = EDXDTable("XF:27IDF-OP:1{EDXD:1-Ax:", name="edxd-table")
     collimator_table = CollimatorTable("XF:27IDF-OP:1{", name="collimator-table")
 
+    diffraction_table = DiffractionTable("XF:27IDF-OP:1{DIFF:1-Ax:", name="diffraction-table")
+
     # Filters, first the two filter 1 (upstream/downstream), then filters 2, 3, and 4
     filter1_upstream = Filter(
         "XF:27IDA-OP:1{Fltr:1-Ax:Yu}Mtr",
@@ -321,7 +324,7 @@ with auto_init_devices(timeout=2.0):
             base_write_dir=PureWindowsPath("Z:\\proposals"),
         )
     )
-    perkin_elmer = ContAcqDetector(
+    perkin_elmer = PerkinElmerDetector(
         "XF:27ID1-ES{PE-Det:1}",
         ADWriterFactory.hdf(pe_path_provider, hinted=False),
         name="perkin-elmer",

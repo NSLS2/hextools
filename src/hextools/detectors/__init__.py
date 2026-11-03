@@ -14,6 +14,11 @@ from .phantom import (
     PhantomSettingsSlot,
     PhantomTrigEdge,
 )
+from .perkin_elmer import (
+    PerkinElmerTriggerMode,
+    PerkinElmerIO,
+    PerkinElmerDetector
+)
 from .utils import enable_preview_mode, set_plugin_queue_sizes, set_proc_filter_type
 
 # Readout headroom (s) added to exposure_time when frame_period is unset;
@@ -34,6 +39,9 @@ __all__ = [
     "PhantomReadySignal",
     "PhantomTrigEdge",
     "PhantomSettingsSlot",
+    "PerkinElmerTriggerMode",
+    "PerkinElmerIO",
+    "PerkinElmerDetector",
     "Gain",
     "GeRMDetector",
     "KinetixTriggerMode",

@@ -277,3 +277,9 @@ def set_plugin_queue_sizes(
                 sigs.extend([child.queue_size, queue_size])
 
     yield from bps.mv(*sigs)
+
+
+def enable_background_subtraction(det: AreaDetector):
+    proc_plugin = det.get_plugin("proc", NDProcessIO)
+    yield from bps.abs_set(proc_plugin.save_background, True, wait=True)
+    yield from bps.mv(proc_plugin.enable_background, True)
