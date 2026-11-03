@@ -18,7 +18,7 @@ from bluesky.run_engine import (
 )
 from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
 from bluesky.utils import ProgressBarManager  # noqa: F401 - operator namespace
-from bluesky_tiled_plugins import TiledWriter
+from bluesky_tiled_plugins import BufferingWrapper, TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from nslsii.ophyd_async.providers import NSLS2PathProvider
@@ -80,6 +80,8 @@ DEFAULT_TIMEOUT = 60.0
 # Where mock detectors write their files, instead of the proposal directories.
 MOCK_DETECTOR_DATA_DIR = "/tmp/hextools_dets"
 
+TILED_BACKUP_ROOT = "/nsls2/data/hex/shared/config/bluesky/tiled_backup"
+
 # Environment variables for Redis host and ophyd_async detector state preservation
 os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"
 os.environ["OPHYD_ASYNC_PRESERVE_DETECTOR_STATE"] = "YES"
@@ -138,8 +140,10 @@ else:
     )
 
 
-# Subscribe the tiled writer to the RunEngine
-RE.subscribe(TiledWriter(tiled_writing_client, backup_directory="/tmp/bluesky-docs"))
+# Subscribe the buffering wrapper (which wraps Tiled writer) to the RunEngine
+tw = TiledWriter(tiled_writing_client, backup_directory=f"{TILED_BACKUP_ROOT}/raw"))
+tw = BufferingWrapper(tw)
+RE.subscribe(tw)
 
 # Subscribe the best effort callback, for its plots. The GUI's live table and plan
 # narration already cover what its table and heading would print.
