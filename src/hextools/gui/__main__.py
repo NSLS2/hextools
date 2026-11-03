@@ -303,6 +303,7 @@ class QtTomographyView(QWidget):
                 f"kinetix{i}",
                 "XF:27ID1-BI{Kinetix-Det:" + str(i) + "}",
                 show_profile_lines=True,
+                preserve_aspect_ratio=True,
             )
         detectors.add_combined("Dual Cam", ["kinetix1", "kinetix3"])
         top.addWidget(detectors, stretch=3)
@@ -422,7 +423,9 @@ class QtXRDView(QWidget):
 
         vbox = QVBoxLayout()
         detectors = QtTabbedDetectorsWidget(re_client)
-        detectors.add_detector("perkin_elmer", "XF:27ID1-ES{PE-Det:1}")
+        detectors.add_detector(
+            "perkin_elmer", "XF:27ID1-ES{PE-Det:1}", preserve_aspect_ratio=True
+        )
         vbox.addWidget(detectors, stretch=1)
         self.setLayout(vbox)
 
@@ -445,10 +448,13 @@ class QtBeamlineView(QWidget):
         top = QHBoxLayout()
         # Visible-light camera viewers take the majority of the screen.
         cameras = QtTabbedDetectorsWidget(re_client)
-        cameras.add_detector("fs_window_cam", "XF:27IDA-BI{FS:1-Cam:1}")
-        cameras.add_detector("diamond_window_cam", "XF:27IDA-BI{FAM:1-Cam:1}")
-        cameras.add_detector("sample_cam", "XF:27ID1-ES{Sample-Cam:1}")
-        cameras.add_detector("f_hutch_cam", "XF:27IDA-BI{GigE-Cam:5}")
+        for name, prefix in (
+            ("fs_window_cam", "XF:27IDA-BI{FS:1-Cam:1}"),
+            ("diamond_window_cam", "XF:27IDA-BI{FAM:1-Cam:1}"),
+            ("sample_cam", "XF:27ID1-ES{Sample-Cam:1}"),
+            ("f_hutch_cam", "XF:27IDA-BI{GigE-Cam:5}"),
+        ):
+            cameras.add_detector(name, prefix, preserve_aspect_ratio=True)
         top.addWidget(cameras, stretch=3)
 
         # Side column: a tabbed selector offering the beamline plans. Each tab
