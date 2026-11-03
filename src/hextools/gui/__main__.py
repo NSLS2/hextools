@@ -306,6 +306,12 @@ class QtTomographyView(QWidget):
                 preserve_aspect_ratio=True,
             )
         detectors.add_combined("Dual Cam", ["kinetix1", "kinetix3"])
+        detectors.add_detector(
+            "phantom1",
+            "XF:27ID1-ES{Phantom-Det:1}",
+            show_profile_lines=True,
+            preserve_aspect_ratio=True,
+        )
         top.addWidget(detectors, stretch=3)
 
         # Side column: a tabbed selector offering the tomography plans. Each tab
