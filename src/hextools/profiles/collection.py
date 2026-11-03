@@ -135,12 +135,16 @@ if not is_running_in_ci():
     )["hex"]["raw"]
     if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
         tiled_reading_client = c = from_uri("https://tiled.nsls2.bnl.gov")["hex"]["raw"]
-    tw = BufferingWrapper(TiledWriter(tiled_writing_client, backup_directory=f"{TILED_BACKUP_ROOT}/raw"))
+    tw = BufferingWrapper(
+        TiledWriter(tiled_writing_client, backup_directory=f"{TILED_BACKUP_ROOT}/raw")
+    )
 else:
     tiled_writing_client = tiled_reading_client = c = simple(
         readable_storage=MOCK_DETECTOR_DATA_DIR
     )
-    tw = BufferingWrapper(TiledWriter(tiled_writing_client, backup_directory=f"{TILED_LOCAL_BACKUP_ROOT}/raw"))
+    tw = BufferingWrapper(
+        TiledWriter(tiled_writing_client, backup_directory=f"{TILED_LOCAL_BACKUP_ROOT}/raw")
+    )
 
 RE.subscribe(tw)
 
