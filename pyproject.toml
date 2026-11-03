@@ -175,6 +175,7 @@ lint.select = [
     "PLE1206", # too few logging args - https://docs.astral.sh/ruff/rules/logging-too-few-args/
     "S101",    # assert - https://docs.astral.sh/ruff/rules/assert/
     "D",       # docstring - https://docs.astral.sh/ruff/rules/#pydocstyle-d
+    "TID251",  # banned imports - https://docs.astral.sh/ruff/rules/banned-api/
 ]
 lint.ignore = [
     "B901", # Return in a generator is needed for plans
@@ -202,6 +203,9 @@ convention = "numpy"
 [tool.ruff.lint.flake8-import-conventions.extend-aliases]
 # We often shorten "Annotated" to "A" for brevity
 "typing.Annotated" = "A"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"ophyd.sim".msg = "hextools uses ophyd-async: use ophyd_async.sim (e.g. SimMotor, SimBlobDetector) instead."
 
 [tool.ruff.lint.pep8-naming]
 # The fixture RE is commonly used in tests

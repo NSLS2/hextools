@@ -207,6 +207,8 @@ def edxd_custom_pos_list_grid(
     inner_stop: list[float],
     inner_num_points: list[int],
     count_time: float,
+    num_iterations: int = 1,
+    time_between_iterations: float = 0.0,
     save_as_tiff: bool = True,
     use_shutter: bool = True,
     reset_positions: bool = True,
@@ -215,7 +217,21 @@ def edxd_custom_pos_list_grid(
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
 ):
-    """Run a custom-position EDXD grid, saving TIFF unless save_as_tiff=False."""
+    """Run a custom-position EDXD grid, saving TIFF unless save_as_tiff=False.
+
+    Each iteration runs the whole grid: one run per outer position, each linked
+    to that iteration's first run by ``initial_scan_uid``. As in
+    :func:`edxd_scan`, every iteration opens and closes the shutters and resets
+    the positions, so the wait between iterations is spent with the shutters
+    closed.
+
+    Parameters
+    ----------
+    num_iterations : int, default 1
+        The number of times to run the whole grid.
+    time_between_iterations : float, default 0.0
+        The time to wait between iterations.
+    """
     germ = ensure_available(GeRMDetector, germ=germ)
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
@@ -280,7 +296,13 @@ def edxd_custom_pos_list_grid(
             yield from ensure_shutter_closed(fe_shutter)
             yield from ensure_shutter_closed(photon_shutter)
 
-    return (yield from finalize_wrapper(_body(), _cleanup()))
+    return (
+        yield from bps.repeat(
+            lambda: finalize_wrapper(_body(), _cleanup()),
+            num=num_iterations,
+            delay=time_between_iterations,
+        )
+    )
 
 
 def edxd_grid_scan(

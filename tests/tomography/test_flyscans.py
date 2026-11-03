@@ -86,7 +86,7 @@ def _mock_motor(motor: AsyncEpicsMotor) -> AsyncEpicsMotor:
 
 @pytest.fixture
 def static_path_provider(tmp_path: Path) -> StaticPathProvider:
-    # tiled_client only serves files under tmp_path / "data"
+    # the same directory tiled_client hands out for data, tmp_path / "data"
     return StaticPathProvider(UUIDFilenameProvider(), tmp_path / "data")
 
 

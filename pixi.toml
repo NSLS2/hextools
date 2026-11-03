@@ -158,7 +158,23 @@ py312 = { features = ["dev", "terminal", "py312"], solve-group = "py312" }
 py313 = { features = ["dev", "terminal", "py313"], solve-group = "py313" }
 
 [feature.dev.tasks.tests]
-cmd = "pytest --cov=src/hextools --cov-report=term"
+# The GUI tests run separately (`gui-tests`), as in CI: in one process with the
+# rest, Qt objects they leave behind crash later tests.
+cmd = "pytest --ignore=tests/gui"
+default-environment = "dev"
+
+[feature.dev.tasks.gui-tests]
+cmd = "pytest tests/gui"
+default-environment = "dev"
+
+[feature.dev.tasks.all-tests]
+# Both suites, one after the other, each in its own process.
+cmd = "pytest --ignore=tests/gui && pytest tests/gui"
+default-environment = "dev"
+
+[feature.dev.tasks.tests-cov]
+# Both suites, in their own processes, with one combined coverage report.
+cmd = "pytest --ignore=tests/gui --cov=src/hextools --cov-report= && pytest tests/gui --cov=src/hextools --cov-append --cov-report=term"
 default-environment = "dev"
 
 # Run the tests, then serve the html coverage report whether or not they passed.

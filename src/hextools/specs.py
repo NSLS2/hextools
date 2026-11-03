@@ -235,7 +235,7 @@ def validate_radiograph(run: RunLike, version: str | None = "1") -> None:
 
 # edxd_count, edxd_scan, edxd_grid_scan, edxd_custom_pos_list_grid
 # (edxd_scan opens one run per iteration; edxd_custom_pos_list_grid one run per
-# outer position)
+# outer position, per iteration)
 #
 # Start document:
 #   plan_name: "edxd_count" | "edxd_scan" | "edxd_grid_scan"
@@ -244,7 +244,7 @@ def validate_radiograph(run: RunLike, version: str | None = "1") -> None:
 #   standard count/scan/grid_scan/list_scan metadata (0, 1 or 2 motors)
 #   outer_position: float            edxd_custom_pos_list_grid only
 #   initial_scan_uid: str            edxd_custom_pos_list_grid only,
-#                                    from its second run on
+#                                    from its second run on, within an iteration
 # Streams:
 #   primary: one event per point
 #     <det>                     (num_elements, num_energy_bins) GeRM spectra,

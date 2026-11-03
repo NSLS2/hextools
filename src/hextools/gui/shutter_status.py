@@ -13,7 +13,6 @@ from qtpy.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QLabel,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -65,6 +64,7 @@ class _ShutterButton(QPushButton):
         self.shutter = shutter
         self._loop = loop
         self.is_open: bool | None = None
+        self._blocked_reason: str | None = None
         self.setFixedSize(_BUTTON_SIZE, _BUTTON_SIZE)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._signal_state.connect(self._set_state)
@@ -82,15 +82,34 @@ class _ShutterButton(QPushButton):
         self.is_open = is_open
         self._render()
 
+    def set_blocked(self, reason: str | None):
+        """Disable clicks, giving ``reason`` as the tooltip, or enable with None."""
+        if reason == self._blocked_reason:
+            return
+        self._blocked_reason = reason
+        self.setEnabled(reason is None)
+        self.setCursor(
+            Qt.CursorShape.PointingHandCursor
+            if reason is None
+            else Qt.CursorShape.ArrowCursor
+        )
+        self._update_tooltip()
+
+    def _update_tooltip(self):
+        if self._blocked_reason is not None:
+            self.setToolTip(self._blocked_reason)
+        else:
+            action = "close" if self.is_open else "open"
+            self.setToolTip(f"Click to {action} the {self.var_name}.")
+
     def _render(self):
         if self.is_open is None:
-            (top, bottom), state = _UNKNOWN_COLORS, "unknown"
+            top, bottom = _UNKNOWN_COLORS
         elif self.is_open:
-            (top, bottom), state = _OPEN_COLORS, "open"
+            top, bottom = _OPEN_COLORS
         else:
-            (top, bottom), state = _CLOSED_COLORS, "closed"
-        action = "close" if self.is_open else "open"
-        self.setToolTip(f"{self.shutter.name} is {state}. Click to {action}.")
+            top, bottom = _CLOSED_COLORS
+        self._update_tooltip()
         # The app theme's QPushButton min-width/min-height override setFixedSize
         # when the stylesheet is polished, so pin the size in the stylesheet too.
         inner = _BUTTON_SIZE - 2  # minus the 1px border on each side
@@ -167,19 +186,17 @@ class QtShutterStatus(QWidget):
         self._update_enabled()
 
     def _update_enabled(self):
-        enabled = not self._pending and self._re.state == "idle"
+        if self._re.state != "idle":
+            reason = "Shutters cannot be actuated while the RunEngine is not idle."
+        elif self._pending:
+            reason = "A shutter actuation command is running."
+        else:
+            reason = None
         for button in self._buttons:
-            button.setEnabled(enabled)
+            button.set_blocked(reason)
 
     def _toggle(self, button: _ShutterButton):
-        if self._pending:
-            return
-        if self._re.state != "idle":
-            QMessageBox.warning(
-                self,
-                "RunEngine busy",
-                "Cannot actuate a shutter while the RunEngine is busy.",
-            )
+        if self._pending or self._re.state != "idle":
             return
         code = self._command_builder(button.var_name, not button.is_open)
         # Reserve both controls before the deferred cell can run or Qt reenters.
