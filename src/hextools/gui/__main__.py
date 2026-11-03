@@ -307,7 +307,7 @@ class QtTomographyView(QWidget):
             )
         detectors.add_combined("Dual Cam", ["kinetix1", "kinetix3"])
         detectors.add_detector(
-            "phantom1",
+            "phantom",
             "XF:27ID1-ES{Phantom-Det:1}",
             show_profile_lines=True,
             preserve_aspect_ratio=True,
