@@ -143,7 +143,9 @@ else:
         readable_storage=MOCK_DETECTOR_DATA_DIR
     )
     tw = BufferingWrapper(
-        TiledWriter(tiled_writing_client, backup_directory=f"{TILED_LOCAL_BACKUP_ROOT}/raw")
+        TiledWriter(
+            tiled_writing_client, backup_directory=f"{TILED_LOCAL_BACKUP_ROOT}/raw"
+        )
     )
 
 RE.subscribe(tw)
