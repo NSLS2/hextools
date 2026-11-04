@@ -136,7 +136,7 @@ if not is_running_in_ci():
     if ipython is not None and isinstance(ipython, TerminalInteractiveShell):
         tiled_reading_client = c = from_uri("https://tiled.nsls2.bnl.gov")["hex"]["raw"]
     tw = BufferingWrapper(
-        TiledWriter(tiled_writing_client, backup_directory=f"{TILED_BACKUP_ROOT}/raw")
+        TiledWriter(tiled_writing_client, backup_directory=f"{TILED_BACKUP_ROOT}/sql")
     )
 else:
     tiled_writing_client = tiled_reading_client = c = simple(
@@ -144,7 +144,7 @@ else:
     )
     tw = BufferingWrapper(
         TiledWriter(
-            tiled_writing_client, backup_directory=f"{TILED_LOCAL_BACKUP_ROOT}/raw"
+            tiled_writing_client, backup_directory=f"{TILED_LOCAL_BACKUP_ROOT}/sql"
         )
     )
 
