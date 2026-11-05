@@ -3,7 +3,6 @@
 import os
 from pathlib import (
     Path,  # noqa: F401 - operator namespace
-    PurePath,
     PureWindowsPath,
 )
 
@@ -22,13 +21,16 @@ from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from nslsii.ophyd_async.providers import NSLS2PathProvider
-from ophyd_async.core import PathInfo
+from nslsii.utils import ProposalIDPrompt, print_proposal_info, print_version_info
+from ophyd_async.core import init_devices, print_connection_status
 from ophyd_async.epics.adcore import (
     ADWriterFactory,
     NDStatsIO,
     PluginSignalDataLogic,
 )
-from ophyd_async.epics.adkinetix import KinetixDetector  # noqa: F401 - operator namespace
+from ophyd_async.epics.adkinetix import (
+    KinetixDetector,  # noqa: F401 - operator namespace
+)
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.sim import SimMotor
@@ -42,9 +44,8 @@ from hextools.detectors.kinetix import kinetix_factory
 from hextools.detectors.perkin_elmer import PerkinElmerDetector
 from hextools.detectors.phantom import PhantomDetector
 from hextools.edxd import *
-from hextools.edxd import edxd_grid_scan  # noqa: F401 - operator namespace
 from hextools.log import *
-from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
+from hextools.machine import *
 from hextools.motors import (
     CollimatorTable,
     DiffractionTable,
@@ -59,24 +60,40 @@ from hextools.motors import (
 from hextools.photon_delivery_system import *
 from hextools.suspenders import SuspendFloorUnlessOpsMode
 from hextools.tomography import *
-from hextools.tomography import (
-    LastDarkFlatUIDTracker,
-)
 from hextools.utils import (
-    ProposalIDPrompt,
     StartDocAwareFilenameProvider,
-    auto_init_devices,
     initialize_run_engine,
     is_running_in_ci,
-    print_proposal_info,
-    print_version_info,
     reset_scan_id,  # noqa: F401 - operator namespace
     show_docs,  # noqa: F401 - operator namespace
 )
 from hextools.utils.path_providers import mock_path_provider
 
-# Adjust the default timeout for ophyd async to 60s
-DEFAULT_TIMEOUT = 60.0
+# TODO: Enable mock customization via flags once
+# https://github.com/bluesky/ophyd-async/pull/1446 is merged
+# parser = argparse.ArgumentParser(description="HEX Tools Collection Profile")
+# parser.add_argument(
+#   "--mock", action="store_true"help="Mock all beamline devices"
+# )
+# parser.add_argument(
+#   "--mock-shutters", action="store_true"help="Mock all shutters"
+# )
+# parser.add_argument(
+#   "--mock-motors", action="store_true"help="Mock all motors"
+# )
+# parser.add_argument(
+#   "--mock-motors-no-rot",
+#   action="store_true",
+#   help="Mock all motors except rotation stage"
+# )
+
+# _args = parser.parse_args()
+# _mock_config = {
+#     Device: _args.mock,
+#     AsyncEpicsMotor: _args.mock_motors or _args.mock_motors_no_rot,
+#     Shutter: _args.mock_shutters,
+#     RotationMotor: _args.mock_motors_no_rot,
+# }
 
 # Where mock detectors write their files, instead of the proposal directories.
 MOCK_DETECTOR_DATA_DIR = "/tmp/hextools_dets"
@@ -86,11 +103,12 @@ os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"
 os.environ["OPHYD_ASYNC_PRESERVE_DETECTOR_STATE"] = "YES"
 
 # Print version information for bluesky, ophyd_async, tiled, and hextools.
-print_version_info()
+print_version_info(additional_packages=["hextools"])
 
 # Log hextools messages (including plan narration) to the console, color-coded by level.
 logger = configure_logger()
 
+logger.info("Initializing the bluesky RunEngine...")
 # Setup the RunEngine and its metadata.
 RE: RunEngine = initialize_run_engine()
 RE.md["facility"] = "NSLS-II"
@@ -155,40 +173,11 @@ RE.subscribe(LastDarkFlatUIDTracker(RE.md))
 filename_provider = StartDocAwareFilenameProvider()
 RE.subscribe(filename_provider.doc_callback)
 
-
-# TODO: Get this upstream
-class HEXPathProvider(NSLS2PathProvider):
-    """NSLS-II path provider with configurable scan ID zero-padding."""
-
-    def __init__(self, *args, scan_id_padding: int = 6, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._scan_id_padding = scan_id_padding
-
-    def _generate_directory_path(
-        self, base_path: PurePath, datakey_name: str
-    ) -> PurePath:
-        base_path = super()._generate_directory_path(base_path, datakey_name)
-        if self._include_scan_id_dir:
-            base_path = (
-                base_path.parent
-                / f"scan_{self._metadata_dict['scan_id']:0{self._scan_id_padding}d}"
-            )
-        return base_path
-
-    def __call__(self, datakey_name) -> PathInfo:
-        # NSLS2PathProvider doesn't pass the datakey to the filename provider.
-        return (
-            super()
-            .__call__(datakey_name)
-            .model_copy(update={"filename": self._filename_provider(datakey_name)})
-        )
-
-
 # Define our global default path provider for the beamline
 if is_running_in_ci():
     path_provider = mock_path_provider(MOCK_DETECTOR_DATA_DIR)
 else:
-    path_provider = HEXPathProvider(
+    path_provider = NSLS2PathProvider(
         RE.md,
         filename_provider=filename_provider,
         include_scan_id_dir=True,
@@ -196,7 +185,9 @@ else:
         scan_id_padding=5,
     )
 
-with auto_init_devices(timeout=2.0):
+with init_devices(
+    mock=is_running_in_ci(), timeout=2.0, on_connect_hook=print_connection_status
+):
     # Shutters (Front-end and photon)
     fe_shutter = PPSShutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon-shutter")

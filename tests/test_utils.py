@@ -2,18 +2,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from ophyd_async.epics.motor import Motor
 
 from hextools.utils import (
-    ProposalIDPrompt,
-    auto_init_devices,
     ensure_available,
     get_obj_from_ipython_ns,
     initialize_run_engine,
     is_running_in_ci,
     merge_async_iterables,
-    print_proposal_info,
-    print_version_info,
     show_docs,
     start_beamtime,
 )
@@ -40,44 +35,6 @@ def test_is_running_in_ci(monkeypatch, env_value, expected):
     assert is_running_in_ci() == expected
 
 
-async def test_auto_init_devices_preserves_dash_in_name(monkeypatch):
-    # CI env makes the processor connect in mock mode.
-    monkeypatch.setenv("HEXTOOLS_RUNNING_IN_CI", "yes")
-    processor = auto_init_devices(timeout=1.0)
-    motor = Motor("TEST:MTR")
-
-    await processor._process_devices({"my-motor": motor})
-
-    # Dash preserved on the device, underscore used as the child separator.
-    assert motor.name == "my-motor"
-    assert motor.velocity.name == "my-motor-velocity"
-
-
-async def test_auto_init_devices_context_manager_printout(monkeypatch, capsys):
-    # CI env makes the processor connect in mock mode.
-    monkeypatch.setenv("HEXTOOLS_RUNNING_IN_CI", "yes")
-
-    async def _fail_connect(*_args, **_kwargs):
-        raise TimeoutError("simulated connection failure")
-
-    # Async context manager names/connects devices defined in the block.
-    async with auto_init_devices(timeout=1.0):
-        good_motor = Motor("TEST:GOOD")
-        bad_motor = Motor("TEST:BAD")
-        monkeypatch.setattr(bad_motor, "connect", _fail_connect)  # force a failure
-
-    assert good_motor.name == "good_motor"
-    assert bad_motor.name == "bad_motor"
-
-    out = capsys.readouterr().out
-    assert "Connecting to beamline devices" in out
-    assert "good_motor" in out
-    assert "[   OK   ]" in out
-    # The device that failed to connect is reported as disconnected.
-    assert "bad_motor" in out
-    assert "[ FAILED ]" in out
-
-
 async def test_merge_async_iterables_yields_all_items():
     async def _agen(items):
         for item in items:
@@ -91,39 +48,11 @@ async def test_merge_async_iterables_yields_all_items():
     assert sorted(merged) == [1, 2, 3, 4, 5]
 
 
-def test_print_version_info(capsys):
-    print_version_info()
-    out = capsys.readouterr().out
-    assert "Version Information" in out
-    for package in ("bluesky", "ophyd_async", "tiled", "hextools"):
-        assert package in out
-
-
 def test_show_docs(capsys):
     show_docs("start", {"scan_id": 7})
     out = capsys.readouterr().out
     assert "start" in out
     assert "scan_id" in out
-
-
-def test_proposal_id_prompt_tokens():
-    fake_re = SimpleNamespace(md={"data_session": "pass-42"})
-    fake_shell = SimpleNamespace(execution_count=7)
-
-    tokens = ProposalIDPrompt(fake_re, fake_shell).in_prompt_tokens()  # type: ignore
-
-    text = "".join(value for _, value in tokens)
-    assert "pass-42" in text
-    assert "7" in text
-
-
-def test_proposal_id_prompt_defaults_when_missing():
-    fake_re = SimpleNamespace(md={})
-    fake_shell = SimpleNamespace(execution_count=1)
-
-    prompt = ProposalIDPrompt(fake_re, fake_shell)  # type: ignore
-    text = "".join(value for _, value in prompt.in_prompt_tokens())
-    assert "N/A" in text
 
 
 def test_initialize_run_engine_ci_metadata(monkeypatch):
@@ -142,20 +71,6 @@ def test_initialize_run_engine_ci_metadata(monkeypatch):
     assert md["data_session"] == "pass-123456"
     assert "cycle" in md
     assert md["proposal"]["type"] == "Mock Commissioning"
-
-
-def test_print_proposal_info_with_proposal(capsys):
-    md = {"proposal": {"title": "My Study", "type": "PU", "pi_name": "Ada"}}
-    print_proposal_info(md)
-    out = capsys.readouterr().out
-    assert "My Study" in out
-    assert "PU" in out
-    assert "Ada" in out
-
-
-def test_print_proposal_info_without_proposal(capsys):
-    print_proposal_info({})
-    assert capsys.readouterr().out == ""
 
 
 def test_start_beamtime(monkeypatch, capsys):
