@@ -74,16 +74,16 @@ from hextools.utils.path_providers import mock_path_provider
 # https://github.com/bluesky/ophyd-async/pull/1446 is merged
 # parser = argparse.ArgumentParser(description="HEX Tools Collection Profile")
 # parser.add_argument(
-#   "mock", action="store_true", default=False, help="Mock all beamline devices"
+#   "--mock", action="store_true", default=False, help="Mock all beamline devices"
 # )
 # parser.add_argument(
-#   "mock-shutters", action="store_true", default=False, help="Mock all shutters"
+#   "--mock-shutters", action="store_true", default=False, help="Mock all shutters"
 # )
 # parser.add_argument(
-#   "mock-motors", action="store_true", default=False, help="Mock all motors"
+#   "--mock-motors", action="store_true", default=False, help="Mock all motors"
 # )
 # parser.add_argument(
-#   "mock-motors-no-rot",
+#   "--mock-motors-no-rot",
 #   action="store_true",
 #   default=False,
 #   help="Mock all motors except rotation stage"
