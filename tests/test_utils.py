@@ -10,7 +10,6 @@ from hextools.utils import (
     is_running_in_ci,
     merge_async_iterables,
     print_proposal_info,
-    print_version_info,
     show_docs,
     start_beamtime,
 )
@@ -50,13 +49,6 @@ async def test_merge_async_iterables_yields_all_items():
     assert sorted(merged) == [1, 2, 3, 4, 5]
 
 
-def test_print_version_info(capsys):
-    print_version_info()
-    out = capsys.readouterr().out
-    assert "Version Information" in out
-    for package in ("bluesky", "ophyd_async", "tiled", "hextools"):
-        assert package in out
-
 
 def test_show_docs(capsys):
     show_docs("start", {"scan_id": 7})
@@ -81,20 +73,6 @@ def test_initialize_run_engine_ci_metadata(monkeypatch):
     assert md["data_session"] == "pass-123456"
     assert "cycle" in md
     assert md["proposal"]["type"] == "Mock Commissioning"
-
-
-def test_print_proposal_info_with_proposal(capsys):
-    md = {"proposal": {"title": "My Study", "type": "PU", "pi_name": "Ada"}}
-    print_proposal_info(md)
-    out = capsys.readouterr().out
-    assert "My Study" in out
-    assert "PU" in out
-    assert "Ada" in out
-
-
-def test_print_proposal_info_without_proposal(capsys):
-    print_proposal_info({})
-    assert capsys.readouterr().out == ""
 
 
 def test_start_beamtime(monkeypatch, capsys):

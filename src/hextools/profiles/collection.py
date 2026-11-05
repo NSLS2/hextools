@@ -21,7 +21,7 @@ from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from nslsii.ophyd_async.providers import NSLS2PathProvider
-from nslsii.utils.ipython import ProposalIDPrompt
+from nslsii.utils import ProposalIDPrompt, print_proposal_info, print_version_info
 from ophyd_async.core import init_devices, print_connection_status
 from ophyd_async.epics.adcore import (
     ADWriterFactory,
@@ -63,8 +63,6 @@ from hextools.utils import (
     StartDocAwareFilenameProvider,
     initialize_run_engine,
     is_running_in_ci,
-    print_proposal_info,
-    print_version_info,
     reset_scan_id,  # noqa: F401 - operator namespace
     show_docs,  # noqa: F401 - operator namespace
 )
@@ -104,7 +102,7 @@ os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"
 os.environ["OPHYD_ASYNC_PRESERVE_DETECTOR_STATE"] = "YES"
 
 # Print version information for bluesky, ophyd_async, tiled, and hextools.
-print_version_info()
+print_version_info(additional_packages=["hextools"])
 
 # Log hextools messages (including plan narration) to the console, color-coded by level.
 logger = configure_logger()

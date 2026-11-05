@@ -318,7 +318,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#1bb43283b4e2c27ee37b2e72e7f9b6d239cf2eff
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#307251174c8b3b7427a74e89419351802252c212
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#0c6e1e31f6ddc3dedad158ff6f92465ebc582515
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -859,7 +859,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#1bb43283b4e2c27ee37b2e72e7f9b6d239cf2eff
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#307251174c8b3b7427a74e89419351802252c212
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#0c6e1e31f6ddc3dedad158ff6f92465ebc582515
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#754b4aed15fd82c11d398933d0a85752af354d17
@@ -1243,7 +1243,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#1bb43283b4e2c27ee37b2e72e7f9b6d239cf2eff
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#307251174c8b3b7427a74e89419351802252c212
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#0c6e1e31f6ddc3dedad158ff6f92465ebc582515
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -1596,7 +1596,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#1bb43283b4e2c27ee37b2e72e7f9b6d239cf2eff
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#307251174c8b3b7427a74e89419351802252c212
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#0c6e1e31f6ddc3dedad158ff6f92465ebc582515
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -2144,7 +2144,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#1bb43283b4e2c27ee37b2e72e7f9b6d239cf2eff
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#307251174c8b3b7427a74e89419351802252c212
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#0c6e1e31f6ddc3dedad158ff6f92465ebc582515
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#754b4aed15fd82c11d398933d0a85752af354d17
@@ -2692,7 +2692,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#1bb43283b4e2c27ee37b2e72e7f9b6d239cf2eff
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#307251174c8b3b7427a74e89419351802252c212
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#0c6e1e31f6ddc3dedad158ff6f92465ebc582515
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#754b4aed15fd82c11d398933d0a85752af354d17
@@ -3239,7 +3239,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#1bb43283b4e2c27ee37b2e72e7f9b6d239cf2eff
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#307251174c8b3b7427a74e89419351802252c212
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#0c6e1e31f6ddc3dedad158ff6f92465ebc582515
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#754b4aed15fd82c11d398933d0a85752af354d17
@@ -3659,7 +3659,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#1bb43283b4e2c27ee37b2e72e7f9b6d239cf2eff
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#307251174c8b3b7427a74e89419351802252c212
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#0c6e1e31f6ddc3dedad158ff6f92465ebc582515
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -4116,7 +4116,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#1bb43283b4e2c27ee37b2e72e7f9b6d239cf2eff
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#307251174c8b3b7427a74e89419351802252c212
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/bluesky/ophyd-async?rev=main#0c6e1e31f6ddc3dedad158ff6f92465ebc582515
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#754b4aed15fd82c11d398933d0a85752af354d17
@@ -15501,9 +15501,9 @@ packages:
   - qtpy ; extra == 'gui'
   - tiled[client] ; extra == 'gui'
   requires_python: '>=3.11'
-- pypi: git+https://github.com/NSLS2/nslsii?rev=main#1bb43283b4e2c27ee37b2e72e7f9b6d239cf2eff
+- pypi: git+https://github.com/NSLS2/nslsii?rev=main#307251174c8b3b7427a74e89419351802252c212
   name: nslsii
-  version: 0.11.11.dev56
+  version: 0.11.11.dev58
   requires_dist:
   - appdirs
   - bluesky-kafka>=0.8.0

@@ -7,6 +7,7 @@ import sys
 from collections.abc import AsyncIterable, MutableMapping
 from datetime import datetime
 from typing import Any, TypeVar
+from nslsii.utils import print_proposal_info
 
 from bluesky import plan_stubs as bps
 from bluesky.run_engine import RunEngine
@@ -147,21 +148,6 @@ def is_running_in_ci() -> bool:
     ]
 
 
-def print_version_info():
-    """Print version information for bluesky, ophyd_async, tiled, and hextools."""
-    from bluesky import __version__ as bluesky_version
-    from ophyd_async import __version__ as ophyd_async_version
-    from tiled import __version__ as tiled_version
-
-    from hextools import __version__ as hextools_version
-
-    rprint("\n[bold]Version Information[/bold]")
-    rprint(f"  [bold]bluesky[/bold]: [blue]{bluesky_version}[/blue]")
-    rprint(f"  [bold]ophyd_async[/bold]: [blue]{ophyd_async_version}[/blue]")
-    rprint(f"  [bold]tiled[/bold]: [blue]{tiled_version}[/blue]")
-    rprint(f"  [bold]hextools[/bold]: [blue]{hextools_version}[/blue]\n")
-
-
 def show_docs(name: str, doc: dict[str, Any]):
     """Print out the bluesky documents in a readable format.
 
@@ -199,24 +185,6 @@ def initialize_run_engine() -> RunEngine:
             }
         )
     return RunEngine(RedisJSONDict(open_redis_client(redis_ssl=True), ""))
-
-
-def print_proposal_info(md: MutableMapping[str, Any]):
-    """Print the proposal information from the RunEngine metadata.
-
-    md : MutableMapping[str, Any]
-        The metadata dictionary from the RunEngine.
-    """
-    proposal_md = md.get("proposal", {})
-    if proposal_md:
-        rprint(
-            f"[bold]  - Title: [green][italic]{proposal_md['title']}"
-            "[/italic][/green][/bold]"
-        )
-        rprint(f"[bold]  - Type:  [italic]{proposal_md['type']}[/italic][/bold]")
-        rprint(f"[bold]  - PI:    [italic]{proposal_md['pi_name']}[/italic][/bold]\n")
-    else:
-        rprint("[bold][red]No active proposal![/red][/bold]\n")
 
 
 def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
