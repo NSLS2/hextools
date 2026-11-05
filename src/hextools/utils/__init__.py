@@ -185,24 +185,6 @@ def show_docs(name: str, doc: dict[str, Any]):
     rprint(doc)
 
 
-class ProposalIDPrompt(Prompts):
-    """Custom IPython prompt that shows the current proposal ID."""
-
-    def __init__(self, RE: RunEngine, shell: TerminalInteractiveShell):
-        super().__init__(shell)
-        self._RE = RE
-
-    def in_prompt_tokens(self, cli=None):
-        return [
-            (
-                Token.Prompt,
-                f"{self._RE.md.get('data_session', 'N/A')} [",
-            ),
-            (Token.PromptNum, str(self.shell.execution_count)),
-            (Token.Prompt, "]: "),
-        ]
-
-
 def initialize_run_engine() -> RunEngine:
     """Initialize the bluesky RunEngine with appropriate metadata.
 
@@ -236,12 +218,11 @@ def print_proposal_info(md: MutableMapping[str, Any]):
     """
     proposal_md = md.get("proposal", {})
     if proposal_md:
-        rprint(
-            "Active proposal:\n"
-            f"  Proposal title: [italic]{proposal_md['title']}[/italic]\n"
-            f"  Proposal type: [italic]{proposal_md['type']}[/italic]\n"
-            f"  Proposal PI: [italic]{proposal_md['pi_name']}[/italic]\n"
-        )
+        rprint(f"[bold]  - Title: [green][italic]{proposal_md['title']}[/italic][/green][/bold]")
+        rprint(f"[bold]  - Type:  [italic]{proposal_md['type']}[/italic][/bold]")
+        rprint(f"[bold]  - PI:    [italic]{proposal_md['pi_name']}[/italic][/bold]\n")
+    else:
+        rprint("[bold][red]No active proposal![/red][/bold]\n")
 
 
 def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
@@ -444,96 +425,6 @@ def switch_proposal(
 
     _run_sync_experiment(proposal_number, username, password, beamline)
     return md if md is not None else {}
-
-
-def _failed_paths(error: Exception, prefix: str = "") -> list[str]:
-    """Dotted paths of the leaves of a (nested) NotConnectedError."""
-    sub = error.sub_errors if isinstance(error, NotConnectedError) else {}
-    if not sub:
-        return [prefix.rstrip(".")]
-    return [
-        p for name, err in sub.items() for p in _failed_paths(err, f"{prefix}{name}.")
-    ]
-
-
-def _count_connected_signals(device: Device, error: Exception) -> tuple[int, int]:
-    """Count (connected, total) signals of ``device``, given its connection error."""
-    signals = [
-        path for path, d in walk_devices(device).items() if isinstance(d, Signal)
-    ]
-    if not signals:
-        return 0, 1
-    failed = [p for p in _failed_paths(error) if p]
-    if not failed:
-        return 0, len(signals)
-    down = [s for s in signals if any(s == f or s.startswith(f + ".") for f in failed)]
-    return len(signals) - len(down), len(signals)
-
-
-def auto_init_devices(
-    timeout: float = 1.0, ok_message="OK", fail_message="FAILED", verbose: bool = False
-) -> DeviceProcessor:
-    """Create a DeviceProcessor that connects devices, printing status for each.
-
-    Parameters
-    ----------
-    timeout : float
-        The timeout in seconds for each device connection attempt.
-    verbose : bool, optional
-        Whether to print detailed information, by default False.
-
-    Returns
-    -------
-    DeviceProcessor
-        A DeviceProcessor that connects devices and prints their connection status.
-    """
-    mock = is_running_in_ci()
-    # highlight=False stops rich from coloring dot-runs as ellipses.
-    console = Console(highlight=False)
-    console.print("\n[bold]Connecting to beamline devices...[/bold]\n")
-
-    async def _process_devices(devices: dict[str, Device]):
-        for name, device in devices.items():
-            if not device.name:
-                device.set_name(name)
-        coros = {
-            name: device.connect(mock, timeout) for name, device in devices.items()
-        }
-        failed: set[str] = set()
-        reasons: dict[str, str] = {}
-        e = NotConnectedError({})
-        try:
-            await wait_for_connection(**coros)
-        except NotConnectedError as err:
-            e = err
-            failed = set(e.sub_errors.keys())
-            reasons = {name: str(err) for name, err in e.sub_errors.items()}
-
-        width = max(len(ok_message), len(fail_message)) + 2
-        for name, device in devices.items():
-            dots = "." * (40 - len(name))
-            # Escaped brackets stay uncolored; only the label text is styled.
-            if name not in failed:
-                console.print(
-                    f"  {name} {dots} \\[[bold green]"
-                    f"{ok_message.center(width)}[/bold green]]"
-                )
-                continue
-            line = (
-                f"  {name} {dots} \\[[bold red]{fail_message.center(width)}[/bold red]]"
-            )
-            connected, total = _count_connected_signals(device, e.sub_errors[name])
-            if 0 < connected < total:
-                line += f" [dim]({connected}/{total} signals connected)[/dim]"
-            console.print(line)
-        if verbose:
-            console.print(
-                "\n".join(f"{name}: {reason}" for name, reason in reasons.items())
-                if reasons
-                else ""
-            )
-
-    return DeviceProcessor(_process_devices)
 
 
 PIPE = "│"
