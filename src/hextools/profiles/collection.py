@@ -13,9 +13,7 @@ from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
-    call_in_bluesky_event_loop,  # noqa: F401 - operator namespace
 )
-from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
 from bluesky.utils import ProgressBarManager  # noqa: F401 - operator namespace
 from bluesky_tiled_plugins import TiledWriter
 from IPython.core.getipython import get_ipython
@@ -68,6 +66,7 @@ from hextools.utils import (
     show_docs,  # noqa: F401 - operator namespace
 )
 from hextools.utils.path_providers import mock_path_provider
+from hextools.xrd import *
 
 # TODO: Enable mock customization via flags once
 # https://github.com/bluesky/ophyd-async/pull/1446 is merged
@@ -108,7 +107,6 @@ print_version_info(additional_packages=["hextools"])
 # Log hextools messages (including plan narration) to the console, color-coded by level.
 logger = configure_logger()
 
-logger.info("Initializing the bluesky RunEngine...")
 # Setup the RunEngine and its metadata.
 RE: RunEngine = initialize_run_engine()
 RE.md["facility"] = "NSLS-II"
@@ -122,6 +120,7 @@ log_state_changes(RE, logger)
 # Uncomment if running in the terminal to get progress bars.
 # RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
 
+print("\n\033[1mActive Proposal Information\033[0m\n")
 # Display active proposal information in the console.
 print_proposal_info(RE.md)
 
@@ -168,7 +167,10 @@ bec.disable_heading()
 RE.subscribe(bec)
 
 # Keep track of last dark-flat scan UID
+# TODO: Consolidate these. Or better yet, create better way to access metadata
+# from within plans
 RE.subscribe(LastDarkFlatUIDTracker(RE.md))
+RE.subscribe(LastDarkReferenceTracker(RE.md))
 
 filename_provider = StartDocAwareFilenameProvider()
 RE.subscribe(filename_provider.doc_callback)
@@ -220,7 +222,9 @@ with init_devices(
     edxd_table = EDXDTable("XF:27IDF-OP:1{EDXD:1-Ax:", name="edxd-table")
     collimator_table = CollimatorTable("XF:27IDF-OP:1{", name="collimator-table")
 
-    diffraction_table = DiffractionTable("XF:27IDF-OP:1{DIFF:1-Ax:", name="diffraction-table")
+    diffraction_table = DiffractionTable(
+        "XF:27IDF-OP:1{DIFF:1-Ax:", name="diffraction-table"
+    )
 
     # Filters, first the two filter 1 (upstream/downstream), then filters 2, 3, and 4
     filter1_upstream = Filter(
@@ -317,7 +321,7 @@ with init_devices(
     )
     perkin_elmer = PerkinElmerDetector(
         "XF:27ID1-ES{PE-Det:1}",
-        ADWriterFactory.hdf(pe_path_provider, hinted=False),
+        pe_path_provider,
         name="perkin-elmer",
         proc_suffix="Proc1:",
     )

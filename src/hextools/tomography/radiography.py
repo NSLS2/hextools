@@ -20,9 +20,7 @@ from hextools.utils import ensure_available
 
 
 def take_radiograph(
-    detectors: list[
-        KinetixDetector | PhantomDetector | ContAcqDetector | PerkinElmerDetector
-    ],
+    detectors: list[KinetixDetector | PhantomDetector | PerkinElmerDetector],
     exposure_time: float,
     num_images: int,
     num_iterations: int = 1,
@@ -79,7 +77,6 @@ def take_radiograph(
     panda : HDFPanda
         the PandA that triggers the cameras when ``external_trigger`` is set
     """
-    filter_type = NDProcessFilterType(filter_type)
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     bits = None

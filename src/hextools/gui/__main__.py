@@ -126,7 +126,7 @@ from hextools.tomography.flyscans import (
 )
 from hextools.tomography.radiography import take_radiograph
 from hextools.utils import is_running_in_ci, reset_scan_id
-from hextools.xrd import xrd_calibration, xrd_scan, xrd_scan_2d
+from hextools.xrd import dark_reference, xrd_calibration, xrd_scan, xrd_scan_2d
 
 from ._event_loop import get_our_app_name, gui_qt
 from ._threading import wait_for_workers_to_quit
@@ -436,6 +436,7 @@ class QtXRDView(QWidget):
         top.addWidget(detectors, stretch=3)
 
         plan_tabs = QTabWidget()
+        plan_tabs.addTab(QtPlanWidget(re_client, dark_reference), "Dark Reference")
         plan_tabs.addTab(QtPlanWidget(re_client, xrd_calibration), "Calibration")
         plan_tabs.addTab(QtPlanWidget(re_client, xrd_scan), "Scan")
         plan_tabs.addTab(QtPlanWidget(re_client, xrd_scan_2d), "2D Scan")

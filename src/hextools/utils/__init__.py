@@ -442,6 +442,7 @@ def print_device_tree(device: Device, indent: int = 0) -> None:
 
 # Set by LastDarkFlatUIDTracker.
 DARK_FLAT_MD_KEYS = ("last_dark_flat_uid", "last_dark_flat_scan_id")
+DARK_REFERENCE_MD_KEYS = ("last_dark_reference_uid", "last_dark_reference_scan_id")
 
 
 def clear_last_dark_flat(RE: RunEngine | None = None):

@@ -326,6 +326,29 @@ def validate_xrd_calibration(run: RunLike, version: str | None = "1") -> None:
     _require_stream(run, "primary", *_names(run, "detectors"), *motors)
 
 
+# dark_reference
+#
+# Start document:
+#   plan_name: "dark_reference"
+#   images_to_average: int
+#   standard count metadata (detectors: [<det>], no motors)
+# Streams:
+#   primary: a single event, photon shutter closed
+#     <det>                     (height, width) dark image averaged over
+#                               images_to_average exposures, external TIFF
+XRD_DARK_REFERENCE_V1 = Spec("XrdDarkReference", version="1")
+
+
+def validate_xrd_dark_reference(run: RunLike, version: str | None = "1") -> None:
+    """Validate ``run`` against :data:`XRD_DARK_REFERENCE_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
+    _require_plan_name(run, "dark_reference")
+    _require_start_keys(run, "images_to_average")
+    _require_stream(run, "primary", *_names(run, "detectors", count=1))
+
+
 # energy_auto_tune (run twice by change_energy(auto_tune=True): coarse, then fine)
 #
 # Start document:
@@ -362,6 +385,7 @@ _VALIDATORS: dict[str, Callable[[RunLike, str | None], None]] = {
         (EDXD_SCAN_V1, validate_edxd_scan),
         (EDXD_CALIBRATION_V1, validate_edxd_calibration),
         (XRD_CALIBRATION_V1, validate_xrd_calibration),
+        (XRD_DARK_REFERENCE_V1, validate_xrd_dark_reference),
         (ENERGY_AUTO_TUNE_V1, validate_energy_auto_tune),
     ]
 }
@@ -375,6 +399,7 @@ ALL_SPECS: list[Spec] = [
     EDXD_SCAN_V1,
     EDXD_CALIBRATION_V1,
     XRD_CALIBRATION_V1,
+    XRD_DARK_REFERENCE_V1,
     ENERGY_AUTO_TUNE_V1,
 ]
 

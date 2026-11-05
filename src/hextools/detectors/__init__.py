@@ -2,6 +2,11 @@
 
 from .germ import Gain, GeRMDetector
 from .kinetix import KinetixTriggerMode, kinetix_factory
+from .perkin_elmer import (
+    PerkinElmerDetector,
+    PerkinElmerIO,
+    PerkinElmerTriggerMode,
+)
 from .phantom import (
     PhantomAuxPinMode,
     PhantomDetector,
@@ -13,11 +18,6 @@ from .phantom import (
     PhantomReadySignal,
     PhantomSettingsSlot,
     PhantomTrigEdge,
-)
-from .perkin_elmer import (
-    PerkinElmerTriggerMode,
-    PerkinElmerIO,
-    PerkinElmerDetector
 )
 from .utils import enable_preview_mode, set_plugin_queue_sizes, set_proc_filter_type
 

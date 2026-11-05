@@ -2,9 +2,10 @@
 
 import asyncio
 from typing import Any, NamedTuple
+
+import bluesky.plan_stubs as bps
 from bluesky import plan_patterns
 from bluesky.protocols import Movable
-import bluesky.plan_stubs as bps
 from ophyd_async.core import (
     AsyncMovable,
     AsyncStatus,
@@ -321,7 +322,7 @@ class CollimatorTable(StandardReadable, EpicsDevice):
 
 
 class DiffractionTable(StandardReadable, EpicsDevice):
-    """HEX diffraction table"""
+    """HEX diffraction table."""
 
     def __init__(self, prefix: str, name: str = "diff_table"):
         super().__init__(prefix, name=name)
@@ -366,10 +367,9 @@ class NDAxis(NamedTuple):
 
 
 def construct_nd_trajectory(
-    *axes: NDAxis,
-    snake_axes: bool | list = False,
-    num_iterations: int = 1
+    *axes: NDAxis, snake_axes: bool | list = False, num_iterations: int = 1
 ):
+    """Construct an ND trajectory for the specified axes."""
     # Extract the step axes from the positional arguments.
     motors = [axis.axis for axis in axes]
 
