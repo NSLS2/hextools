@@ -65,7 +65,6 @@ def test_show_docs(capsys):
     assert "scan_id" in out
 
 
-
 def test_initialize_run_engine_ci_metadata(monkeypatch):
     monkeypatch.setenv("HEXTOOLS_RUNNING_IN_CI", "yes")
     captured: dict[str, Any] = {}

@@ -3,7 +3,6 @@
 import os
 from pathlib import (
     Path,  # noqa: F401 - operator namespace
-    PurePath,
     PureWindowsPath,
 )
 
@@ -23,15 +22,16 @@ from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from nslsii.ophyd_async.providers import NSLS2PathProvider
 from nslsii.utils.ipython import ProposalIDPrompt
-from ophyd_async.core import Device, PathInfo, init_devices, print_connection_status
+from ophyd_async.core import init_devices, print_connection_status
 from ophyd_async.epics.adcore import (
     ADWriterFactory,
     ContAcqDetector,
     NDStatsIO,
     PluginSignalDataLogic,
 )
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
-from ophyd_async.epics.adkinetix import KinetixDetector  # noqa: F401 - operator namespace
+from ophyd_async.epics.adkinetix import (
+    KinetixDetector,  # noqa: F401 - operator namespace
+)
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.sim import SimMotor
@@ -70,15 +70,24 @@ from hextools.utils import (
 )
 from hextools.utils.path_providers import mock_path_provider
 
-import argparse
-
 # TODO: Enable mock customization via flags once
 # https://github.com/bluesky/ophyd-async/pull/1446 is merged
 # parser = argparse.ArgumentParser(description="HEX Tools Collection Profile")
-# parser.add_argument("mock", action="store_true", default=False, help="Mock all beamline devices")
-# parser.add_argument("mock-shutters", action="store_true", default=False, help="Mock all shutters")
-# parser.add_argument("mock-motors", action="store_true", default=False, help="Mock all motors")
-# parser.add_argument("mock-motors-no-rot", action="store_true", default=False, help="Mock all motors except rotation stage")
+# parser.add_argument(
+#   "mock", action="store_true", default=False, help="Mock all beamline devices"
+# )
+# parser.add_argument(
+#   "mock-shutters", action="store_true", default=False, help="Mock all shutters"
+# )
+# parser.add_argument(
+#   "mock-motors", action="store_true", default=False, help="Mock all motors"
+# )
+# parser.add_argument(
+#   "mock-motors-no-rot",
+#   action="store_true",
+#   default=False,
+#   help="Mock all motors except rotation stage"
+# )
 
 # _args = parser.parse_args()
 # _mock_config = {
@@ -178,7 +187,9 @@ else:
         scan_id_padding=5,
     )
 
-with init_devices(mock=is_running_in_ci(), timeout=2.0, on_connect_hook=print_connection_status):
+with init_devices(
+    mock=is_running_in_ci(), timeout=2.0, on_connect_hook=print_connection_status
+):
     # Shutters (Front-end and photon)
     fe_shutter = PPSShutter("XF:27IDA-PPS{Sh:FE}", name="front-end-shutter")
     photon_shutter = Shutter("XF:27IDA-PPS{L1-S1}", name="photon-shutter")

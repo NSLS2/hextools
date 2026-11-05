@@ -11,25 +11,16 @@ from typing import Any, TypeVar
 from bluesky import plan_stubs as bps
 from bluesky.run_engine import RunEngine
 from IPython.core.getipython import get_ipython
-from IPython.terminal.interactiveshell import TerminalInteractiveShell
-from IPython.terminal.prompts import Prompts
 from nslsii.sync_experiment import sync_experiment
 from nslsii.utils import open_redis_client
 from ophyd_async.core import (
     Device,
-    DeviceProcessor,
     DeviceVector,
-    NotConnectedError,
-    Signal,
-    wait_for_connection,
-    walk_devices,
 )
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.sim import SimMotor
-from pygments.token import Token
 from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
-from rich.console import Console
 
 from .nl_msg_hook import nl_msg_hook as nl_msg_hook
 from .path_providers import (
@@ -218,7 +209,10 @@ def print_proposal_info(md: MutableMapping[str, Any]):
     """
     proposal_md = md.get("proposal", {})
     if proposal_md:
-        rprint(f"[bold]  - Title: [green][italic]{proposal_md['title']}[/italic][/green][/bold]")
+        rprint(
+            f"[bold]  - Title: [green][italic]{proposal_md['title']}"
+            "[/italic][/green][/bold]"
+        )
         rprint(f"[bold]  - Type:  [italic]{proposal_md['type']}[/italic][/bold]")
         rprint(f"[bold]  - PI:    [italic]{proposal_md['pi_name']}[/italic][/bold]\n")
     else:
