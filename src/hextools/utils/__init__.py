@@ -7,13 +7,12 @@ import sys
 from collections.abc import AsyncIterable, MutableMapping
 from datetime import datetime
 from typing import Any, TypeVar
-from nslsii.utils import print_proposal_info
 
 from bluesky import plan_stubs as bps
 from bluesky.run_engine import RunEngine
 from IPython.core.getipython import get_ipython
 from nslsii.sync_experiment import sync_experiment
-from nslsii.utils import open_redis_client
+from nslsii.utils import open_redis_client, print_proposal_info
 from ophyd_async.core import (
     Device,
     DeviceVector,

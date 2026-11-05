@@ -9,7 +9,6 @@ from hextools.utils import (
     initialize_run_engine,
     is_running_in_ci,
     merge_async_iterables,
-    print_proposal_info,
     show_docs,
     start_beamtime,
 )
@@ -47,7 +46,6 @@ async def test_merge_async_iterables_yields_all_items():
 
     # Order across sources is not guaranteed, so compare as sets.
     assert sorted(merged) == [1, 2, 3, 4, 5]
-
 
 
 def test_show_docs(capsys):
