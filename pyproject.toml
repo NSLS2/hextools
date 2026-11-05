@@ -138,6 +138,7 @@ filterwarnings = [
     "error",
     "ignore:tagMap is deprecated:DeprecationWarning:ldap3",
     "ignore:typeMap is deprecated:DeprecationWarning:ldap3",
+    "ignore:No path_separator found in configuration:DeprecationWarning:alembic",
 ]
 # Doctest python code in docs, python code in src docstrings, test functions in tests
 testpaths = "docs src tests"
