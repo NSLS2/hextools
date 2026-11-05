@@ -580,6 +580,7 @@ __all__ = [
     "edxd_calib_scan",
     "edxd_count",
     "edxd_scan",
+    "edxd_grid_scan",
     "edxd_2theta_tilt",
     "edxd_custom_pos_list_grid",
 ]

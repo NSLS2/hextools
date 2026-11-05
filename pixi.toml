@@ -190,3 +190,7 @@ default-environment = "dev"
 [feature.dev.tasks.lint]
 cmd = "pre-commit run --all-files"
 default-environment = "dev"
+
+[feature.dev.tasks.ruff-fix]
+cmd = "ruff check src tests --fix"
+default-environment = "dev"
