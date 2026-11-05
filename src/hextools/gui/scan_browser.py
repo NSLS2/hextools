@@ -11,6 +11,7 @@ from bluesky import RunEngine
 from qtpy.QtCore import QDate, QPoint, Qt
 from qtpy.QtWidgets import (
     QAbstractItemView,
+    QAbstractScrollArea,
     QComboBox,
     QDateEdit,
     QHBoxLayout,
@@ -20,6 +21,7 @@ from qtpy.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -129,6 +131,8 @@ class QtScanBrowser(QWidget):
         self._search_button = QPushButton("Search")
         self._search_button.clicked.connect(self.search)
         self._status = QLabel()
+        # Long or multi-line errors must not grow the window; full text is in the tooltip.
+        self._status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
 
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Spec:"))
@@ -148,6 +152,11 @@ class QtScanBrowser(QWidget):
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setSizeAdjustPolicy(
+            QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored
+        )
+        self._table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -200,6 +209,7 @@ class QtScanBrowser(QWidget):
 
         self._search_button.setEnabled(False)
         self._status.setText("Searching…")
+        self._status.setToolTip("")
         self._worker = create_worker(
             search_runs,
             self._client,
@@ -232,7 +242,9 @@ class QtScanBrowser(QWidget):
         self._on_selection_changed()
 
     def _on_search_error(self, error: Exception) -> None:
-        self._status.setText(f"Search failed: {error}")
+        message = f"Search failed: {error}"
+        self._status.setText(message.splitlines()[0] if message else message)
+        self._status.setToolTip(message)
 
     def _on_search_finished(self) -> None:
         self._worker = None
