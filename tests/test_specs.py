@@ -15,6 +15,8 @@ from hextools.specs import (
     TOMO_DARK_FLAT_V1,
     TOMO_FLYSCAN_V1,
     XRD_CALIBRATION_V1,
+    XRD_DARK_REFERENCE_V1,
+    XRD_SCAN_V1,
     SpecValidationError,
     validate_edxd_calibration,
     validate_edxd_scan,
@@ -25,6 +27,8 @@ from hextools.specs import (
     validate_tomo_dark_flat,
     validate_tomo_flyscan,
     validate_xrd_calibration,
+    validate_xrd_dark_reference,
+    validate_xrd_scan,
 )
 
 
@@ -122,6 +126,29 @@ def _xrd_calibration() -> FakeRun:
     )
 
 
+def _xrd_scan() -> FakeRun:
+    return FakeRun(
+        {
+            "plan_name": "xrd_scan",
+            "description": "1D XRD scan",
+            "detectors": ["perkin_elmer"],
+            "motors": ["det_z"],
+        },
+        {"primary": ["perkin_elmer", "det_z"]},
+    )
+
+
+def _xrd_dark_reference() -> FakeRun:
+    return FakeRun(
+        {
+            "plan_name": "dark_reference",
+            "images_to_average": 10,
+            "detectors": ["perkin_elmer"],
+        },
+        {"primary": ["perkin_elmer"]},
+    )
+
+
 def _energy_auto_tune() -> FakeRun:
     return FakeRun(
         {
@@ -140,7 +167,9 @@ CASES: list[tuple[Spec, Callable[..., None], Callable[[], FakeRun]]] = [
     (RADIOGRAPH_V1, validate_radiograph, _radiograph),
     (EDXD_SCAN_V1, validate_edxd_scan, _edxd_scan),
     (EDXD_CALIBRATION_V1, validate_edxd_calibration, _edxd_calibration),
+    (XRD_SCAN_V1, validate_xrd_scan, _xrd_scan),
     (XRD_CALIBRATION_V1, validate_xrd_calibration, _xrd_calibration),
+    (XRD_DARK_REFERENCE_V1, validate_xrd_dark_reference, _xrd_dark_reference),
     (ENERGY_AUTO_TUNE_V1, validate_energy_auto_tune, _energy_auto_tune),
 ]
 CASE_IDS = [spec.name for spec, _, _ in CASES]

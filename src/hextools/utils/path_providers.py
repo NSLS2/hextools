@@ -2,13 +2,39 @@
 
 import logging
 from collections import Counter
-from pathlib import Path
+from datetime import date
+from pathlib import Path, PurePath
 from typing import Any
 
-from nslsii.ophyd_async.providers import TimestampFilenameProvider
+from nslsii.ophyd_async.providers import NSLS2PathProvider, TimestampFilenameProvider
 from ophyd_async.core import UUIDFilenameProvider, YMDPathProvider
 
 logger = logging.getLogger("hextools")
+
+
+class HEXPathProvider(NSLS2PathProvider):
+    """NSLS2 provider that builds the read and write paths with their own separators.
+
+    The base class joins the date directories with a single separator for both
+    paths, so a Windows write dir puts invalid separator into the Linux read path.
+    """
+
+    def _generate_directory_path(
+        self, base_path: PurePath, datakey_name: str
+    ) -> PurePath:
+        ymd = date.today().strftime("%Y %m %d").split()[: int(self._granularity)]
+        directory_path = (
+            base_path
+            / str(self._metadata_dict["cycle"])
+            / str(self._metadata_dict["data_session"])
+            / "assets"
+            / datakey_name
+        ).joinpath(*ymd)
+        if self._include_scan_id_dir:
+            directory_path /= (
+                f"scan_{self._metadata_dict['scan_id']:0{self._scan_id_padding}}"
+            )
+        return directory_path
 
 
 class StartDocAwareFilenameProvider(TimestampFilenameProvider):

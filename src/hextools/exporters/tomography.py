@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import h5py
 from bluesky_tiled_plugins import CatalogOfBlueskyRuns
+from bluesky_tiled_plugins.clients.bluesky_event_stream import BlueskyEventStreamV3
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 
 from hextools.exporters.utils import (
@@ -59,6 +60,74 @@ def resolve_dark_flat_run(
         return None
     logger.info(f"Using dark/flat run {uid}")
     return dark_flat_run
+
+
+def export_tomo_alignment_to_h5(
+    tomo_alignment: BlueskyRunV3 | str | int,
+    tiled_client: CatalogOfBlueskyRuns | None = None,
+):
+    """Export a tomography alignment to an HDF5 file."""
+    tiled_client = ensure_available(CatalogOfBlueskyRuns, c=tiled_client)
+
+    if isinstance(tomo_alignment, (str, int)):
+        run = tiled_client[tomo_alignment]
+    else:
+        run = tomo_alignment
+
+    if not isinstance(run, BlueskyRunV3):
+        raise ValueError(
+            "Failed to resolve tomography alignment to a BlueskyRunV3 instance"
+        )
+
+    run_start = run.start
+    proposal, cycle, scan_id = confirm_required_start_fields(run_start)
+    logger.info(
+        f"Exporting tomography alignment {scan_id} (uid {run_start.get('uid')})"
+        f" for proposal {proposal}, cycle {cycle}"
+    )
+
+    scan_id_dir_path = Path(
+        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/tomography/alignment/scan_{scan_id:05}"
+    )
+    scan_id_dir_path.mkdir(parents=True, exist_ok=True)
+
+    detectors = run.start.get("detectors")
+    if not isinstance(detectors, list) or len(detectors) != 1:
+        raise ValueError(
+            f"Expected one detector in the start document, got {detectors!r}"
+        )
+    det_name = detectors[0]
+    hdf_datasets = find_hdf_datasets(run, "primary", scan_id_dir_path)
+    if det_name not in hdf_datasets:
+        raise ValueError(
+            f"No HDF5 dataset for detector {det_name!r} in the primary stream"
+        )
+    det_relpath, det_dataset, _ = hdf_datasets[det_name]  # type: ignore
+
+    primary = run["primary"]
+    if not isinstance(primary, BlueskyEventStreamV3):
+        raise TypeError(
+            f"Expected a BlueskyEventStreamV3, got {type(primary).__name__}"
+        )
+    other_fields = [key for key in primary if key != det_name]
+    primary_data = primary.read(variables=other_fields) if other_fields else {}
+
+    nxs_path = scan_id_dir_path / f"scan_{scan_id:05}.nxs"
+    logger.info(f"Writing {nxs_path}")
+    with h5py.File(nxs_path, "w") as h5file:
+        data_grp = h5file.require_group("/entry/data")
+        data_grp["data"] = h5py.ExternalLink(det_relpath, det_dataset)
+        logger.info(f"Linked /entry/data/data -> {det_relpath}:{det_dataset}")
+        for name, values in primary_data.items():
+            data_grp.create_dataset(name, data=values)
+            logger.info(f"Wrote /entry/data/{name}")
+
+        logger.info("Writing baseline data")
+        create_baseline_dataset(run, h5file)
+
+    logger.info(f"Writing run metadata to {scan_id_dir_path}")
+    run_metadata_to_json(run, scan_id, scan_id_dir_path)
+    logger.info(f"Finished exporting tomography alignment scan {scan_id} to {nxs_path}")
 
 
 def export_tomo_flyscan_to_h5(

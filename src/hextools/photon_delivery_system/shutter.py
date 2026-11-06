@@ -1,6 +1,7 @@
 """Shutter/GV device for the photon delivery system."""
 
 import asyncio
+import logging
 import random
 from collections.abc import Callable, Hashable
 
@@ -25,6 +26,8 @@ from ophyd_async.epics.core import (
     epics_signal_rw,
     epics_triggerable_command,
 )
+
+logger = logging.getLogger("hextools")
 
 
 class ShutterStatus(StrictEnum):
@@ -223,6 +226,11 @@ def ensure_shutter_state(
         the time to sleep to ensure the shutter has reached the desired state
     """
     shutters = shutter if isinstance(shutter, list) else [shutter]
+
+    logger.info(
+        f"Ensuring shutter(s) {', '.join(s.name for s in shutters)} are in the "
+        f"desired state: {'open' if desired_state else 'closed'}"
+    )
 
     shutter_statuses = {}
     for s in shutters:

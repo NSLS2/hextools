@@ -15,7 +15,6 @@ from bluesky.run_engine import (
     autoawait_in_bluesky_event_loop,
     call_in_bluesky_event_loop,  # noqa: F401 - operator namespace
 )
-from bluesky.suspenders import SuspendFloor  # noqa: F401 - operator namespace
 from bluesky.utils import ProgressBarManager  # noqa: F401 - operator namespace
 from bluesky_tiled_plugins import BufferingWrapper, TiledWriter
 from IPython.core.getipython import get_ipython
@@ -25,7 +24,6 @@ from nslsii.utils import ProposalIDPrompt, print_proposal_info, print_version_in
 from ophyd_async.core import init_devices, print_connection_status
 from ophyd_async.epics.adcore import (
     ADWriterFactory,
-    ContAcqDetector,
     NDStatsIO,
     PluginSignalDataLogic,
 )
@@ -42,12 +40,14 @@ from hextools.detectors.germ import (
     GeRMStatsDataLogic,  # noqa: F401 - operator namespace
 )
 from hextools.detectors.kinetix import kinetix_factory
+from hextools.detectors.perkin_elmer import PerkinElmerDetector
 from hextools.detectors.phantom import PhantomDetector
 from hextools.edxd import *
 from hextools.log import *
 from hextools.machine import *
 from hextools.motors import (
     CollimatorTable,
+    DiffractionTable,
     EDXDTable,
     FOV_2_4_mm_Camera,
     FOV_20_40_mm_Camera,
@@ -66,7 +66,8 @@ from hextools.utils import (
     reset_scan_id,  # noqa: F401 - operator namespace
     show_docs,  # noqa: F401 - operator namespace
 )
-from hextools.utils.path_providers import mock_path_provider
+from hextools.utils.path_providers import HEXPathProvider, mock_path_provider
+from hextools.xrd import *
 
 # TODO: Enable mock customization via flags once
 # https://github.com/bluesky/ophyd-async/pull/1446 is merged
@@ -113,7 +114,6 @@ print_version_info(additional_packages=["hextools"])
 # Log hextools messages (including plan narration) to the console, color-coded by level.
 logger = configure_logger()
 
-logger.info("Initializing the bluesky RunEngine...")
 # Setup the RunEngine and its metadata.
 RE: RunEngine = initialize_run_engine()
 RE.md["facility"] = "NSLS-II"
@@ -127,6 +127,7 @@ log_state_changes(RE, logger)
 # Uncomment if running in the terminal to get progress bars.
 # RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
 
+print("\n\033[1mActive Proposal Information\033[0m\n")
 # Display active proposal information in the console.
 print_proposal_info(RE.md)
 
@@ -175,7 +176,10 @@ bec.disable_heading()
 RE.subscribe(bec)
 
 # Keep track of last dark-flat scan UID
+# TODO: Consolidate these. Or better yet, create better way to access metadata
+# from within plans
 RE.subscribe(LastDarkFlatUIDTracker(RE.md))
+RE.subscribe(LastDarkReferenceTracker(RE.md))
 
 filename_provider = StartDocAwareFilenameProvider()
 RE.subscribe(filename_provider.doc_callback)
@@ -191,6 +195,23 @@ else:
         granularity="year",
         scan_id_padding=5,
     )
+
+# For the Perkin-Elmer detector, we use a separate path provider
+# Since we need to specify the write directory as a windows path.
+pe_path_provider = (
+    path_provider
+    if is_running_in_ci()
+    else HEXPathProvider(
+        RE.md,
+        filename_provider=filename_provider,
+        base_write_dir=PureWindowsPath("Z:\\proposals"),
+        include_scan_id_dir=True,
+        granularity="year",
+        scan_id_padding=5,
+    )
+)
+
+print("\nInitializing devices...\n")
 
 with init_devices(
     mock=is_running_in_ci(), timeout=2.0, on_connect_hook=print_connection_status
@@ -226,6 +247,8 @@ with init_devices(
     # EDXD Table
     edxd_table = EDXDTable("XF:27IDF-OP:1{EDXD:1-Ax:", name="edxd-table")
     collimator_table = CollimatorTable("XF:27IDF-OP:1{", name="collimator-table")
+
+    diff_table = DiffractionTable("XF:27IDF-OP:1{DIFF:1-Ax:", name="diffraction-table")
 
     # Filters, first the two filter 1 (upstream/downstream), then filters 2, 3, and 4
     filter1_upstream = Filter(
@@ -309,20 +332,9 @@ with init_devices(
         name="f_hutch_cam",
     )
 
-    # For the Perkin-Elmer detector, we use a separate path provider
-    # Since we need to specify the write directory as a windows path.
-    pe_path_provider = (
-        path_provider
-        if is_running_in_ci()
-        else NSLS2PathProvider(
-            RE.md,
-            filename_provider=filename_provider,
-            base_write_dir=PureWindowsPath("Z:\\proposals"),
-        )
-    )
-    perkin_elmer = ContAcqDetector(
+    perkin_elmer = PerkinElmerDetector(
         "XF:27ID1-ES{PE-Det:1}",
-        ADWriterFactory.hdf(pe_path_provider, hinted=False),
+        pe_path_provider,
         name="perkin-elmer",
         proc_suffix="Proc1:",
     )
@@ -363,6 +375,7 @@ sd = bpp.SupplementalData(
         monochromator,
         optics_table,
         edxd_table,
+        diff_table,
         # collimator_table,
     ]
 )
