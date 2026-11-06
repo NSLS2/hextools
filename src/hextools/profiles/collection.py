@@ -13,6 +13,7 @@ from bluesky.callbacks.best_effort import BestEffortCallback
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,
+    call_in_bluesky_event_loop,  # noqa: F401 - operator namespace
 )
 from bluesky.utils import ProgressBarManager  # noqa: F401 - operator namespace
 from bluesky_tiled_plugins import BufferingWrapper, TiledWriter

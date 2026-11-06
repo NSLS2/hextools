@@ -77,6 +77,7 @@ def take_radiograph(
     panda : HDFPanda
         the PandA that triggers the cameras when ``external_trigger`` is set
     """
+    filter_type = NDProcessFilterType(filter_type)
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     bits = None
