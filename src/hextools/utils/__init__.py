@@ -17,8 +17,6 @@ from ophyd_async.core import (
     Device,
     DeviceVector,
 )
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
-from ophyd_async.sim import SimMotor
 from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
 

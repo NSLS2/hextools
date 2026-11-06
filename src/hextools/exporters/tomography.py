@@ -7,8 +7,8 @@ from typing import Any, cast
 
 import h5py
 from bluesky_tiled_plugins import CatalogOfBlueskyRuns
-from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 from bluesky_tiled_plugins.clients.bluesky_event_stream import BlueskyEventStreamV3
+from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
 
 from hextools.exporters.utils import (
     average_per_projection,
@@ -60,6 +60,7 @@ def resolve_dark_flat_run(
         return None
     logger.info(f"Using dark/flat run {uid}")
     return dark_flat_run
+
 
 def export_tomo_alignment_to_h5(
     tomo_alignment: BlueskyRunV3 | str | int,

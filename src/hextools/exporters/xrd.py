@@ -115,7 +115,7 @@ def export_xrd_run_to_h5(
     )
 
     scan_id_dir_path = Path(
-        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/xrd/{'metadata' if not is_calib else 'calibration'}/scan_{scan_id:05}"
+        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/xrd/{'metadata' if not is_calib else 'calibration'}/scan_{scan_id:05}"  # noqa: E501
     )
     scan_id_dir_path.mkdir(parents=True, exist_ok=True)
 

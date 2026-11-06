@@ -247,9 +247,7 @@ with init_devices(
     edxd_table = EDXDTable("XF:27IDF-OP:1{EDXD:1-Ax:", name="edxd-table")
     collimator_table = CollimatorTable("XF:27IDF-OP:1{", name="collimator-table")
 
-    diff_table = DiffractionTable(
-        "XF:27IDF-OP:1{DIFF:1-Ax:", name="diffraction-table"
-    )
+    diff_table = DiffractionTable("XF:27IDF-OP:1{DIFF:1-Ax:", name="diffraction-table")
 
     # Filters, first the two filter 1 (upstream/downstream), then filters 2, 3, and 4
     filter1_upstream = Filter(

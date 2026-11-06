@@ -19,9 +19,9 @@ from ophyd_async.core import (
     DetectorTrigger,
     TriggerInfo,
 )
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.epics.adcore import NDProcessFilterType
 from ophyd_async.epics.adkinetix import KinetixDetector
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.sim import SimMotor
 

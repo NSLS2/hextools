@@ -2,14 +2,14 @@
 
 import itertools
 from typing import Any
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
-from ophyd_async.sim import SimMotor
 
 import numpy as np
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.preprocessors import finalize_wrapper
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+from ophyd_async.sim import SimMotor
 from tiled.structures.core import Spec
 
 from hextools.detectors.germ import GeRMDetector

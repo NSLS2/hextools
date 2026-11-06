@@ -28,7 +28,7 @@ from hextools.photon_delivery_system.shutter import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )
-from hextools.specs import XRD_DARK_REFERENCE_V1, XRD_SCAN_V1, XRD_CALIBRATION_V1
+from hextools.specs import XRD_CALIBRATION_V1, XRD_DARK_REFERENCE_V1, XRD_SCAN_V1
 from hextools.utils import ensure_available
 
 logger = logging.getLogger("hextools")
@@ -107,14 +107,18 @@ def dark_reference(
 
     def _body():
 
-        yield from _change_exposure_time(det, exposure_time, frames_to_wait=frames_to_wait)
+        yield from _change_exposure_time(
+            det, exposure_time, frames_to_wait=frames_to_wait
+        )
         yield from _use_cb_plugin_as_img_source(det)
 
         det.save_as_tiff()
         proc_plugin = det.get_plugin("proc", NDProcessIO)
         proc_tiff = proc_plugin.tiff
         if proc_tiff is None:
-            raise RuntimeError("Failed to get the TIFF plugin from the processing plugin.")
+            raise RuntimeError(
+                "Failed to get the TIFF plugin from the processing plugin."
+            )
 
         tiff_plugin = det.get_plugin("tiff", NDPluginFileIO)
         yield from bps.mv(
@@ -277,15 +281,16 @@ def xrd_scan_nd(
         }
         _md.update(md or {})
         previous_uid = None
-        
+
         for iteration in range(num_iterations):
             _md["iteration"] = iteration + 1
             if previous_uid is not None:
                 _md["previous_uid"] = previous_uid
-            previous_uid = yield from bp.grid_scan([detector], *args, snake_axes=snake_axes, md=_md)
+            previous_uid = yield from bp.grid_scan(
+                [detector], *args, snake_axes=snake_axes, md=_md
+            )
             if iteration < num_iterations - 1:
                 yield from bps.sleep(sleep_time)
-
 
     def _cleanup():
         if use_shutter:
@@ -533,9 +538,16 @@ def xrd_calibration(
             use_shutter=use_shutter,
             fe_shutter=fe_shutter,
             photon_shutter=photon_shutter,
-            md={"description": description, "plan_name": "xrd_calibration",
-                "tiled_specs": [{ "name": XRD_CALIBRATION_V1.name, "version": XRD_CALIBRATION_V1.version }]
-            }
+            md={
+                "description": description,
+                "plan_name": "xrd_calibration",
+                "tiled_specs": [
+                    {
+                        "name": XRD_CALIBRATION_V1.name,
+                        "version": XRD_CALIBRATION_V1.version,
+                    }
+                ],
+            },
         )
     )
 

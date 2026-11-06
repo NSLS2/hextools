@@ -13,10 +13,10 @@ logger = logging.getLogger("hextools")
 
 
 class HEXPathProvider(NSLS2PathProvider):
-    """NSLS2 path provider that builds the read and write paths with their own separators.
+    """NSLS2 provider that builds the read and write paths with their own separators.
 
     The base class joins the date directories with a single separator for both
-    paths, so a Windows write directory puts ``\\`` into the Linux read path.
+    paths, so a Windows write dir puts invalid separator into the Linux read path.
     """
 
     def _generate_directory_path(

@@ -15,7 +15,6 @@ from hextools.specs import (
     TOMO_DARK_FLAT_V1,
     TOMO_FLYSCAN_V1,
     XRD_CALIBRATION_V1,
-    XRD_SCAN_V1,
     XRD_DARK_REFERENCE_V1,
     SpecValidationError,
     validate_edxd_calibration,
@@ -27,7 +26,6 @@ from hextools.specs import (
     validate_tomo_dark_flat,
     validate_tomo_flyscan,
     validate_xrd_calibration,
-    validate_xrd_scan,
     validate_xrd_dark_reference,
 )
 

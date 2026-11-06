@@ -2,7 +2,6 @@
 
 import asyncio
 from typing import Any, NamedTuple
-from ophyd_async.sim import SimMotor
 
 import bluesky.plan_stubs as bps
 from bluesky import plan_patterns
@@ -33,6 +32,7 @@ from ophyd_async.epics.motor import (
 from ophyd_async.epics.motor import (
     VeloAndAcclRespectingMotorMock,
 )
+from ophyd_async.sim import SimMotor
 
 # Make every Motor respect velocity/acceleration in mock mode by default.
 default_mock_class(VeloAndAcclRespectingMotorMock)(AsyncEpicsMotor)
@@ -334,7 +334,9 @@ class DiffractionTable(StandardReadable, EpicsDevice):
             self.z = AsyncEpicsMotor(prefix + "Z}Mtr", name="z")
 
 
-def move_motor(motor: AsyncEpicsMotor | SimMotor, value: float, timeout: float | None = None):
+def move_motor(
+    motor: AsyncEpicsMotor | SimMotor, value: float, timeout: float | None = None
+):
     """Move the specified motor to the given position.
 
     Wraps the `bps.mv` plan stub to create a plan signature more conducive to creating
