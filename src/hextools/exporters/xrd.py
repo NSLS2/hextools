@@ -53,7 +53,7 @@ def export_xrd_dark_reference(
     det_name = detectors[0]
 
     scan_id_dir_path = Path(
-        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/xrd/metadata/dark_ref/scan_{scan_id:05}"
+        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/xrd/dark_ref/scan_{scan_id:05}"
     )
     scan_id_dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -108,13 +108,14 @@ def export_xrd_run_to_h5(
         raise ValueError("Failed to resolve XRD run to a BlueskyRunV3 instance")
 
     proposal, cycle, scan_id = confirm_required_start_fields(run.start)
+    is_calib = run.start.get("plan_name", "") == "xrd_calibration"
     logger.info(
         f"Exporting XRD scan {scan_id} (uid {run.start.get('uid')})"
         f" for proposal {proposal}, cycle {cycle}"
     )
 
     scan_id_dir_path = Path(
-        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/xrd/metadata/scan_{scan_id:05}"
+        f"/nsls2/data/hex/proposals/{cycle}/{proposal}/xrd/{'metadata' if not is_calib else 'calibration'}/scan_{scan_id:05}"
     )
     scan_id_dir_path.mkdir(parents=True, exist_ok=True)
 

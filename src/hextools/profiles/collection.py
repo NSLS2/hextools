@@ -15,7 +15,7 @@ from bluesky.run_engine import (
     autoawait_in_bluesky_event_loop,
 )
 from bluesky.utils import ProgressBarManager  # noqa: F401 - operator namespace
-from bluesky_tiled_plugins import TiledWriter
+from bluesky_tiled_plugins import BufferingWrapper, TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from nslsii.ophyd_async.providers import NSLS2PathProvider
@@ -65,7 +65,7 @@ from hextools.utils import (
     reset_scan_id,  # noqa: F401 - operator namespace
     show_docs,  # noqa: F401 - operator namespace
 )
-from hextools.utils.path_providers import mock_path_provider
+from hextools.utils.path_providers import HEXPathProvider, mock_path_provider
 from hextools.xrd import *
 
 # TODO: Enable mock customization via flags once
@@ -96,6 +96,12 @@ from hextools.xrd import *
 
 # Where mock detectors write their files, instead of the proposal directories.
 MOCK_DETECTOR_DATA_DIR = "/tmp/hextools_dets"
+
+# Where TiledWriter backs up documents it could not write to Tiled.
+if is_running_in_ci():
+    TILED_BACKUP_ROOT = "/tmp/bluesky-docs"
+else:
+    TILED_BACKUP_ROOT = "/nsls2/data/hex/shared/config/bluesky/tiled_backup"
 
 # Environment variables for Redis host and ophyd_async detector state preservation
 os.environ["REDIS_HOST"] = "xf27id1-hex-redis1.nsls2.bnl.gov"
@@ -155,9 +161,11 @@ else:
         readable_storage=MOCK_DETECTOR_DATA_DIR
     )
 
+tw = BufferingWrapper(
+    TiledWriter(tiled_writing_client, backup_directory=f"{TILED_BACKUP_ROOT}/sql")
+)
 
-# Subscribe the tiled writer to the RunEngine
-RE.subscribe(TiledWriter(tiled_writing_client, backup_directory="/tmp/bluesky-docs"))
+RE.subscribe(tw)
 
 # Subscribe the best effort callback, for its plots. The GUI's live table and plan
 # narration already cover what its table and heading would print.
@@ -186,6 +194,23 @@ else:
         granularity="year",
         scan_id_padding=5,
     )
+
+# For the Perkin-Elmer detector, we use a separate path provider
+# Since we need to specify the write directory as a windows path.
+pe_path_provider = (
+    path_provider
+    if is_running_in_ci()
+    else HEXPathProvider(
+        RE.md,
+        filename_provider=filename_provider,
+        base_write_dir=PureWindowsPath("Z:\\proposals"),
+        include_scan_id_dir=True,
+        granularity="year",
+        scan_id_padding=5,
+    )
+)
+
+print("\nInitializing devices...\n")
 
 with init_devices(
     mock=is_running_in_ci(), timeout=2.0, on_connect_hook=print_connection_status
@@ -222,7 +247,7 @@ with init_devices(
     edxd_table = EDXDTable("XF:27IDF-OP:1{EDXD:1-Ax:", name="edxd-table")
     collimator_table = CollimatorTable("XF:27IDF-OP:1{", name="collimator-table")
 
-    diffraction_table = DiffractionTable(
+    diff_table = DiffractionTable(
         "XF:27IDF-OP:1{DIFF:1-Ax:", name="diffraction-table"
     )
 
@@ -308,17 +333,6 @@ with init_devices(
         name="f_hutch_cam",
     )
 
-    # For the Perkin-Elmer detector, we use a separate path provider
-    # Since we need to specify the write directory as a windows path.
-    pe_path_provider = (
-        path_provider
-        if is_running_in_ci()
-        else NSLS2PathProvider(
-            RE.md,
-            filename_provider=filename_provider,
-            base_write_dir=PureWindowsPath("Z:\\proposals"),
-        )
-    )
     perkin_elmer = PerkinElmerDetector(
         "XF:27ID1-ES{PE-Det:1}",
         pe_path_provider,
@@ -362,6 +376,7 @@ sd = bpp.SupplementalData(
         monochromator,
         optics_table,
         edxd_table,
+        diff_table,
         # collimator_table,
     ]
 )

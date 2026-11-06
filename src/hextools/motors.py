@@ -2,6 +2,7 @@
 
 import asyncio
 from typing import Any, NamedTuple
+from ophyd_async.sim import SimMotor
 
 import bluesky.plan_stubs as bps
 from bluesky import plan_patterns
@@ -333,7 +334,7 @@ class DiffractionTable(StandardReadable, EpicsDevice):
             self.z = AsyncEpicsMotor(prefix + "Z}Mtr", name="z")
 
 
-def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = None):
+def move_motor(motor: AsyncEpicsMotor | SimMotor, value: float, timeout: float | None = None):
     """Move the specified motor to the given position.
 
     Wraps the `bps.mv` plan stub to create a plan signature more conducive to creating
@@ -341,7 +342,7 @@ def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = Non
 
     Parameters
     ----------
-    motor : AsyncEpicsMotor
+    motor : AsyncEpicsMotor | SimMotor
         The motor to move.
     value : float
         The target position for the motor.

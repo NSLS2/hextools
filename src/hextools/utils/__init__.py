@@ -27,8 +27,6 @@ from .path_providers import (
     StartDocAwareFilenameProvider as StartDocAwareFilenameProvider,
 )
 
-Steppable = AsyncEpicsMotor | SimMotor
-
 NSVarT = TypeVar("NSVarT")
 
 

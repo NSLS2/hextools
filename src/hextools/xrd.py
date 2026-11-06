@@ -28,7 +28,7 @@ from hextools.photon_delivery_system.shutter import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )
-from hextools.specs import XRD_DARK_REFERENCE_V1
+from hextools.specs import XRD_DARK_REFERENCE_V1, XRD_SCAN_V1, XRD_CALIBRATION_V1
 from hextools.utils import ensure_available
 
 logger = logging.getLogger("hextools")
@@ -53,7 +53,7 @@ def _use_cb_plugin_as_img_source(detector: PerkinElmerDetector) -> MsgGenerator[
 
 
 def _change_exposure_time(
-    detector: PerkinElmerDetector, exposure_time: float
+    detector: PerkinElmerDetector, exposure_time: float, frames_to_wait: int = 20
 ) -> MsgGenerator[None]:
     """Change the exposure time of the detector if it differs from the current setting.
 
@@ -63,20 +63,25 @@ def _change_exposure_time(
         The detector to configure.
     exposure_time : float
         The desired exposure time.
+    frames_to_wait : int, optional
+        The number of frames to wait after changing the exposure time, by default 20.
     """
     current_exposure_time = yield from bps.rd(detector.driver.acquire_time)
     if current_exposure_time != exposure_time:
         yield from bps.abs_set(detector.driver.acquire, False, wait=True)
         yield from bps.mv(detector.driver.acquire_time, exposure_time)
         yield from bps.sleep(1)
+    acquiring = yield from bps.rd(detector.driver.acquire)
+    if not acquiring:
         yield from bps.abs_set(detector.driver.acquire, True, wait=False)
-        yield from bps.sleep(1)
+        yield from bps.sleep(frames_to_wait * exposure_time)
 
 
 def dark_reference(
     det: PerkinElmerDetector,
     exposure_time: float,
     imgs_to_average: int,
+    frames_to_wait: int = 20,
     filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     photon_shutter: Shutter | None = None,
 ) -> MsgGenerator[None]:
@@ -94,17 +99,23 @@ def dark_reference(
         The filter type to use for processing, by default NDProcessFilterType.AVERAGE.
     photon_shutter : Shutter | None, optional
         The photon shutter to use, by default None.
+    frames_to_wait : int, optional
+        The number of frames to wait after changing the exposure time, by default 20.
     """
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     yield from ensure_shutter_closed(photon_shutter)
 
     def _body():
 
-        yield from _change_exposure_time(det, exposure_time)
+        yield from _change_exposure_time(det, exposure_time, frames_to_wait=frames_to_wait)
         yield from _use_cb_plugin_as_img_source(det)
 
         det.save_as_tiff()
         proc_plugin = det.get_plugin("proc", NDProcessIO)
+        proc_tiff = proc_plugin.tiff
+        if proc_tiff is None:
+            raise RuntimeError("Failed to get the TIFF plugin from the processing plugin.")
+
         tiff_plugin = det.get_plugin("tiff", NDPluginFileIO)
         yield from bps.mv(
             proc_plugin.enable_background, False, proc_plugin.filter_type, filter_type
@@ -113,6 +124,7 @@ def dark_reference(
         yield from bps.prepare(
             det,
             TriggerInfo(
+                livetime=exposure_time,
                 collections_per_event=1,
                 exposures_per_collection=imgs_to_average,
             ),
@@ -135,13 +147,13 @@ def dark_reference(
         file_path = PureWindowsPath(file_path)
 
         yield from bps.mv(
-            proc_plugin.tiff.file_path,
+            proc_tiff.file_path,
             str(file_path.parent),
-            proc_plugin.tiff.file_name,
+            proc_tiff.file_name,
             file_path.name,
-            proc_plugin.tiff.file_number,
+            proc_tiff.file_number,
             0,
-            proc_plugin.tiff.file_template,
+            proc_tiff.file_template,
             "%s%s",
         )
 
@@ -180,7 +192,6 @@ def xrd_scan_nd(
     detector: PerkinElmerDetector,
     exposure_time: float,
     *args,
-    images_per_point: int = 1,
     images_to_average: int = 1,
     filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     num_iterations: int = 1,
@@ -202,8 +213,6 @@ def xrd_scan_nd(
         The exposure time for each image.
     *args
         Positional arguments for the grid scan.
-    images_per_point : int, optional
-        The number of images to collect per point, by default 1.
     images_to_average : int, optional
         The number of images to average, by default 1.
     filter_type : NDProcessFilterType, optional
@@ -228,6 +237,13 @@ def xrd_scan_nd(
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
 
+    # Extract the step axes from the positional arguments.
+    if len(args) % 4:
+        raise ValueError("Step axes must be given as (motor, start, stop, num) groups.")
+    axes = [args[i : i + 4] for i in range(0, len(args), 4)]
+    motors = [axis[0] for axis in axes]
+
+    @bpp.reset_positions_decorator(motors)
     def _body():
         if use_shutter:
             yield from ensure_shutter_open(fe_shutter)
@@ -243,7 +259,6 @@ def xrd_scan_nd(
             detector,
             TriggerInfo(
                 livetime=exposure_time,
-                collections_per_event=images_per_point,
                 exposures_per_collection=images_to_average,
             ),
         )
@@ -253,22 +268,32 @@ def xrd_scan_nd(
             "plan_name": "xrd_scan_nd",
             "exposure_time": exposure_time,
             "num_averaged": images_to_average,
-            "images_per_point": images_per_point,
+            "tiled_specs": [
+                {
+                    "name": XRD_SCAN_V1.name,
+                    "version": XRD_SCAN_V1.version,
+                }
+            ],
         }
         _md.update(md or {})
-        yield from bp.grid_scan([detector], *args, snake_axes=snake_axes, md=_md)
+        previous_uid = None
+        
+        for iteration in range(num_iterations):
+            _md["iteration"] = iteration + 1
+            if previous_uid is not None:
+                _md["previous_uid"] = previous_uid
+            previous_uid = yield from bp.grid_scan([detector], *args, snake_axes=snake_axes, md=_md)
+            if iteration < num_iterations - 1:
+                yield from bps.sleep(sleep_time)
+
 
     def _cleanup():
         if use_shutter:
             yield from ensure_shutter_closed(photon_shutter)
 
-    return (
-        yield from bps.repeat(
-            lambda: bpp.finalize_wrapper(_body(), _cleanup()),
-            num=num_iterations,
-            delay=sleep_time,
-        )
-    )
+        yield from enable_preview_mode(detector)
+
+    return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 
 
 def xrd_scan_2d(
@@ -282,13 +307,12 @@ def xrd_scan_2d(
     inner_start: float,
     inner_stop: float,
     inner_num_points: int,
-    images_per_point: int = 1,
     images_to_average: int = 1,
     filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     num_iterations: int = 1,
     sleep_time: float = 0.0,
     use_shutter: bool = True,
-    snake_axes: bool | list = False,
+    snake_axes: bool = False,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
     description: str = "2D XRD scan",
@@ -317,8 +341,6 @@ def xrd_scan_2d(
         The stopping position for the inner motor.
     inner_num_points : int
         The number of points to scan along the inner axis.
-    images_per_point : int, optional
-        The number of images to collect per point, by default 1.
     images_to_average : int, optional
         The number of images to average, by default 1.
     filter_type : NDProcessFilterType, optional
@@ -350,7 +372,6 @@ def xrd_scan_2d(
             inner_start,
             inner_stop,
             inner_num_points,
-            images_per_point=images_per_point,
             images_to_average=images_to_average,
             filter_type=filter_type,
             num_iterations=num_iterations,
@@ -372,7 +393,6 @@ def xrd_scan(
     start: float,
     stop: float,
     num_points: int,
-    images_per_point: int = 1,
     images_to_average: int = 1,
     filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     num_iterations: int = 1,
@@ -428,7 +448,6 @@ def xrd_scan(
             start,
             stop,
             num_points,
-            images_per_point=images_per_point,
             images_to_average=images_to_average,
             filter_type=filter_type,
             num_iterations=num_iterations,
@@ -449,7 +468,8 @@ def xrd_calibration(
     num_points: int = 3,
     gap: float = 200.0,
     start_position: float | None = None,
-    images_per_point: int = 1,
+    images_to_average: int = 1,
+    filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     use_shutter: bool = True,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
@@ -495,20 +515,27 @@ def xrd_calibration(
         raise ValueError(
             f"Stop position exceeds the maximum allowed value of 2000: {stop_position}."
         )
+    elif stop_position < 650.0:
+        raise ValueError(
+            f"Stop position is below the minimum allowed value of 700: {stop_position}."
+        )
 
     return (
-        yield from xrd_scan(
+        yield from xrd_scan_nd(
             detector,
             exposure_time,
             diff_z,
             start_position,
             stop_position,
-            num_points=num_points,
-            images_per_point=images_per_point,
+            num_points,
+            images_to_average=images_to_average,
+            filter_type=filter_type,
             use_shutter=use_shutter,
             fe_shutter=fe_shutter,
             photon_shutter=photon_shutter,
-            description=description,
+            md={"description": description, "plan_name": "xrd_calibration",
+                "tiled_specs": [{ "name": XRD_CALIBRATION_V1.name, "version": XRD_CALIBRATION_V1.version }]
+            }
         )
     )
 

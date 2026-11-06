@@ -326,6 +326,30 @@ def validate_xrd_calibration(run: RunLike, version: str | None = "1") -> None:
     _require_stream(run, "primary", *_names(run, "detectors"), *motors)
 
 
+# xrd_scan
+#
+# Start document:
+#   plan_name: "xrd_scan*"
+#   description: str                 default "Energy-geometry calibration"
+#   standard scan metadata (motors: [detector distance motor])
+# Streams:
+#   primary: one event per detector position (num_steps, spaced by gap)
+#     <det>                     (height, width) area detector image, external
+#     <motor>                   detector position readback
+XRD_SCAN_V1 = Spec("XrdScan", version="1")
+
+
+def validate_xrd_scan(run: RunLike, version: str | None = "1") -> None:
+    """Validate ``run`` against :data:`XRD_SCAN_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
+    _require_plan_name(run, "xrd_scan")
+    _require_start_keys(run, "description")
+    motors = _names(run, "motors", count=1)
+    _require_stream(run, "primary", *_names(run, "detectors"), *motors)
+
+
 # dark_reference
 #
 # Start document:
@@ -385,6 +409,7 @@ _VALIDATORS: dict[str, Callable[[RunLike, str | None], None]] = {
         (EDXD_SCAN_V1, validate_edxd_scan),
         (EDXD_CALIBRATION_V1, validate_edxd_calibration),
         (XRD_CALIBRATION_V1, validate_xrd_calibration),
+        (XRD_SCAN_V1, validate_xrd_scan),
         (XRD_DARK_REFERENCE_V1, validate_xrd_dark_reference),
         (ENERGY_AUTO_TUNE_V1, validate_energy_auto_tune),
     ]
@@ -399,6 +424,7 @@ ALL_SPECS: list[Spec] = [
     EDXD_SCAN_V1,
     EDXD_CALIBRATION_V1,
     XRD_CALIBRATION_V1,
+    XRD_SCAN_V1,
     XRD_DARK_REFERENCE_V1,
     ENERGY_AUTO_TUNE_V1,
 ]
