@@ -16,6 +16,8 @@ from hextools.log import (
     _LEVEL_COLORS,
     _LOGGER_NAME,
     _ColorFormatter,
+    _HextoolsHandler,
+    configure_library_logging,
     configure_logger,
     log_plan_exceptions,
     log_state_changes,
@@ -31,6 +33,61 @@ def logger_name():
         logger.removeHandler(handler)
     logger.setLevel(logging.NOTSET)
     logger.propagate = True
+
+
+@pytest.fixture
+def library_stream():
+    stream = io.StringIO()
+    yield stream
+    root = logging.getLogger()
+    for handler in [h for h in root.handlers if isinstance(h, _HextoolsHandler)]:
+        root.removeHandler(handler)
+    logging.getLogger("ntnda_qt_viewer").setLevel(logging.NOTSET)
+
+
+# Without a root handler, Python's lastResort printed these bare (no time, level
+# or logger name), e.g. ntnda-qt-viewer's "Channel <PV> disconnected" at HEX.
+def test_library_warnings_print_in_the_hextools_format(library_stream):
+    configure_library_logging(stream=library_stream, color=False)
+    logging.getLogger("some_library.module").warning("something odd")
+    assert "WARNING some_library.module: something odd" in library_stream.getvalue()
+
+
+def test_library_info_is_not_printed(library_stream):
+    configure_library_logging(stream=library_stream, color=False)
+    logging.getLogger("some_library").info("chatter")
+    assert library_stream.getvalue() == ""
+
+
+def test_viewer_shows_errors_but_not_disconnect_warnings(library_stream):
+    configure_library_logging(stream=library_stream, color=False)
+    viewer = logging.getLogger("ntnda_qt_viewer._p4p")
+    viewer.warning("Channel %s disconnected", "XF:27IDA-BI{FS:1-Cam:1}Pval:Image")
+    viewer.error("Monitor error on %s", "PV")
+    assert "disconnected" not in library_stream.getvalue()
+    assert (
+        "ERROR ntnda_qt_viewer._p4p: Monitor error on PV" in library_stream.getvalue()
+    )
+
+
+def test_reconfiguring_library_logging_replaces_the_handler(library_stream):
+    configure_library_logging(stream=io.StringIO())
+    configure_library_logging(stream=library_stream, color=False)
+    root_handlers = [
+        h for h in logging.getLogger().handlers if isinstance(h, _HextoolsHandler)
+    ]
+    assert len(root_handlers) == 1
+
+
+def test_hextools_records_are_not_printed_again_by_the_library_handler(
+    logger_name, library_stream
+):
+    hextools_stream = io.StringIO()
+    configure_logger(logger_name, stream=hextools_stream, color=False)
+    configure_library_logging(stream=library_stream, color=False)
+    logging.getLogger(logger_name).warning("once")
+    assert "once" in hextools_stream.getvalue()
+    assert library_stream.getvalue() == ""
 
 
 def _record(level: int, msg: str = "hello") -> logging.LogRecord:
