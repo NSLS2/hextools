@@ -454,7 +454,7 @@ async def test_tomo_alignment_scan(
         assert len(docs[doc_type]) == 1
     assert [d["name"] for d in docs["descriptor"]] == ["primary"]
     assert len(docs["event"]) == num_projections
-    assert docs["start"][0]["plan_name"] == "tomography_alignment_scan"
+    assert docs["start"][0]["plan_name"] == "tomo_alignment_scan"
 
     # Before the run: max velocity, exposure settings and one image per trigger.
     open_run = next(i for i, msg in enumerate(messages) if msg.command == "open_run")
