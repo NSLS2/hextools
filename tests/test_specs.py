@@ -84,7 +84,7 @@ def _tomo_flyscan() -> FakeRun:
 def _tomo_alignment_scan() -> FakeRun:
     return FakeRun(
         {
-            "plan_name": "tomography_alignment_scan",
+            "plan_name": "tomo_alignment_scan",
             "description": "Tomography alignment scan",
             "detectors": ["kinetix1"],
             "motors": ["rot"],
