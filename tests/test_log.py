@@ -38,10 +38,12 @@ def logger_name():
 @pytest.fixture
 def library_stream():
     stream = io.StringIO()
-    yield stream
     root = logging.getLogger()
+    root_level = root.level
+    yield stream
     for handler in [h for h in root.handlers if isinstance(h, _HextoolsHandler)]:
         root.removeHandler(handler)
+    root.setLevel(root_level)
     logging.getLogger("ntnda_qt_viewer").setLevel(logging.NOTSET)
 
 
@@ -57,6 +59,18 @@ def test_library_info_is_not_printed(library_stream):
     configure_library_logging(stream=library_stream, color=False)
     logging.getLogger("some_library").info("chatter")
     assert library_stream.getvalue() == ""
+
+
+# Libraries inherit the root logger's level, so the handler's level alone did not
+# let INFO through, and a root left at ERROR dropped warnings too.
+@pytest.mark.parametrize("root_level", [logging.WARNING, logging.ERROR])
+def test_requested_level_applies_whatever_the_root_level_was(
+    library_stream, root_level
+):
+    logging.getLogger().setLevel(root_level)
+    configure_library_logging(level=logging.INFO, stream=library_stream, color=False)
+    logging.getLogger("some_library").info("shown")
+    assert "INFO some_library: shown" in library_stream.getvalue()
 
 
 def test_viewer_shows_errors_but_not_disconnect_warnings(library_stream):

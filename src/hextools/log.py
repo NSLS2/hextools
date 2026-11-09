@@ -140,6 +140,8 @@ def configure_library_logging(
     root = logging.getLogger()
     for handler in [h for h in root.handlers if isinstance(h, _HextoolsHandler)]:
         root.removeHandler(handler)
+    # Libraries without a level of their own inherit the root's.
+    root.setLevel(level)
     handler = _HextoolsHandler(stream)
     handler.setLevel(level)
     handler.setFormatter(_ColorFormatter(color=color))
