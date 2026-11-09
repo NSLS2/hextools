@@ -17,8 +17,6 @@ from ophyd_async.core import (
     Device,
     DeviceVector,
 )
-from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
-from ophyd_async.sim import SimMotor
 from redis_json_dict.redis_json_dict import RedisJSONDict
 from rich import print as rprint
 
@@ -26,8 +24,6 @@ from .nl_msg_hook import nl_msg_hook as nl_msg_hook
 from .path_providers import (
     StartDocAwareFilenameProvider as StartDocAwareFilenameProvider,
 )
-
-Steppable = AsyncEpicsMotor | SimMotor
 
 NSVarT = TypeVar("NSVarT")
 
@@ -442,6 +438,7 @@ def print_device_tree(device: Device, indent: int = 0) -> None:
 
 # Set by LastDarkFlatUIDTracker.
 DARK_FLAT_MD_KEYS = ("last_dark_flat_uid", "last_dark_flat_scan_id")
+DARK_REFERENCE_MD_KEYS = ("last_dark_reference_uid", "last_dark_reference_scan_id")
 
 
 def clear_last_dark_flat(RE: RunEngine | None = None):
