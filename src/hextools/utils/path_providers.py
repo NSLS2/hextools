@@ -2,11 +2,10 @@
 
 import logging
 from collections import Counter
-from datetime import date
-from pathlib import Path, PurePath
+from pathlib import Path
 from typing import Any
 
-from nslsii.ophyd_async.providers import NSLS2PathProvider, TimestampFilenameProvider
+from nslsii.ophyd_async.providers import TimestampFilenameProvider
 from ophyd_async.core import UUIDFilenameProvider, YMDPathProvider
 
 logger = logging.getLogger(__name__)

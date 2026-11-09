@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
 from tiled.structures.core import Spec
-import logging
 
 logger = logging.getLogger(__name__)
 
