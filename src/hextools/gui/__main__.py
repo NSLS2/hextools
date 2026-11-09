@@ -57,6 +57,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from tiled.structures.core import Spec
 
 from hextools.detectors.germ import GeRMDetectorMock
 from hextools.detectors.phantom import PhantomDetector
@@ -568,7 +569,12 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             tiled_client = user_ns.get("tiled_reading_client") or user_ns.get("c")
             tabs.addTab(execution_view, "Plan Execution")
             if tiled_client is not None:
-                self.scan_browser = QtScanBrowser(tiled_client, ALL_SPECS, re_client)
+                # Every run has the BlueskyRun spec, so selecting it finds all runs.
+                self.scan_browser = QtScanBrowser(
+                    tiled_client,
+                    [Spec("BlueskyRun", version="3.0"), *ALL_SPECS],
+                    re_client,
+                )
                 tabs.addTab(self.scan_browser, "Scan Browser")
             else:
                 self.scan_browser = None

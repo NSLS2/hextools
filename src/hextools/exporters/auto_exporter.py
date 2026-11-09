@@ -9,6 +9,7 @@ import csv
 import logging
 import time
 from collections.abc import Callable
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,7 @@ from hextools.exporters.tomography import (
     export_tomo_dark_flat_to_h5,
     export_tomo_flyscan_to_h5,
 )
+from hextools.exporters.utils import confirm_required_start_fields
 from hextools.exporters.xrd import export_xrd_dark_reference, export_xrd_run_to_h5
 from hextools.log import configure_logger
 from hextools.specs import (
@@ -70,11 +72,24 @@ EXPORTERS: dict[tuple[str, str | None], Callable[..., Any]] = {
 # Run metadata updates carry the full start document, which can exceed the 1 MB default
 MAX_MESSAGE_BYTES = 10 * 1024 * 1024
 
-CSV_COLUMNS = ("scan_id", "plan_name", "uid", "status", "export_status")
+CSV_COLUMNS = ("time", "scan_id", "plan_name", "status", "uid", "export_status")
+PLAN_HISTORY_CSV = "plan_history.csv"
+
+
+def default_csv_path(run_start: dict[str, Any]) -> Path:
+    """Return the plan history CSV in the run's proposal directory."""
+    proposal, cycle, _ = confirm_required_start_fields(run_start)
+    return Path(f"/nsls2/data/hex/proposals/{cycle}/{proposal}") / PLAN_HISTORY_CSV
 
 
 def _record_run(csv_path: Path, run: BlueskyRunV3, succeeded: bool) -> None:
     uid = run.start["uid"]
+    start_time = run.start.get("time")
+    timestamp = (
+        datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M:%S")
+        if isinstance(start_time, int | float)
+        else ""
+    )
     try:
         write_header = not csv_path.exists() or csv_path.stat().st_size == 0
         with csv_path.open("a", newline="") as f:
@@ -83,10 +98,11 @@ def _record_run(csv_path: Path, run: BlueskyRunV3, succeeded: bool) -> None:
                 writer.writerow(CSV_COLUMNS)
             writer.writerow(
                 [
+                    timestamp,
                     run.start.get("scan_id"),
                     run.start.get("plan_name"),
-                    uid,
                     run.stop.get("exit_status"),
+                    uid,
                     "success" if succeeded else "failure",
                 ]
             )
@@ -99,8 +115,9 @@ def auto_export_run(
 ) -> None:
     """Run every exporter registered for ``run``'s specs, raising if any of them failed.
 
-    If ``csv_path`` is given, append the run's scan_id, plan_name, uid and export
-    status to it.
+    Append the run's start time, scan_id, plan_name, exit status, uid and export
+    status to ``csv_path``,
+    by default ``plan_history.csv`` in the run's proposal directory.
     """
     uid = run.start["uid"]
     specs = {(spec.name, spec.version) for spec in run.specs}
@@ -117,6 +134,11 @@ def auto_export_run(
             logger.exception(f"{exporter.__name__} failed for run {uid}")  # type: ignore
             failed.append(exporter.__name__)  # type: ignore
 
+    if csv_path is None:
+        try:
+            csv_path = default_csv_path(run.start)
+        except ValueError:
+            logger.exception(f"Can't find the plan history CSV for run {uid}")
     if csv_path is not None:
         _record_run(Path(csv_path), run, succeeded=not failed)
     if failed:
@@ -249,7 +271,8 @@ def main() -> None:
     parser.add_argument(
         "--csv",
         default=None,
-        help="CSV file to append each closed run's export status to",
+        help="CSV file to append each closed run's export status to (default:"
+        f" {PLAN_HISTORY_CSV} in each run's proposal directory)",
     )
     parser.add_argument("--debug", action="store_true", help="enable debug logging")
     args = parser.parse_args()
