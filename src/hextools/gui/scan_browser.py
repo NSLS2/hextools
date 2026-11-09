@@ -131,7 +131,8 @@ class QtScanBrowser(QWidget):
         self._search_button = QPushButton("Search")
         self._search_button.clicked.connect(self.search)
         self._status = QLabel()
-        # Long or multi-line errors must not grow the window; full text is in the tooltip.
+        # Long or multi-line errors must not grow the window.
+        # Full text is in the tooltip.
         self._status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
 
         controls = QHBoxLayout()
@@ -156,7 +157,9 @@ class QtScanBrowser(QWidget):
             QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored
         )
         self._table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
+        self._table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored
+        )
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
