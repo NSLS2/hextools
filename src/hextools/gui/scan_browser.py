@@ -267,7 +267,7 @@ class QtScanBrowser(QWidget):
 
     def _on_search_error(self, error: Exception) -> None:
         message = f"Search failed: {error}"
-        self._status.setText(message.splitlines()[0] if message else message)
+        self._status.setText(message.splitlines()[0])
         self._status.setToolTip(message)
 
     def _on_search_finished(self) -> None:
