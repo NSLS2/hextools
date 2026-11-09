@@ -82,8 +82,22 @@ def default_csv_path(run_start: dict[str, Any]) -> Path:
     return Path(f"/nsls2/data/hex/proposals/{cycle}/{proposal}") / PLAN_HISTORY_CSV
 
 
+def _start_new_file_if_header_differs(csv_path: Path) -> None:
+    with csv_path.open(newline="") as f:
+        header = next(csv.reader(f), [])
+    if tuple(header) == CSV_COLUMNS:
+        return
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    old = csv_path.with_name(f"{csv_path.stem}.{stamp}{csv_path.suffix}")
+    csv_path.rename(old)
+    logger.warning(f"{csv_path} had columns {header}; moved it to {old}")
+
+
 def _record_run(csv_path: Path, run: BlueskyRunV3, succeeded: bool) -> None:
     uid = run.start["uid"]
+    if not csv_path.parent.is_dir():
+        logger.warning(f"Not recording run {uid}: {csv_path.parent} does not exist")
+        return
     start_time = run.start.get("time")
     timestamp = (
         datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M:%S")
@@ -91,6 +105,8 @@ def _record_run(csv_path: Path, run: BlueskyRunV3, succeeded: bool) -> None:
         else ""
     )
     try:
+        if csv_path.exists() and csv_path.stat().st_size > 0:
+            _start_new_file_if_header_differs(csv_path)
         write_header = not csv_path.exists() or csv_path.stat().st_size == 0
         with csv_path.open("a", newline="") as f:
             writer = csv.writer(f)
@@ -137,8 +153,8 @@ def auto_export_run(
     if csv_path is None:
         try:
             csv_path = default_csv_path(run.start)
-        except ValueError:
-            logger.exception(f"Can't find the plan history CSV for run {uid}")
+        except ValueError as error:
+            logger.warning(f"Not recording run {uid} in the plan history: {error}")
     if csv_path is not None:
         _record_run(Path(csv_path), run, succeeded=not failed)
     if failed:
