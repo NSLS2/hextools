@@ -389,6 +389,16 @@ def test_tomo_flyscan_dark_flat_link_is_optional():
         validate_tomo_flyscan(run)
 
 
+# Alignment runs taken before #139 carry the old name under the same v1 spec.
+def test_tomo_alignment_scan_accepts_the_name_used_before_the_rename():
+    validate_tomo_alignment_scan(
+        _mutated(
+            _tomo_alignment_scan,
+            lambda r: r.start.update(plan_name="tomography_alignment_scan"),
+        )
+    )
+
+
 def test_tomo_alignment_scan_flat_is_optional():
     validate_tomo_alignment_scan(
         _mutated(_tomo_alignment_scan, lambda r: r.streams.pop("flat"))

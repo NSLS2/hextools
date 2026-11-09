@@ -181,7 +181,7 @@ def validate_tomo_flyscan(run: RunLike, version: str | None = "1") -> None:
 # tomo_alignment_scan
 #
 # Start document:
-#   plan_name: "tomo_alignment_scan"
+#   plan_name: "tomo_alignment_scan" ("tomography_alignment_scan" before 2026-11-09)
 #   description: "Tomography alignment scan"
 #   standard scan metadata (motors: [<motor>], detectors: [<det>])
 #   flat_scan_uid: str               optional, user supplied. The alignment analysis
@@ -200,7 +200,7 @@ def validate_tomo_alignment_scan(run: RunLike, version: str | None = "1") -> Non
 
     Raise :class:`SpecValidationError` if it does not match.
     """
-    _require_plan_name(run, "tomo_alignment_scan")
+    _require_plan_name(run, "tomo_alignment_scan", "tomography_alignment_scan")
     _require_start_keys(run, "description")
     _require_optional_str(run, "flat_scan_uid")
     dets = _names(run, "detectors", count=1)
