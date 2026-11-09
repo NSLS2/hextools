@@ -122,3 +122,23 @@ def find_hdf_datasets(
             len(item["attributes"]["structure"]["shape"]),
         )
     return found
+
+
+def read_recorded_captures(
+    path: Path, dataset: str, num_events: int, images_to_average: int
+) -> np.ndarray:
+    """Read the PandA captures a run recorded, straight from the HDF5 file.
+
+    A run that did not finish records fewer events than the PandA captured before
+    it was disarmed, and Tiled refuses to serve a file longer than the run's
+    events, so read only the first ``num_events * images_to_average`` captures.
+    """
+    wanted = num_events * images_to_average
+    with h5py.File(path, "r") as f:
+        values = f[dataset][:wanted]
+    if len(values) < wanted:
+        raise ValueError(
+            f"{path}:{dataset} holds {len(values)} captures, fewer than the "
+            f"{wanted} the run recorded"
+        )
+    return values.reshape(num_events, images_to_average)
