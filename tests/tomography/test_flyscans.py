@@ -26,7 +26,12 @@ from ophyd_async.core import (
     init_devices,
     set_mock_value,
 )
-from ophyd_async.epics.adcore import NDPluginFileIO, NDProcessFilterType, NDProcessIO
+from ophyd_async.epics.adcore import (
+    ADImageMode,
+    NDPluginFileIO,
+    NDProcessFilterType,
+    NDProcessIO,
+)
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
@@ -496,8 +501,11 @@ async def test_tomo_flyscan(
         assert any(mode != KinetixTriggerMode.INTERNAL for mode in modes)
         hdf = cam.get_plugin("hdf", NDPluginFileIO)
         assert await hdf.queue_size.get_value() == num_projections
-        # cleanup puts the camera back into preview
-        assert await cam.driver.trigger_mode.get_value() == KinetixTriggerMode.INTERNAL
+        # By default cleanup does not put the camera back into preview.
+        image_modes = [
+            c.args[0] for c in get_mock_put(cam.driver.image_mode).call_args_list
+        ]
+        assert ADImageMode.CONTINUOUS not in image_modes
 
     # Time based: PCOMP fires once and PULSE paces the projections.
     pcomp, pulse = rig.panda.pcomp[1], rig.panda.pulse[1]
@@ -515,6 +523,33 @@ async def test_tomo_flyscan(
     assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
     assert get_mock_put(rig.rot_motor.motor_stop).call_args.args[0] == 1
     assert await rig.rot_motor.velocity.get_value() == FlyRig.INITIAL_VELOCITY
+
+
+async def test_tomo_flyscan_restart_preview(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[[int], KinetixDetector],
+    fly_rig: Callable[..., FlyRig],
+    open_fe_shutter: tuple[Shutter, Shutter],
+):
+    cam = kinetix_det_factory(1)
+    rig = fly_rig([cam])
+    docs, cache = _doc_cache()
+
+    RE(
+        rig.flyscan(
+            [cam],
+            open_fe_shutter,
+            num_projections=5,
+            exposure_time=0.01,
+            restart_preview=True,
+        ),
+        cache,  # type: ignore
+    )
+
+    assert docs["stop"][0]["exit_status"] == "success"
+    assert await cam.driver.image_mode.get_value() == ADImageMode.CONTINUOUS
+    assert await cam.driver.trigger_mode.get_value() == KinetixTriggerMode.INTERNAL
+    assert get_mock_put(cam.driver.acquire).call_args.args[0] is True
 
 
 # Nghia's scan 21 (2026-10-27) averaged with Sum: the IOC had been left on it.
@@ -836,7 +871,7 @@ async def test_tomo_flyscan_fails_on_too_many_missed_frames(
     assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
     assert get_mock_put(rig.rot_motor.motor_stop).called
     assert await rig.rot_motor.velocity.get_value() == FlyRig.INITIAL_VELOCITY
-    assert await ktx.driver.trigger_mode.get_value() == KinetixTriggerMode.INTERNAL
+    assert await ktx.driver.trigger_mode.get_value() != KinetixTriggerMode.INTERNAL
 
 
 # ==================================================================================

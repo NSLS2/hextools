@@ -157,6 +157,7 @@ def tomo_flyscan(
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
+    restart_preview: bool = False,
     sample_name: str | None = None,
     time_based: bool = True,
     panda: HDFPanda | None = None,
@@ -188,6 +189,10 @@ def tomo_flyscan(
         The stopping angle for the tomography fly scan.
     use_shutter : bool
         Whether to use the shutter during the scan.
+    restart_preview : bool, optional
+        Whether to put Kinetix detectors back into preview mode (continuous,
+        internally triggered) when the scan ends. Default False: they are left
+        as the scan left them.
     sample_name : str | None
         The name of the sample being scanned.
     time_based : bool
@@ -358,6 +363,8 @@ def tomo_flyscan(
         yield from ensure_shutter_closed(photon_shutter)
         yield from bps.abs_set(rot_motor.motor_stop, 1)
         yield from bps.mv(rot_motor.velocity, initial_velocity)
+        if not restart_preview:
+            return
         for det in detectors:
             if isinstance(det, KinetixDetector):
                 yield from enable_preview_mode(det)
