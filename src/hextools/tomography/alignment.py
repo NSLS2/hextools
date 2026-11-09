@@ -762,7 +762,10 @@ def tomo_alignment_scan(
             "description": "Tomography alignment scan",
             "plan_name": "tomography_alignment_scan",
             "tiled_specs": [
-                {"name": TOMO_ALIGNMENT_SCAN_V1.name, "version": TOMO_ALIGNMENT_SCAN_V1.version}
+                {
+                    "name": TOMO_ALIGNMENT_SCAN_V1.name,
+                    "version": TOMO_ALIGNMENT_SCAN_V1.version,
+                }
             ],
         }
 
