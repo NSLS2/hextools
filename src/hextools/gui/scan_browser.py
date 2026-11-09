@@ -232,13 +232,12 @@ class QtScanBrowser(QWidget):
 
     def _fetch_metadata(self) -> Mapping[str, Any]:
         if isinstance(self._re, RunEngineClient):
-            try:
-                # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
-                response = self._re._client.re_metadata()  # noqa: SLF001  # type: ignore
-            except Exception:
-                return {}
+            # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
+            response = self._re._client.re_metadata()  # noqa: SLF001  # type: ignore
             if not response.get("success", False):
-                return {}
+                raise RuntimeError(
+                    f"Could not read RE metadata: {response.get('msg', 'unknown error')}"
+                )
             return response.get("re_metadata") or {}
         return self._re.md
 
