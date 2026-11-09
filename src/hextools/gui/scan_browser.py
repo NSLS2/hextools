@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import Any
 
 from bluesky import RunEngine
+from bluesky_widgets.models.run_engine_client import RunEngineClient
 from qtpy.QtCore import QDate, QPoint, Qt
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -103,7 +104,11 @@ class QtScanBrowser(QWidget):
     _COLUMNS = ["Time", "Scan ID", "UID"]
 
     def __init__(
-        self, tiled_client: Any, specs: list[Spec], re: RunEngine, parent=None
+        self,
+        tiled_client: Any,
+        specs: list[Spec],
+        re: RunEngineClient | RunEngine,
+        parent=None,
     ):
         super().__init__(parent)
         self._client = tiled_client
@@ -208,18 +213,15 @@ class QtScanBrowser(QWidget):
             return
         since = datetime.combine(since_date, time.min).timestamp()  # type: ignore
         until = datetime.combine(until_date + timedelta(days=1), time.min).timestamp()  # type: ignore
-        data_session = self._re.md.get("data_session")
 
         self._search_button.setEnabled(False)
         self._status.setText("Searching…")
         self._status.setToolTip("")
         self._worker = create_worker(
-            search_runs,
-            self._client,
+            self._search_runs,
             spec,
             since,
             until,
-            data_session,
             self._detector.text(),
             _connect={
                 "returned": self._on_results,
@@ -227,6 +229,25 @@ class QtScanBrowser(QWidget):
                 "finished": self._on_search_finished,
             },
         )
+
+    def _fetch_metadata(self) -> Mapping[str, Any]:
+        if isinstance(self._re, RunEngineClient):
+            try:
+                # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
+                response = self._re._client.re_metadata()  # noqa: SLF001  # type: ignore
+            except Exception:
+                return {}
+            if not response.get("success", False):
+                return {}
+            return response.get("re_metadata") or {}
+        return self._re.md
+
+    def _search_runs(
+        self, spec: Spec, since: float, until: float, detector: str
+    ) -> list[RunSummary]:
+        # Runs in the worker so the queueserver metadata request doesn't block the GUI.
+        data_session = self._fetch_metadata().get("data_session")
+        return search_runs(self._client, spec, since, until, data_session, detector)
 
     def _on_results(self, runs: list[RunSummary]) -> None:
         self._runs = runs
