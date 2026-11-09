@@ -32,9 +32,9 @@ dependencies = [
   "algotom",
   "ipython",
   "numpy",
-  "bluesky @ git+https://github.com/bluesky/bluesky@main",
-  "nslsii @ git+https://github.com/NSLS2/nslsii@main",
-  "ophyd-async[ca, pva] @ git+https://github.com/bluesky/ophyd-async@main",
+  "bluesky",
+  "nslsii",
+  "ophyd-async[ca, pva]",
   "rich>=15.0.0",
   "scikit-image>=0.26.0",
   "scipy>=1.17.1",
@@ -138,6 +138,7 @@ filterwarnings = [
     "error",
     "ignore:tagMap is deprecated:DeprecationWarning:ldap3",
     "ignore:typeMap is deprecated:DeprecationWarning:ldap3",
+    "ignore:No path_separator found in configuration:DeprecationWarning:alembic",
 ]
 # Doctest python code in docs, python code in src docstrings, test functions in tests
 testpaths = "docs src tests"

@@ -2,6 +2,11 @@
 
 from .germ import Gain, GeRMDetector
 from .kinetix import KinetixTriggerMode, kinetix_factory
+from .perkin_elmer import (
+    PerkinElmerDetector,
+    PerkinElmerIO,
+    PerkinElmerTriggerMode,
+)
 from .phantom import (
     PhantomAuxPinMode,
     PhantomDetector,
@@ -34,6 +39,9 @@ __all__ = [
     "PhantomReadySignal",
     "PhantomTrigEdge",
     "PhantomSettingsSlot",
+    "PerkinElmerTriggerMode",
+    "PerkinElmerIO",
+    "PerkinElmerDetector",
     "Gain",
     "GeRMDetector",
     "KinetixTriggerMode",

@@ -21,7 +21,9 @@ from ophyd_async.core import (
 )
 from ophyd_async.epics.adcore import NDProcessFilterType
 from ophyd_async.epics.adkinetix import KinetixDetector
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.fastcs.panda import HDFPanda
+from ophyd_async.sim import SimMotor
 
 from hextools.detectors import (
     FRAME_PERIOD_MARGIN,
@@ -36,7 +38,7 @@ from hextools.photon_delivery_system.shutter import (
     ensure_shutter_open,
 )
 from hextools.specs import TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
-from hextools.utils import Steppable, ensure_available
+from hextools.utils import ensure_available
 
 from ..detectors.phantom import PhantomDetector
 from ..flyers import SingleAxisFlyableLogic, construct_fly_info_models
@@ -384,7 +386,7 @@ def tomo_nd_step_scan(
     dark_flat_frequency: int = 0,
     sample_name: str | None = None,
     time_based: bool = True,
-    snake_axes: bool | Sequence[Steppable] = False,
+    snake_axes: bool | Sequence[AsyncEpicsMotor | SimMotor] = False,
     num_retries: int = 0,
     sample_tower: SampleTower | None = None,
     panda: HDFPanda | None = None,
@@ -443,7 +445,7 @@ def tomo_nd_step_scan(
         If greater than 0, also take a dark/flat after every this many grid points.
     time_based : bool, optional
         Whether the scan is time-based.
-    snake_axes : bool | Sequence[Steppable], optional
+    snake_axes : bool | Sequence[AsyncEpicsMotor | SimMotor], optional
         If True, snake every axis but the outermost; otherwise, the motors to snake.
     num_retries : int, optional
         How many times to retry a grid point's flyscan if it fails; 0 never retries.
@@ -700,7 +702,7 @@ def tomo_flyscan_loop(
 
 def tomo_1d_step_scan(
     detectors: list[KinetixDetector | PhantomDetector],
-    step_motor: Steppable,
+    step_motor: AsyncEpicsMotor | SimMotor,
     step_start: float,
     step_stop: float,
     num_tomograms: int,
@@ -732,7 +734,7 @@ def tomo_1d_step_scan(
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
         The list of detectors to use during the scan.
-    step_motor : Steppable
+    step_motor : AsyncEpicsMotor | SimMotor
         The motor that will be moved in steps during the scan.
     step_start : float
         The starting position for the step motor.
@@ -820,11 +822,11 @@ def tomo_1d_step_scan(
 
 def tomo_2d_step_scan(
     detectors: list[KinetixDetector | PhantomDetector],
-    outer_motor: Steppable,
+    outer_motor: AsyncEpicsMotor | SimMotor,
     outer_start: float,
     outer_stop: float,
     outer_num: int,
-    inner_motor: Steppable,
+    inner_motor: AsyncEpicsMotor | SimMotor,
     inner_start: float,
     inner_stop: float,
     inner_num: int,
@@ -856,7 +858,7 @@ def tomo_2d_step_scan(
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
         The list of detectors to use for the scan.
-    outer_motor : Steppable
+    outer_motor : AsyncEpicsMotor | SimMotor
         The motor controlling the outer axis of the 2-D grid.
     outer_start : float
         The starting position of the outer motor.
@@ -864,7 +866,7 @@ def tomo_2d_step_scan(
         The stopping position of the outer motor.
     outer_num : int
         The number of steps for the outer motor.
-    inner_motor : Steppable
+    inner_motor : AsyncEpicsMotor | SimMotor
         The motor controlling the inner axis of the 2-D grid.
     inner_start : float
         The starting position of the inner motor.

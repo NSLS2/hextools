@@ -126,6 +126,7 @@ from hextools.tomography.flyscans import (
 )
 from hextools.tomography.radiography import take_radiograph
 from hextools.utils import is_running_in_ci, reset_scan_id
+from hextools.xrd import dark_reference, xrd_calibration, xrd_scan, xrd_scan_2d
 
 from ._event_loop import get_our_app_name, gui_qt
 from ._threading import wait_for_workers_to_quit
@@ -421,18 +422,31 @@ class QtEDXDView(QWidget):
 
 
 class QtXRDView(QWidget):
-    """X-ray diffraction view: the live Perkin Elmer area detector viewer."""
+    """X-ray diffraction view: the live Perkin Elmer viewer and XRD plans."""
 
     def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._re_client = re_client
 
-        vbox = QVBoxLayout()
+        top = QHBoxLayout()
         detectors = QtTabbedDetectorsWidget(re_client)
         detectors.add_detector(
             "perkin_elmer", "XF:27ID1-ES{PE-Det:1}", preserve_aspect_ratio=True
         )
-        vbox.addWidget(detectors, stretch=1)
+        top.addWidget(detectors, stretch=3)
+
+        plan_tabs = QTabWidget()
+        plan_tabs.addTab(QtPlanWidget(re_client, dark_reference), "Dark Reference")
+        plan_tabs.addTab(QtPlanWidget(re_client, xrd_calibration), "Calibration")
+        plan_tabs.addTab(QtPlanWidget(re_client, xrd_scan), "Scan")
+        plan_tabs.addTab(QtPlanWidget(re_client, xrd_scan_2d), "2D Scan")
+        plan_tabs.addTab(QtPlanWidget(re_client, take_radiograph), "Radiography")
+        side = QVBoxLayout()
+        side.addWidget(plan_tabs, stretch=1)
+        top.addLayout(side, stretch=1)
+
+        vbox = QVBoxLayout()
+        vbox.addLayout(top, stretch=1)
         self.setLayout(vbox)
 
 
@@ -851,9 +865,7 @@ class QtDataAcquisitionWindow:
 
     def show(self):
         """Resize, show, and bring forward the window."""
-        window_layout = self._qt_window.layout()
-        if window_layout is not None:
-            self._qt_window.resize(window_layout.sizeHint())
+        self._qt_window.resize(1650, 1280)
         self._qt_window.show()
 
         # We want to call Window._qt_window.raise_() in every case *except*

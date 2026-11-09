@@ -25,24 +25,46 @@ from traitlets.config import Config
 from hextools import exporters
 from hextools.exporters.edxd import export_edxd_run_to_h5
 from hextools.exporters.tomography import (
+    export_tomo_alignment_to_h5,
     export_tomo_dark_flat_to_h5,
     export_tomo_flyscan_to_h5,
 )
+from hextools.exporters.xrd import export_xrd_dark_reference, export_xrd_run_to_h5
 from hextools.log import configure_logger
 from hextools.specs import (
     EDXD_CALIBRATION_V1,
     EDXD_SCAN_V1,
+    TOMO_ALIGNMENT_SCAN_V1,
     TOMO_DARK_FLAT_V1,
     TOMO_FLYSCAN_V1,
+    XRD_CALIBRATION_V1,
+    XRD_DARK_REFERENCE_V1,
+    XRD_SCAN_V1,
 )
 
 logger = logging.getLogger("hextools.exporters.auto_exporter")
 
 EXPORTERS: dict[tuple[str, str | None], Callable[..., Any]] = {
+    (
+        TOMO_ALIGNMENT_SCAN_V1.name,
+        TOMO_ALIGNMENT_SCAN_V1.version,
+    ): export_tomo_alignment_to_h5,
     (TOMO_FLYSCAN_V1.name, TOMO_FLYSCAN_V1.version): export_tomo_flyscan_to_h5,
     (TOMO_DARK_FLAT_V1.name, TOMO_DARK_FLAT_V1.version): export_tomo_dark_flat_to_h5,
     (EDXD_SCAN_V1.name, EDXD_SCAN_V1.version): export_edxd_run_to_h5,
     (EDXD_CALIBRATION_V1.name, EDXD_CALIBRATION_V1.version): export_edxd_run_to_h5,
+    (
+        XRD_DARK_REFERENCE_V1.name,
+        XRD_DARK_REFERENCE_V1.version,
+    ): export_xrd_dark_reference,
+    (
+        XRD_SCAN_V1.name,
+        XRD_SCAN_V1.version,
+    ): export_xrd_run_to_h5,
+    (
+        XRD_CALIBRATION_V1.name,
+        XRD_CALIBRATION_V1.version,
+    ): export_xrd_run_to_h5,
 }
 
 # Run metadata updates carry the full start document, which can exceed the 1 MB default
