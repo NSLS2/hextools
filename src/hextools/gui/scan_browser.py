@@ -236,7 +236,8 @@ class QtScanBrowser(QWidget):
             response = self._re._client.re_metadata()  # noqa: SLF001  # type: ignore
             if not response.get("success", False):
                 raise RuntimeError(
-                    f"Could not read RE metadata: {response.get('msg', 'unknown error')}"
+                    "Could not read RE metadata: "
+                    f"{response.get('msg', 'unknown error')}"
                 )
             return response.get("re_metadata") or {}
         return self._re.md
