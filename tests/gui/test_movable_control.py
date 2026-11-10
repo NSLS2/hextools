@@ -1,0 +1,354 @@
+import os
+
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+pytest.importorskip("qtpy")
+
+from bluesky import RunEngine  # noqa: E402
+from bluesky import plan_stubs as bps  # noqa: E402
+from bluesky.run_engine import call_in_bluesky_event_loop  # noqa: E402
+from ophyd_async.core import (  # noqa: E402
+    StrictEnum,
+    init_devices,
+    soft_signal_rw,
+)
+from ophyd_async.sim import SimMotor  # noqa: E402
+from qtpy.QtWidgets import QApplication, QComboBox, QLineEdit  # noqa: E402
+
+from hextools.gui import movable_control, movable_group  # noqa: E402
+from hextools.gui.movable_control import QtMovableControl, set_type  # noqa: E402
+from hextools.gui.movable_group import QtMovableGroup  # noqa: E402
+from hextools.gui.slits_control import QtSlitsControl  # noqa: E402
+from hextools.photon_delivery_system.slits import Slits  # noqa: E402
+
+
+class _Mode(StrictEnum):
+    FAST = "Fast"
+    SLOW = "Slow"
+
+
+@pytest.fixture
+def app():
+    return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture
+def RE():
+    return RunEngine()
+
+
+@pytest.fixture
+def commands(monkeypatch):
+    ran: list[str] = []
+    for module in (movable_control, movable_group):
+        monkeypatch.setattr(module, "run_in_ipython", ran.append)
+    return ran
+
+
+@pytest.fixture
+def namespace(RE):
+    with init_devices(mock=True):
+        motor = SimMotor(name="motor")
+        slits = Slits("SLT:", name="slits")
+    return {
+        "motor": motor,
+        "slits": slits,
+        "count": soft_signal_rw(int, name="count"),
+        "label": soft_signal_rw(str, name="label"),
+        "mode": soft_signal_rw(_Mode, name="mode"),
+        "flag": soft_signal_rw(bool, name="flag"),
+    }
+
+
+def _control(namespace, RE, path):
+    return QtMovableControl(path, RE, namespace=namespace)
+
+
+def test_set_type_reads_signal_datatype_and_set_hints(namespace):
+    assert set_type(namespace["count"]) is int
+    assert set_type(namespace["mode"]) is _Mode
+    assert set_type(namespace["motor"]) is float
+
+
+def test_setpoint_runs_mv_and_tweaks_run_mvr(app, RE, namespace, commands):
+    control = _control(namespace, RE, "motor")
+    try:
+        setpoint = control.findChild(QLineEdit)
+        setpoint.setText("2.5")
+        setpoint.returnPressed.emit()
+        app.processEvents()
+        control._tweak.setText("0.1")
+        control._on_tweak(-1)
+        app.processEvents()
+        assert commands == ["RE(mv(motor, 2.5))", "RE(mvr(motor, -0.1))"]
+        assert namespace["mv"] is bps.mv and namespace["mvr"] is bps.mvr
+    finally:
+        control.close()
+
+
+def test_invalid_setpoint_is_not_sent(app, RE, namespace, commands):
+    control = _control(namespace, RE, "count")
+    try:
+        setpoint = control.findChild(QLineEdit)
+        setpoint.setText("1.5")
+        setpoint.returnPressed.emit()
+        app.processEvents()
+        assert commands == []
+        assert setpoint.styleSheet()
+    finally:
+        control.close()
+
+
+@pytest.mark.parametrize("path, has_tweak", [("count", True), ("label", False)])
+def test_tweaks_only_for_numbers(app, RE, namespace, path, has_tweak):
+    control = _control(namespace, RE, path)
+    try:
+        assert (control._tweak is not None) is has_tweak
+    finally:
+        control.close()
+
+
+def test_string_setpoint_is_quoted(app, RE, namespace, commands):
+    control = _control(namespace, RE, "label")
+    try:
+        setpoint = control.findChild(QLineEdit)
+        setpoint.setText("it's")
+        setpoint.returnPressed.emit()
+        app.processEvents()
+        assert commands == ['RE(mv(label, "it\'s"))']
+    finally:
+        control.close()
+
+
+@pytest.mark.parametrize(
+    "path, choice, command",
+    [
+        ("mode", 1, "RE(mv(mode, 'Slow'))"),
+        ("flag", 1, "RE(mv(flag, False))"),
+    ],
+)
+def test_enum_and_bool_use_a_dropdown(
+    app, RE, namespace, commands, path, choice, command
+):
+    control = _control(namespace, RE, path)
+    try:
+        combo = control.findChild(QComboBox)
+        assert combo is not None and control._tweak is None
+        combo.activated.emit(choice)
+        app.processEvents()
+        assert commands == [command]
+    finally:
+        control.close()
+
+
+def test_rejects_unknown_paths_and_unsupported_types(app, RE, namespace):
+    with pytest.raises(ValueError):
+        _control(namespace, RE, "motor; import os")
+    with pytest.raises(TypeError):
+        _control(namespace, RE, "slits")
+
+
+async def _noop():
+    pass
+
+
+def _process_until(app, condition):
+    for _ in range(200):
+        app.processEvents()
+        if condition():
+            return True
+        call_in_bluesky_event_loop(_noop())
+    return condition()
+
+
+def test_setpoint_starts_at_the_readback(app, RE, namespace):
+    namespace["temperature"] = soft_signal_rw(float, 1.5, name="temperature")
+    control = _control(namespace, RE, "temperature")
+    try:
+        setpoint = control.findChild(QLineEdit)
+        assert _process_until(app, lambda: setpoint.text() == "1.500")
+    finally:
+        control.close()
+
+
+async def _set(signal, value):
+    await signal.set(value)
+
+
+def test_setpoint_does_not_follow_later_readbacks(app, RE, namespace):
+    signal = soft_signal_rw(float, 1.5, name="temperature")
+    namespace["temperature"] = signal
+    control = _control(namespace, RE, "temperature")
+    try:
+        setpoint = control.findChild(QLineEdit)
+        assert _process_until(app, lambda: setpoint.text() == "1.500")
+        call_in_bluesky_event_loop(_set(signal, 2.0))
+        assert _process_until(app, lambda: "2.000" in control._readback._value.text())
+        assert setpoint.text() == "1.500"
+    finally:
+        control.close()
+
+
+def test_dropdown_starts_at_the_readback(app, RE, namespace):
+    namespace["mode"] = soft_signal_rw(_Mode, _Mode.SLOW, name="mode")
+    control = _control(namespace, RE, "mode")
+    try:
+        combo = control.findChild(QComboBox)
+        assert _process_until(app, lambda: combo.currentText() == "Slow")
+    finally:
+        control.close()
+
+
+def test_slits_control_groups_blades_gaps_and_centers(app, RE, namespace):
+    widget = QtSlitsControl("slits", RE, namespace=namespace)
+    try:
+        assert [[c.path for c in g.controls] for g in widget.groups] == [
+            ["slits.inboard", "slits.outboard", "slits.bottom", "slits.top"],
+            ["slits.horizontal_gap", "slits.vertical_gap"],
+            ["slits.horizontal_center", "slits.vertical_center"],
+        ]
+        assert all(c._tweak is not None for g in widget.groups for c in g.controls)
+    finally:
+        widget.close()
+
+
+def _enter(control, text):
+    setpoint = control.findChild(QLineEdit)
+    setpoint.setText(text)
+    setpoint.returnPressed.emit()
+
+
+def test_batch_mode_stages_setpoints_and_moves_them_together(
+    app, RE, namespace, commands
+):
+    namespace["other"] = soft_signal_rw(float, name="other")
+    group = QtMovableGroup(["motor", "other"], RE, namespace=namespace)
+    try:
+        group.set_batch(True)
+        motor, other = group.controls
+        _enter(motor, "1.5")
+        _enter(other, "2")
+        app.processEvents()
+        assert commands == []
+        assert group.staged == [("motor", 1.5), ("other", 2.0)]
+        assert not motor._tweak.isEnabled()
+
+        group._on_move_clicked()
+        app.processEvents()
+        assert commands == ["RE(mv(motor, 1.5, other, 2.0))"]
+        assert group.staged == []
+    finally:
+        group.close()
+
+
+def _type_and_leave(control, text):
+    """Type ``text`` into the setpoint, then move focus away without Enter."""
+    setpoint = control.findChild(QLineEdit)
+    setpoint.setText(text)
+    setpoint.setModified(True)
+    setpoint.editingFinished.emit()
+
+
+def test_batch_mode_stages_on_leaving_the_field(app, RE, namespace, commands):
+    group = QtMovableGroup(["motor"], RE, namespace=namespace)
+    try:
+        group.set_batch(True)
+        (motor,) = group.controls
+        _type_and_leave(motor, "1.5")
+        assert group.staged == [("motor", 1.5)]
+        assert group._summary.text() == "(1 staged)"
+        assert commands == []
+    finally:
+        group.close()
+
+
+def test_leaving_the_field_does_not_move_outside_batch_mode(
+    app, RE, namespace, commands
+):
+    group = QtMovableGroup(["motor"], RE, namespace=namespace)
+    try:
+        (motor,) = group.controls
+        _type_and_leave(motor, "1.5")
+        app.processEvents()
+        assert commands == []
+    finally:
+        group.close()
+
+
+def test_editing_a_staged_setpoint_unstages_it(app, RE, namespace, commands):
+    group = QtMovableGroup(["motor"], RE, namespace=namespace)
+    try:
+        group.set_batch(True)
+        (motor,) = group.controls
+        _enter(motor, "1.5")
+        motor.findChild(QLineEdit).textEdited.emit("1.")
+        assert group.staged == []
+    finally:
+        group.close()
+
+
+def test_leaving_batch_mode_discards_staged_and_moves_directly(
+    app, RE, namespace, commands
+):
+    group = QtMovableGroup(["motor"], RE, namespace=namespace)
+    try:
+        group.set_batch(True)
+        (motor,) = group.controls
+        _enter(motor, "1.5")
+        group.set_batch(False)
+        assert group.staged == []
+        _enter(motor, "3")
+        app.processEvents()
+        assert commands == ["RE(mv(motor, 3.0))"]
+    finally:
+        group.close()
+
+
+def test_tweaking_does_not_pass_focus_to_the_next_row(app, RE, namespace, commands):
+    group = QtMovableGroup(["motor", "count"], RE, namespace=namespace)
+    try:
+        group.show()
+        group.activateWindow()
+        motor, count = group.controls
+        right = motor._tweak_widgets[-1]
+        right.setFocus()
+        app.processEvents()
+        right.click()
+        assert not count.findChild(QLineEdit).hasFocus()
+    finally:
+        group.close()
+
+
+def test_toggling_batch_mode_keeps_the_group_size(app, RE, namespace):
+    group = QtMovableGroup(["motor"], RE, namespace=namespace)
+    try:
+        group.show()
+        app.processEvents()
+        before = group.sizeHint()
+        group.set_batch(True)
+        app.processEvents()
+        assert group.sizeHint() == before
+    finally:
+        group.close()
+
+
+def test_slits_control_rejects_non_slits(app, RE, namespace):
+    with pytest.raises(ValueError):
+        QtSlitsControl("motor", RE, namespace=namespace)
+
+
+@pytest.mark.parametrize(
+    "stacked, cells",
+    [(False, [(0, 0), (0, 1), (1, 1)]), (True, [(0, 0), (1, 0), (2, 0)])],
+)
+def test_slits_control_layout(app, RE, namespace, stacked, cells):
+    widget = QtSlitsControl("slits", RE, namespace=namespace, stacked=stacked)
+    try:
+        grid = widget.groups[0].parentWidget().layout()
+        positions = [
+            grid.getItemPosition(grid.indexOf(group))[:2] for group in widget.groups
+        ]
+        assert positions == cells
+    finally:
+        widget.close()
