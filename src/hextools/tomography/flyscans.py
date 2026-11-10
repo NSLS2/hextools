@@ -50,6 +50,13 @@ logger = logging.getLogger("hextools")
 MAX_MISSING_FRAMES = 10
 
 
+def _restart_preview(detectors: Sequence[KinetixDetector | PhantomDetector]):
+    """Put each Kinetix detector back into preview mode."""
+    for det in detectors:
+        if isinstance(det, KinetixDetector):
+            yield from enable_preview_mode(det)
+
+
 def tomo_dark_flat(
     detectors: list[KinetixDetector | PhantomDetector],
     exposure_time: float,
@@ -57,6 +64,7 @@ def tomo_dark_flat(
     num_flat_images: int = 50,
     x_offset: float = 0.0,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     sample_tower: SampleTower | None = None,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
@@ -78,6 +86,9 @@ def tomo_dark_flat(
         Default is 0.0.
     use_shutter : bool, optional
         Whether to use the shutter for the acquisition. Default is True.
+    restart_preview : bool, optional
+        Whether to put Kinetix detectors back into preview mode (continuous,
+        internally triggered) when the plan ends. Default is True.
     sample_tower : SampleTower | None, optional
         The sample tower to use. If None, will attempt to ensure availability.
     fe_shutter : Shutter | None, optional
@@ -140,9 +151,8 @@ def tomo_dark_flat(
         # Before the preview restarts, so it runs at the original exposure.
         for det, acquire_time in zip(detectors, initial_acquire_times, strict=True):
             yield from bps.mv(det.driver.acquire_time, acquire_time)
-        for det in detectors:
-            if isinstance(det, KinetixDetector):
-                yield from enable_preview_mode(det)
+        if restart_preview:
+            yield from _restart_preview(detectors)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 
@@ -157,7 +167,7 @@ def tomo_flyscan(
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
-    restart_preview: bool = False,
+    restart_preview: bool = True,
     sample_name: str | None = None,
     time_based: bool = True,
     panda: HDFPanda | None = None,
@@ -191,8 +201,7 @@ def tomo_flyscan(
         Whether to use the shutter during the scan.
     restart_preview : bool, optional
         Whether to put Kinetix detectors back into preview mode (continuous,
-        internally triggered) when the scan ends. Default False: they are left
-        as the scan left them.
+        internally triggered) when the scan ends. Default True.
     sample_name : str | None
         The name of the sample being scanned.
     time_based : bool
@@ -363,11 +372,8 @@ def tomo_flyscan(
         yield from ensure_shutter_closed(photon_shutter)
         yield from bps.abs_set(rot_motor.motor_stop, 1)
         yield from bps.mv(rot_motor.velocity, initial_velocity)
-        if not restart_preview:
-            return
-        for det in detectors:
-            if isinstance(det, KinetixDetector):
-                yield from enable_preview_mode(det)
+        if restart_preview:
+            yield from _restart_preview(detectors)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 
@@ -385,6 +391,7 @@ def tomo_nd_step_scan(
     num_repeats: int = 1,
     delay_between_points: float = 0.0,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     alternate_flyscan_dir: bool = False,
     dark_flat_offset: float = 0.0,
     dark_flat_exposure_time: float | None = None,
@@ -435,6 +442,10 @@ def tomo_nd_step_scan(
         Seconds to wait between consecutive flyscans.
     use_shutter : bool, optional
         Whether to use the shutters during the scan.
+    restart_preview : bool, optional
+        Whether to put Kinetix detectors back into preview mode when the whole
+        scan ends. The flyscans and darks/flats inside it never restart it.
+        Default True.
     alternate_flyscan_dir : bool, optional
         Whether to reverse the flyscan direction at every other grid point.
     sample_name : str | None, optional
@@ -515,6 +526,7 @@ def tomo_nd_step_scan(
                 num_flat_images=num_flat_images,
                 x_offset=dark_flat_offset,
                 use_shutter=use_shutter,
+                restart_preview=False,
                 sample_tower=sample_tower,
                 fe_shutter=fe_shutter,
                 photon_shutter=photon_shutter,
@@ -556,6 +568,7 @@ def tomo_nd_step_scan(
                         start=stop if reverse else start,
                         stop=start if reverse else stop,
                         use_shutter=use_shutter,
+                        restart_preview=False,
                         sample_name=sample_name,
                         time_based=time_based,
                         panda=panda,
@@ -592,7 +605,11 @@ def tomo_nd_step_scan(
         if take_dark_flats:
             yield from _dark_flat()
 
-    return (yield from _body())
+    def _cleanup():
+        if restart_preview:
+            yield from _restart_preview(detectors)
+
+    return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 
 
 def tomo_flyscan_loop(
@@ -612,6 +629,7 @@ def tomo_flyscan_loop(
     dark_flat_frequency: int = 0,
     dark_flat_exposure_time: float | None = None,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     sample_name: str | None = None,
     time_based: bool = True,
     panda: HDFPanda | None = None,
@@ -662,6 +680,9 @@ def tomo_flyscan_loop(
         same exposure time as the projections.
     use_shutter : bool, optional
         Whether to use the shutter during acquisitions. Default is True.
+    restart_preview : bool, optional
+        Whether to put Kinetix detectors back into preview mode when the loop
+        ends (not between tomograms). Default is True.
     sample_name : str | None, optional
         The name of the sample being scanned. Default is None.
     time_based : bool, optional
@@ -696,6 +717,7 @@ def tomo_flyscan_loop(
             num_flat_images=num_flat_images,
             dark_flat_frequency=dark_flat_frequency,
             use_shutter=use_shutter,
+            restart_preview=restart_preview,
             sample_name=sample_name,
             time_based=time_based,
             panda=panda,
@@ -721,6 +743,7 @@ def tomo_1d_step_scan(
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     sample_name: str | None = None,
     alternate_flyscan_dir: bool = False,
     num_retries: int = 3,
@@ -766,6 +789,9 @@ def tomo_1d_step_scan(
         The stopping angle for the rotation motor.
     use_shutter : bool, optional
         Whether to use the shutter during the scan.
+    restart_preview : bool, optional
+        Whether to put Kinetix detectors back into preview mode when the scan
+        ends (not between tomograms). Default True.
     sample_name : str | None, optional
         The name of the sample being scanned.
     alternate_flyscan_dir : bool, optional
@@ -810,6 +836,7 @@ def tomo_1d_step_scan(
             start=start,
             stop=stop,
             use_shutter=use_shutter,
+            restart_preview=restart_preview,
             num_retries=num_retries,
             alternate_flyscan_dir=alternate_flyscan_dir,
             sample_name=sample_name,
@@ -845,6 +872,7 @@ def tomo_2d_step_scan(
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     alternate_flyscan_dir: bool = False,
     num_retries: int = 0,
     sample_name: str | None = None,
@@ -898,6 +926,9 @@ def tomo_2d_step_scan(
         The stopping angle for the tomography scan.
     use_shutter : bool, default True
         Whether to use the shutter during the scan.
+    restart_preview : bool, default True
+        Whether to put Kinetix detectors back into preview mode when the scan
+        ends (not between tomograms).
     alternate_flyscan_dir : bool, default False
         If True, alternate the direction of the flyscan for each iteration.
     sample_name : str | None, default None
@@ -945,6 +976,7 @@ def tomo_2d_step_scan(
             start=start,
             stop=stop,
             use_shutter=use_shutter,
+            restart_preview=restart_preview,
             alternate_flyscan_dir=alternate_flyscan_dir,
             sample_name=sample_name,
             time_based=time_based,
