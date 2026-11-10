@@ -26,7 +26,12 @@ from ophyd_async.core import (
     init_devices,
     set_mock_value,
 )
-from ophyd_async.epics.adcore import NDPluginFileIO, NDProcessFilterType, NDProcessIO
+from ophyd_async.epics.adcore import (
+    ADImageMode,
+    NDPluginFileIO,
+    NDProcessFilterType,
+    NDProcessIO,
+)
 from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
@@ -72,6 +77,11 @@ def _no_sleeps(plan: Generator[Msg, Any, Any]):
             plan, lambda msg: msg._replace(args=(0,)) if msg.command == "sleep" else msg
         )
     )
+
+
+def _image_modes_put(det: KinetixDetector) -> list[Any]:
+    """Every image mode the plan put; preview puts Continuous."""
+    return [c.args[0] for c in get_mock_put(det.driver.image_mode).call_args_list]
 
 
 def _mock_motor(motor: AsyncEpicsMotor) -> AsyncEpicsMotor:
@@ -227,6 +237,36 @@ async def test_tomo_dark_flat_restores_acquire_time(
         )
     )
 
+    assert await ktx.driver.acquire_time.get_value() == pytest.approx(0.3)
+
+
+async def test_tomo_dark_flat_without_restart_preview(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[[int], KinetixDetector],
+    open_fe_shutter: tuple[Shutter, Shutter],
+    sample_tower: SampleTower,
+):
+    fe_shutter, photon_shutter = open_fe_shutter
+    ktx = kinetix_det_factory(1)
+    await ktx.driver.acquire_time.set(0.3)
+
+    RE(
+        _no_sleeps(
+            tomo_dark_flat(
+                [ktx],
+                0.05,
+                num_dark_images=2,
+                num_flat_images=2,
+                restart_preview=False,
+                sample_tower=sample_tower,
+                fe_shutter=fe_shutter,
+                photon_shutter=photon_shutter,
+            )
+        )
+    )
+
+    assert ADImageMode.CONTINUOUS not in _image_modes_put(ktx)
+    # The exposure is still put back.
     assert await ktx.driver.acquire_time.get_value() == pytest.approx(0.3)
 
 
@@ -497,6 +537,7 @@ async def test_tomo_flyscan(
         hdf = cam.get_plugin("hdf", NDPluginFileIO)
         assert await hdf.queue_size.get_value() == num_projections
         # cleanup puts the camera back into preview
+        assert await cam.driver.image_mode.get_value() == ADImageMode.CONTINUOUS
         assert await cam.driver.trigger_mode.get_value() == KinetixTriggerMode.INTERNAL
 
     # Time based: PCOMP fires once and PULSE paces the projections.
@@ -515,6 +556,32 @@ async def test_tomo_flyscan(
     assert await photon_shutter.status.get_value() == ShutterStatus.CLOSED
     assert get_mock_put(rig.rot_motor.motor_stop).call_args.args[0] == 1
     assert await rig.rot_motor.velocity.get_value() == FlyRig.INITIAL_VELOCITY
+
+
+async def test_tomo_flyscan_without_restart_preview(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[[int], KinetixDetector],
+    fly_rig: Callable[..., FlyRig],
+    open_fe_shutter: tuple[Shutter, Shutter],
+):
+    cam = kinetix_det_factory(1)
+    rig = fly_rig([cam])
+    docs, cache = _doc_cache()
+
+    RE(
+        rig.flyscan(
+            [cam],
+            open_fe_shutter,
+            num_projections=5,
+            exposure_time=0.01,
+            restart_preview=False,
+        ),
+        cache,  # type: ignore
+    )
+
+    assert docs["stop"][0]["exit_status"] == "success"
+    assert ADImageMode.CONTINUOUS not in _image_modes_put(cam)
+    assert await cam.driver.trigger_mode.get_value() != KinetixTriggerMode.INTERNAL
 
 
 # Nghia's scan 21 (2026-10-27) averaged with Sum: the IOC had been left on it.
@@ -845,11 +912,12 @@ async def test_tomo_flyscan_fails_on_too_many_missed_frames(
 
 
 class Recorder:
-    """Stands in for tomo_flyscan and tomo_dark_flat, recording each call."""
+    """Stands in for tomo_flyscan, tomo_dark_flat and enable_preview_mode."""
 
     def __init__(self, motors: tuple[AsyncEpicsMotor, ...] = ()):
         self.motors = motors
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.previews: list[Any] = []
         self.failures: list[BaseException] = []
         self.pause_after_call: int | None = None
 
@@ -874,6 +942,10 @@ class Recorder:
         self.calls.append(("dark_flat", kwargs))
         yield from bps.null()
 
+    def preview(self, det):
+        self.previews.append(det)
+        yield from bps.null()
+
     @property
     def sequence(self) -> str:
         return "".join("F" if kind == "flyscan" else "D" for kind, _ in self.calls)
@@ -895,6 +967,7 @@ def recorder(
     rec = Recorder(step_motors)
     monkeypatch.setattr(flyscans, "tomo_flyscan", rec.flyscan)
     monkeypatch.setattr(flyscans, "tomo_dark_flat", rec.dark_flat)
+    monkeypatch.setattr(flyscans, "enable_preview_mode", rec.preview)
     return rec
 
 
@@ -941,6 +1014,7 @@ def test_tomo_flyscan_loop_forwards_flyscan_arguments(
         "start": 10,
         "stop": 190,
         "use_shutter": False,
+        "restart_preview": False,
         "sample_name": "rock",
         "time_based": False,
         **DEVICES,
@@ -1021,6 +1095,7 @@ def test_tomo_flyscan_loop_dark_flat_arguments(
             "x_offset": 2.0,
             "sample_tower": sample_tower,
             "use_shutter": False,
+            "restart_preview": False,
             "fe_shutter": "FE",
             "photon_shutter": "PH",
         }
@@ -1306,6 +1381,7 @@ def test_tomo_nd_step_scan_forwards_flyscan_arguments(
         "images_to_average": 2,
         "filter_type": NDProcessFilterType.SUM,
         "use_shutter": False,
+        "restart_preview": False,
         "sample_name": "rock",
         "time_based": False,
         **DEVICES,
@@ -1355,6 +1431,30 @@ def test_tomo_nd_step_scan_dark_flat_schedule(
         assert call["exposure_time"] == 0.4
         assert (call["num_dark_images"], call["num_flat_images"]) == (3, 4)
         assert call["x_offset"] == dark_flat_offset
+
+
+@pytest.mark.parametrize("restart_preview", [True, False])
+@pytest.mark.parametrize("plan", [tomo_nd_step_scan, tomo_flyscan_loop])
+def test_step_scans_restart_preview_once_at_the_end(
+    RE: RunEngine,
+    recorder: Recorder,
+    plan: Callable[..., Any],
+    restart_preview: bool,
+):
+    RE(
+        plan(
+            ["det1", "det2"],
+            num_projections=10,
+            exposure_time=0.1,
+            dark_flat_offset=1.0,
+            restart_preview=restart_preview,
+            **DEVICES,  # type: ignore
+        )
+    )
+
+    assert recorder.sequence == "DFD"
+    assert all(call["restart_preview"] is False for _, call in recorder.calls)
+    assert recorder.previews == (["det1", "det2"] if restart_preview else [])
 
 
 def test_tomo_nd_step_scan_retries_failed_flyscans(
