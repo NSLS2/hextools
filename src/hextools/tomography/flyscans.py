@@ -50,13 +50,6 @@ logger = logging.getLogger("hextools")
 MAX_MISSING_FRAMES = 10
 
 
-def _restart_preview(detectors: Sequence[KinetixDetector | PhantomDetector]):
-    """Put each Kinetix detector back into preview mode."""
-    for det in detectors:
-        if isinstance(det, KinetixDetector):
-            yield from enable_preview_mode(det)
-
-
 def tomo_dark_flat(
     detectors: list[KinetixDetector | PhantomDetector],
     exposure_time: float,
@@ -87,8 +80,8 @@ def tomo_dark_flat(
     use_shutter : bool, optional
         Whether to use the shutter for the acquisition. Default is True.
     restart_preview : bool, optional
-        Whether to put Kinetix detectors back into preview mode (continuous,
-        internally triggered) when the plan ends. Default is True.
+        Whether to put the detectors back into preview mode when the plan ends.
+        Default is True.
     sample_tower : SampleTower | None, optional
         The sample tower to use. If None, will attempt to ensure availability.
     fe_shutter : Shutter | None, optional
@@ -152,7 +145,8 @@ def tomo_dark_flat(
         for det, acquire_time in zip(detectors, initial_acquire_times, strict=True):
             yield from bps.mv(det.driver.acquire_time, acquire_time)
         if restart_preview:
-            yield from _restart_preview(detectors)
+            for det in detectors:
+                yield from enable_preview_mode(det)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 
@@ -200,8 +194,8 @@ def tomo_flyscan(
     use_shutter : bool
         Whether to use the shutter during the scan.
     restart_preview : bool, optional
-        Whether to put Kinetix detectors back into preview mode (continuous,
-        internally triggered) when the scan ends. Default True.
+        Whether to put the detectors back into preview mode when the scan ends.
+        Default True.
     sample_name : str | None
         The name of the sample being scanned.
     time_based : bool
@@ -373,7 +367,8 @@ def tomo_flyscan(
         yield from bps.abs_set(rot_motor.motor_stop, 1)
         yield from bps.mv(rot_motor.velocity, initial_velocity)
         if restart_preview:
-            yield from _restart_preview(detectors)
+            for det in detectors:
+                yield from enable_preview_mode(det)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 
@@ -443,7 +438,7 @@ def tomo_nd_step_scan(
     use_shutter : bool, optional
         Whether to use the shutters during the scan.
     restart_preview : bool, optional
-        Whether to put Kinetix detectors back into preview mode when the whole
+        Whether to put the detectors back into preview mode when the whole
         scan ends. The flyscans and darks/flats inside it never restart it.
         Default True.
     alternate_flyscan_dir : bool, optional
@@ -607,7 +602,8 @@ def tomo_nd_step_scan(
 
     def _cleanup():
         if restart_preview:
-            yield from _restart_preview(detectors)
+            for det in detectors:
+                yield from enable_preview_mode(det)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 
@@ -681,7 +677,7 @@ def tomo_flyscan_loop(
     use_shutter : bool, optional
         Whether to use the shutter during acquisitions. Default is True.
     restart_preview : bool, optional
-        Whether to put Kinetix detectors back into preview mode when the loop
+        Whether to put the detectors back into preview mode when the loop
         ends (not between tomograms). Default is True.
     sample_name : str | None, optional
         The name of the sample being scanned. Default is None.
@@ -790,7 +786,7 @@ def tomo_1d_step_scan(
     use_shutter : bool, optional
         Whether to use the shutter during the scan.
     restart_preview : bool, optional
-        Whether to put Kinetix detectors back into preview mode when the scan
+        Whether to put the detectors back into preview mode when the scan
         ends (not between tomograms). Default True.
     sample_name : str | None, optional
         The name of the sample being scanned.
@@ -927,7 +923,7 @@ def tomo_2d_step_scan(
     use_shutter : bool, default True
         Whether to use the shutter during the scan.
     restart_preview : bool, default True
-        Whether to put Kinetix detectors back into preview mode when the scan
+        Whether to put the detectors back into preview mode when the scan
         ends (not between tomograms).
     alternate_flyscan_dir : bool, default False
         If True, alternate the direction of the flyscan for each iteration.

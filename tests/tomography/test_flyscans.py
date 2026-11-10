@@ -912,11 +912,12 @@ async def test_tomo_flyscan_fails_on_too_many_missed_frames(
 
 
 class Recorder:
-    """Stands in for tomo_flyscan and tomo_dark_flat, recording each call."""
+    """Stands in for tomo_flyscan, tomo_dark_flat and enable_preview_mode."""
 
     def __init__(self, motors: tuple[AsyncEpicsMotor, ...] = ()):
         self.motors = motors
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.previews: list[Any] = []
         self.failures: list[BaseException] = []
         self.pause_after_call: int | None = None
 
@@ -941,6 +942,10 @@ class Recorder:
         self.calls.append(("dark_flat", kwargs))
         yield from bps.null()
 
+    def preview(self, det):
+        self.previews.append(det)
+        yield from bps.null()
+
     @property
     def sequence(self) -> str:
         return "".join("F" if kind == "flyscan" else "D" for kind, _ in self.calls)
@@ -962,6 +967,7 @@ def recorder(
     rec = Recorder(step_motors)
     monkeypatch.setattr(flyscans, "tomo_flyscan", rec.flyscan)
     monkeypatch.setattr(flyscans, "tomo_dark_flat", rec.dark_flat)
+    monkeypatch.setattr(flyscans, "enable_preview_mode", rec.preview)
     return rec
 
 
@@ -1432,15 +1438,12 @@ def test_tomo_nd_step_scan_dark_flat_schedule(
 def test_step_scans_restart_preview_once_at_the_end(
     RE: RunEngine,
     recorder: Recorder,
-    kinetix_det_factory: Callable[[int], KinetixDetector],
     plan: Callable[..., Any],
     restart_preview: bool,
 ):
-    ktx = kinetix_det_factory(1)
-
     RE(
         plan(
-            [ktx],
+            ["det1", "det2"],
             num_projections=10,
             exposure_time=0.1,
             dark_flat_offset=1.0,
@@ -1451,8 +1454,7 @@ def test_step_scans_restart_preview_once_at_the_end(
 
     assert recorder.sequence == "DFD"
     assert all(call["restart_preview"] is False for _, call in recorder.calls)
-    expected = 1 if restart_preview else 0
-    assert _image_modes_put(ktx).count(ADImageMode.CONTINUOUS) == expected
+    assert recorder.previews == (["det1", "det2"] if restart_preview else [])
 
 
 def test_tomo_nd_step_scan_retries_failed_flyscans(
