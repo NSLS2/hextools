@@ -1,4 +1,5 @@
 import os
+from typing import cast
 
 import pytest
 
@@ -13,7 +14,15 @@ from ophyd_async.core import (  # noqa: E402
     soft_signal_rw,
 )
 from ophyd_async.sim import SimMotor  # noqa: E402
-from qtpy.QtWidgets import QApplication, QComboBox, QLineEdit  # noqa: E402
+from qtpy.QtWidgets import (  # noqa: E402
+    QApplication,
+    QComboBox,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QWidget,
+)
 
 from hextools.gui import movable_control, movable_group  # noqa: E402
 from hextools.gui.movable_control import QtMovableControl, set_type  # noqa: E402
@@ -64,6 +73,24 @@ def _control(namespace, RE, path):
     return QtMovableControl(path, RE, namespace=namespace)
 
 
+def _edit(widget: QWidget) -> QLineEdit:
+    """The first line edit in ``widget``: a control's setpoint."""
+    edit = widget.findChild(QLineEdit)
+    assert edit is not None
+    return edit
+
+
+def _combo(widget: QWidget) -> QComboBox:
+    combo = widget.findChild(QComboBox)
+    assert combo is not None
+    return combo
+
+
+def _tweak(control: QtMovableControl) -> QLineEdit:
+    assert control._tweak is not None
+    return control._tweak
+
+
 def test_set_type_reads_signal_datatype_and_set_hints(namespace):
     assert set_type(namespace["count"]) is int
     assert set_type(namespace["mode"]) is _Mode
@@ -73,11 +100,11 @@ def test_set_type_reads_signal_datatype_and_set_hints(namespace):
 def test_setpoint_runs_mv_and_tweaks_run_mvr(app, RE, namespace, commands):
     control = _control(namespace, RE, "motor")
     try:
-        setpoint = control.findChild(QLineEdit)
+        setpoint = _edit(control)
         setpoint.setText("2.5")
         setpoint.returnPressed.emit()
         app.processEvents()
-        control._tweak.setText("0.1")
+        _tweak(control).setText("0.1")
         control._on_tweak(-1)
         app.processEvents()
         assert commands == ["RE(mv(motor, 2.5))", "RE(mvr(motor, -0.1))"]
@@ -88,7 +115,7 @@ def test_setpoint_runs_mv_and_tweaks_run_mvr(app, RE, namespace, commands):
 def test_invalid_setpoint_is_not_sent(app, RE, namespace, commands):
     control = _control(namespace, RE, "count")
     try:
-        setpoint = control.findChild(QLineEdit)
+        setpoint = _edit(control)
         setpoint.setText("1.5")
         setpoint.returnPressed.emit()
         app.processEvents()
@@ -110,7 +137,7 @@ def test_tweaks_only_for_numbers(app, RE, namespace, path, has_tweak):
 def test_string_setpoint_is_quoted(app, RE, namespace, commands):
     control = _control(namespace, RE, "label")
     try:
-        setpoint = control.findChild(QLineEdit)
+        setpoint = _edit(control)
         setpoint.setText("it's")
         setpoint.returnPressed.emit()
         app.processEvents()
@@ -177,7 +204,7 @@ def test_plans_are_named_for_single_tweak_and_batch_moves(app, RE, namespace, co
         motor, other = group.controls
         _enter(motor, "1")
         app.processEvents()
-        motor._tweak.setText("0.5")
+        _tweak(motor).setText("0.5")
         motor._on_tweak(1)
         app.processEvents()
         group.set_batch(True)
@@ -211,7 +238,7 @@ def test_plan_names_must_be_python_names(app, RE, namespace, name):
 def test_explicit_enum_value_type_gives_a_dropdown(app, RE, namespace, commands):
     control = QtMovableControl("label", RE, namespace=namespace, value_type=_Mode)
     try:
-        combo = control.findChild(QComboBox)
+        combo = _combo(control)
         assert [combo.itemText(i) for i in range(combo.count())] == ["Fast", "Slow"]
         combo.activated.emit(0)
         app.processEvents()
@@ -237,7 +264,7 @@ def test_setpoint_starts_at_the_readback(app, RE, namespace):
     namespace["temperature"] = soft_signal_rw(float, 1.5, name="temperature")
     control = _control(namespace, RE, "temperature")
     try:
-        setpoint = control.findChild(QLineEdit)
+        setpoint = _edit(control)
         assert _process_until(app, lambda: setpoint.text() == "1.500")
     finally:
         control.close()
@@ -247,15 +274,22 @@ async def _set(signal, value):
     await signal.set(value)
 
 
+def _readback_text(control: QtMovableControl) -> str:
+    assert control._readback is not None
+    value = control._readback._value
+    assert isinstance(value, QLabel)
+    return value.text()
+
+
 def test_setpoint_does_not_follow_later_readbacks(app, RE, namespace):
     signal = soft_signal_rw(float, 1.5, name="temperature")
     namespace["temperature"] = signal
     control = _control(namespace, RE, "temperature")
     try:
-        setpoint = control.findChild(QLineEdit)
+        setpoint = _edit(control)
         assert _process_until(app, lambda: setpoint.text() == "1.500")
         call_in_bluesky_event_loop(_set(signal, 2.0))
-        assert _process_until(app, lambda: "2.000" in control._readback._value.text())
+        assert _process_until(app, lambda: "2.000" in _readback_text(control))
         assert setpoint.text() == "1.500"
     finally:
         control.close()
@@ -265,7 +299,7 @@ def test_dropdown_starts_at_the_readback(app, RE, namespace):
     namespace["mode"] = soft_signal_rw(_Mode, _Mode.SLOW, name="mode")
     control = _control(namespace, RE, "mode")
     try:
-        combo = control.findChild(QComboBox)
+        combo = _combo(control)
         assert _process_until(app, lambda: combo.currentText() == "Slow")
     finally:
         control.close()
@@ -286,7 +320,7 @@ def test_slits_control_groups_blades_gaps_and_centers(app, RE, namespace):
 
 
 def _enter(control, text):
-    setpoint = control.findChild(QLineEdit)
+    setpoint = _edit(control)
     setpoint.setText(text)
     setpoint.returnPressed.emit()
 
@@ -304,7 +338,7 @@ def test_batch_mode_stages_setpoints_and_moves_them_together(
         app.processEvents()
         assert commands == []
         assert group.staged == [("motor", 1.5), ("other", 2.0)]
-        assert not motor._tweak.isEnabled()
+        assert not _tweak(motor).isEnabled()
 
         group._on_move_clicked()
         app.processEvents()
@@ -316,7 +350,7 @@ def test_batch_mode_stages_setpoints_and_moves_them_together(
 
 def _type_and_leave(control, text):
     """Type ``text`` into the setpoint, then move focus away without Enter."""
-    setpoint = control.findChild(QLineEdit)
+    setpoint = _edit(control)
     setpoint.setText(text)
     setpoint.setModified(True)
     setpoint.editingFinished.emit()
@@ -355,7 +389,7 @@ def test_setpoint_changed_back_to_its_original_value_is_unstaged(
     group = QtMovableGroup(["temperature", "mode"], RE, namespace=namespace)
     try:
         temperature, mode = group.controls
-        setpoint = temperature.findChild(QLineEdit)
+        setpoint = _edit(temperature)
         assert _process_until(app, lambda: setpoint.text() == "1.500")
         group.set_batch(True)
 
@@ -365,7 +399,7 @@ def test_setpoint_changed_back_to_its_original_value_is_unstaged(
         assert group.staged == []
         assert not setpoint.styleSheet()
 
-        combo = mode.findChild(QComboBox)
+        combo = _combo(mode)
         combo.setCurrentIndex(0)
         mode.capture_original()
         combo.activated.emit(1)
@@ -382,7 +416,7 @@ def test_editing_a_staged_setpoint_unstages_it(app, RE, namespace, commands):
         group.set_batch(True)
         (motor,) = group.controls
         _enter(motor, "1.5")
-        motor.findChild(QLineEdit).textEdited.emit("1.")
+        _edit(motor).textEdited.emit("1.")
         assert group.staged == []
     finally:
         group.close()
@@ -412,10 +446,11 @@ def test_tweaking_does_not_pass_focus_to_the_next_row(app, RE, namespace, comman
         group.activateWindow()
         motor, count = group.controls
         right = motor._tweak_widgets[-1]
+        assert isinstance(right, QPushButton)
         right.setFocus()
         app.processEvents()
         right.click()
-        assert not count.findChild(QLineEdit).hasFocus()
+        assert not _edit(count).hasFocus()
     finally:
         group.close()
 
@@ -445,9 +480,13 @@ def test_slits_control_rejects_non_slits(app, RE, namespace):
 def test_slits_control_layout(app, RE, namespace, stacked, cells):
     widget = QtSlitsControl("slits", RE, namespace=namespace, stacked=stacked)
     try:
-        grid = widget.groups[0].parentWidget().layout()
+        parent = widget.groups[0].parentWidget()
+        assert parent is not None
+        grid = parent.layout()
+        assert isinstance(grid, QGridLayout)
         positions = [
-            grid.getItemPosition(grid.indexOf(group))[:2] for group in widget.groups
+            cast(tuple[int, int, int, int], grid.getItemPosition(grid.indexOf(g)))[:2]
+            for g in widget.groups
         ]
         assert positions == cells
     finally:

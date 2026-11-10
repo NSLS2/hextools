@@ -11,7 +11,7 @@ from ophyd_async.core import StandardReadableFormat as Format  # noqa: E402
 from ophyd_async.sim import SimMotor  # noqa: E402
 from qtpy.QtWidgets import QApplication, QGroupBox  # noqa: E402
 
-from hextools.gui.device_status import (  # noqa: E402
+from hextools.gui.signal_status_group import (  # noqa: E402
     QtBeamlineStatus,
     QtDeviceStatus,
     QtStatusGroup,
@@ -86,7 +86,8 @@ def test_device_status_uses_display_name(RE, stage):
 
 
 def test_device_status_rejects_unknown_name(RE):
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     with pytest.raises(ValueError):
         QtDeviceStatus("no_such_device", RE.loop)
 
@@ -97,7 +98,7 @@ def test_beamline_status_packs_sections_into_one_box(RE):
         stages = [_Stage(name=f"stage{i}") for i in range(3)]
     widget = QtBeamlineStatus(stages, RE.loop, columns=2)
     try:
-        assert [s.title for s in widget._device_statuses] == [
+        assert [s.title for s in widget._groups] == [
             "stage0",
             "stage1",
             "stage2",
@@ -124,7 +125,7 @@ def test_beamline_status_uses_mapping_keys_as_display_names(RE, stage):
     app = QApplication.instance() or QApplication([])
     widget = QtBeamlineStatus({"Sample Stage": stage}, RE.loop)
     try:
-        assert widget._device_statuses[0].title == "Sample Stage"
+        assert widget._groups[0].title == "Sample Stage"
     finally:
         widget.close()
         app.processEvents()

@@ -113,7 +113,8 @@ class _FakeSubscribable:
 
 
 def test_signal_status_unsubscribes_once_when_closed_repeatedly():
-    QApplication.instance() or QApplication([])
+    if QApplication.instance() is None:
+        QApplication([])
     RE = RunEngine()
     fake = _FakeSubscribable()
     widget = QtSignalStatus(fake, RE.loop)  # type: ignore[arg-type]

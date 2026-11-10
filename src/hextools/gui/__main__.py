@@ -75,7 +75,6 @@ from hextools.gui._hook_chain import install_hook, uninstall_hook
 from hextools.gui._theme import apply_bnl_theme, saved_theme
 from hextools.gui.available_devices import QtAvailableDevices
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor
-from hextools.gui.device_status import QtBeamlineStatus
 from hextools.gui.live_re_md_viewer import QtProposalInfo
 from hextools.gui.misc import QtTabbedDetectorsWidget, QtWeatherWidget
 from hextools.gui.plan_status import (
@@ -91,6 +90,7 @@ from hextools.gui.re_execution_controls import (
 )
 from hextools.gui.scan_browser import QtScanBrowser
 from hextools.gui.shutter_status import QtShutterStatus
+from hextools.gui.signal_status_group import QtBeamlineStatus
 from hextools.gui.theme_switch import QtThemeAction
 from hextools.machine import NSLS2StorageRing
 from hextools.motors import (

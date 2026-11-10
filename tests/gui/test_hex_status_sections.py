@@ -10,9 +10,9 @@ from ophyd_async.core import init_devices  # noqa: E402
 from qtpy.QtWidgets import QApplication, QComboBox  # noqa: E402
 
 from hextools.gui import movable_group  # noqa: E402
-from hextools.gui.device_status import QtBeamlineStatus  # noqa: E402
 from hextools.gui.hex_config import filter_rows, status_sections  # noqa: E402
 from hextools.gui.movable_group import QtMovableGroup  # noqa: E402
+from hextools.gui.signal_status_group import QtBeamlineStatus  # noqa: E402
 from hextools.machine import NSLS2StorageRing  # noqa: E402
 from hextools.motors import SampleTower  # noqa: E402
 from hextools.photon_delivery_system.dclm import DCLM  # noqa: E402
@@ -57,7 +57,7 @@ def test_status_sections_cover_beamline_devices():
     try:
         sections = {
             group.title: [s.label_widget.text() for s in group._statuses]
-            for group in widget._device_statuses
+            for group in widget._groups
         }
         slit_fields = ["H Gap:", "H Center:", "V Gap:", "V Center:"]
         assert sections == {
@@ -121,6 +121,7 @@ def test_filter_group_batches_material_settings_into_move_filters(monkeypatch):
             (f2, list(Filter2Position)[0]),
         ):
             combo = control.findChild(QComboBox)
+            assert combo is not None
             combo.activated.emit(combo.findData(member))
         group._on_move_clicked()
         app.processEvents()

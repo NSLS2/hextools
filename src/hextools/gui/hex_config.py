@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Callable, Mapping, MutableMapping
 from typing import Any
 
-from hextools.gui.device_status import QtDeviceStatus, QtStatusGroup
+from hextools.gui.signal_status_group import QtDeviceStatus, QtStatusGroup
 from hextools.machine import NSLS2StorageRing
 from hextools.motors import (
     CollimatorTable,

@@ -1,11 +1,11 @@
-"""Compact live status sections for devices, packed into one group box."""
+"""Titled groups of live signal status rows, packed into one group box."""
 
 from __future__ import annotations
 
 import asyncio
 import math
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, cast
 
 from bluesky.protocols import Subscribable
 from ophyd_async.core import Device, SignalR, walk_devices
@@ -195,14 +195,16 @@ class QtBeamlineStatus(QWidget):
         parent=None,
     ):
         super().__init__(parent)
+        entries: list[tuple[Device | str | QtStatusGroup, str | None]]
         if isinstance(devices, Mapping):
-            entries = [(device, name) for name, device in devices.items()]
+            mapping = cast(Mapping[str, Device | str], devices)
+            entries = [(device, name) for name, device in mapping.items()]
         else:
             entries = [(device, None) for device in devices]
 
         column_layouts = [QVBoxLayout() for _ in range(columns)]
         heights = [0] * columns
-        self._device_statuses: list[QtStatusGroup] = []
+        self._groups: list[QtStatusGroup] = []
         for device, display_name in entries:
             status = (
                 device
@@ -215,7 +217,7 @@ class QtBeamlineStatus(QWidget):
             column_layouts[col].addWidget(status)
             # Header and inter-section gap count as about two rows.
             heights[col] += status.rows + 2
-            self._device_statuses.append(status)
+            self._groups.append(status)
 
         row = QHBoxLayout()
         row.setSpacing(20)
@@ -249,6 +251,6 @@ class QtBeamlineStatus(QWidget):
         return self._content.sizeHint() + QSize(4, 4)
 
     def closeEvent(self, event):
-        for status in self._device_statuses:
+        for status in self._groups:
             status.close()
         super().closeEvent(event)
