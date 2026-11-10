@@ -6,7 +6,6 @@ from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 
 from bluesky import RunEngine
-from bluesky import plan_stubs as bps
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -20,6 +19,7 @@ from qtpy.QtWidgets import (
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.movable_control import (
     QtMovableControl,
+    check_plan_name,
     move_command,
     set_enabled_keep_focus,
 )
@@ -30,9 +30,9 @@ class QtMovableGroup(QWidget):
 
     With *Batch* checked, editing a setpoint stages it, once focus leaves the field
     or Enter is pressed, instead of moving.
-    *Move* then runs one ``RE(mv(path1, value1, path2, value2, ...))``, moving
-    every staged movable in parallel. Unchecking *Batch* or *Clear* discards the
-    staged setpoints.
+    *Move* then runs one ``RE(move_plan(path1, value1, path2, value2, ...))``,
+    moving every staged movable together. Unchecking *Batch* or *Clear* discards
+    the staged setpoints.
 
     Parameters
     ----------
@@ -48,6 +48,17 @@ class QtMovableGroup(QWidget):
         Decimal places shown for float readbacks.
     tweak : float, optional
         Initial tweak step for every row.
+    value_types : Mapping[str, type], optional
+        Value type of the rows that need one, by path; see
+        :class:`QtMovableControl`.
+    move_plan : str, optional
+        Namespace name of a plan called as ``move_plan(device, value, device,
+        value, ...)``, for both single-row and batch moves.
+    tweak_plan : str or None, optional
+        Namespace name of the relative-move plan for every row's tweaks. None
+        disables tweaking.
+    batch : bool, optional
+        Start in batch mode.
     """
 
     def __init__(
@@ -58,6 +69,10 @@ class QtMovableGroup(QWidget):
         title: str | None = None,
         precision: int = 3,
         tweak: float = 1.0,
+        value_types: Mapping[str, type] | None = None,
+        move_plan: str = "mv",
+        tweak_plan: str | None = "mvr",
+        batch: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -68,6 +83,7 @@ class QtMovableGroup(QWidget):
             namespace = ipython.user_ns if ipython is not None else {}
         self._re = re
         self._namespace = namespace
+        self._move_plan = check_plan_name(move_plan)
         self._pending = False
         self._staged: dict[QtMovableControl, Any] = {}
 
@@ -84,13 +100,16 @@ class QtMovableGroup(QWidget):
                 label=label,
                 precision=precision,
                 tweak=tweak,
+                value_type=(value_types or {}).get(path),
+                move_plan=move_plan,
+                tweak_plan=tweak_plan,
             )
             for label, path in rows
         ]
 
         vbox = QVBoxLayout()
         vbox.setContentsMargins(0, 0, 0, 0)
-        vbox.setSpacing(2)
+        vbox.setSpacing(6)
         if title is not None:
             header = QLabel(title)
             header.setObjectName("statusSectionHeader")
@@ -98,7 +117,8 @@ class QtMovableGroup(QWidget):
         for control in self.controls:
             vbox.addWidget(control)
         labels = [c.label_widget for c in self.controls if c.label_widget]
-        width = max((lbl.sizeHint().width() for lbl in labels), default=0)
+        # Padding keeps the readback clear of the longest label.
+        width = max((lbl.sizeHint().width() for lbl in labels), default=0) + 12
         for lbl in labels:
             lbl.setFixedWidth(width)
 
@@ -121,6 +141,7 @@ class QtMovableGroup(QWidget):
             policy = widget.sizePolicy()
             policy.setRetainSizeWhenHidden(True)
             widget.setSizePolicy(policy)
+        vbox.addSpacing(4)
         vbox.addLayout(bar)
         self.setLayout(vbox)
 
@@ -128,6 +149,7 @@ class QtMovableGroup(QWidget):
         self._timer.setInterval(100)
         self._timer.timeout.connect(self._update_bar)
         self._timer.start()
+        self.set_batch(batch)
         self._update_bar()
 
     @property
@@ -175,8 +197,7 @@ class QtMovableGroup(QWidget):
         moves = self.staged
         if not moves or self._pending or self._re.state != "idle":
             return
-        self._namespace.setdefault("mv", bps.mv)
-        code = move_command("mv", moves)
+        code = move_command(self._move_plan, moves)
         self._pending = True
         for control in self.controls:
             control.set_busy(True)
@@ -192,6 +213,9 @@ class QtMovableGroup(QWidget):
             for control in self.controls:
                 control.set_busy(False)
             self._clear_staged()
+            # The moved-to setpoints are now the ones that need no move.
+            for control in self.controls:
+                control.capture_original()
         if error is not None:
             show_plan_error(self, "Batch move failed", error)
 

@@ -14,7 +14,14 @@ from hextools.motors import (
     SampleTower,
 )
 from hextools.photon_delivery_system.dclm import DCLM
-from hextools.photon_delivery_system.filters import Filter
+from hextools.photon_delivery_system.filters import (
+    Filter,
+    Filter1DownstreamPosition,
+    Filter1UpstreamPosition,
+    Filter2Position,
+    Filter3Position,
+    Filter4Position,
+)
 from hextools.photon_delivery_system.shutter import (
     Shutter,
     ensure_shutter_closed,
@@ -30,6 +37,18 @@ _TOWER_TITLES: dict[type, str] = {
     CollimatorTable: "Collimator Table",
     EDXDTable: "EDXD Table",
 }
+
+# Position enum of each filter, by device name.
+FILTER_POSITION_ENUMS: dict[str, type] = {
+    "filter1_upstream": Filter1UpstreamPosition,
+    "filter1_downstream": Filter1DownstreamPosition,
+    "filter2": Filter2Position,
+    "filter3": Filter3Position,
+    "filter4": Filter4Position,
+}
+
+# Filters offered in the filter controls, by device name.
+CONTROLLED_FILTERS = ("filter1_upstream", "filter1_downstream", "filter2")
 
 
 def _find(namespace: Mapping[str, Any], types: type | tuple[type, ...]):
@@ -59,6 +78,31 @@ def _filter_label(name: str) -> str:
     return name.removeprefix("filter").replace("_", " ").strip().title() or name
 
 
+def _filters(namespace: Mapping[str, Any]) -> list[tuple[str, Filter]]:
+    """``(variable name, filter)`` for each filter, upstream before downstream."""
+    return sorted(
+        _find(namespace, Filter),
+        key=lambda item: item[0].replace("upstream", "0").replace("downstream", "1"),
+    )
+
+
+def filter_rows(
+    namespace: Mapping[str, Any],
+) -> tuple[dict[str, str], dict[str, type]]:
+    """Row label to path, and path to position enum, for each controlled filter.
+
+    Only :data:`CONTROLLED_FILTERS` with a position enum are included.
+    """
+    rows: dict[str, str] = {}
+    value_types: dict[str, type] = {}
+    for path, device in _filters(namespace):
+        enum = FILTER_POSITION_ENUMS.get(device.name)
+        if enum is not None and device.name in CONTROLLED_FILTERS:
+            rows[f"Filter {_filter_label(path)}"] = path
+            value_types[path] = enum
+    return rows, value_types
+
+
 def status_sections(
     namespace: Mapping[str, Any], loop: asyncio.AbstractEventLoop
 ) -> list[QtStatusGroup]:
@@ -79,11 +123,7 @@ def status_sections(
     for name, fe_slit in fe_slits:
         title = f"Front-End Slit ({name})" if len(fe_slits) > 1 else "Front-End Slit"
         sections.append(QtStatusGroup(title, {"Aperture": fe_slit.aperture}, loop))
-    filters = sorted(
-        _find(namespace, Filter),
-        # Upstream before downstream within a pair.
-        key=lambda item: item[0].replace("upstream", "0").replace("downstream", "1"),
-    )
+    filters = _filters(namespace)
     if filters:
         sections.append(
             QtStatusGroup(

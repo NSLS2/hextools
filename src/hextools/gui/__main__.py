@@ -48,6 +48,7 @@ from qtpy.QtWidgets import (
     QApplication,
     QFileDialog,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QMainWindow,
     QMessageBox,
@@ -486,7 +487,7 @@ class QtBeamlineView(QWidget):
         plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
         plan_tabs.addTab(self._slits_tab(re_client), "Slits")
         plan_tabs.addTab(QtPlanWidget(re_client, set_fe_aperture), "Frontend Aperture")
-        plan_tabs.addTab(QtPlanWidget(re_client, set_filters), "Filters")
+        plan_tabs.addTab(self._filters_tab(re_client), "Filters")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
         plan_tabs.addTab(QtPlanWidget(re_client, reset_scan_id), "Reset Scan ID")
@@ -519,6 +520,40 @@ class QtBeamlineView(QWidget):
         ipython = IPython.get_ipython()
         user_ns = ipython.user_ns if ipython is not None else {}
         return QtSlitsSelector(dict(slits_entries(user_ns)), re_client, user_ns)
+
+    @staticmethod
+    def _filters_tab(re_client: RunEngineClient | RunEngine) -> QWidget:
+        """Live filter controls locally; the ``set_filters`` plan for Queue Server."""
+        if not isinstance(re_client, RunEngine):
+            return QtPlanWidget(re_client, set_filters)
+        from hextools.gui.hex_config import filter_rows
+        from hextools.gui.movable_group import QtMovableGroup
+
+        ipython = IPython.get_ipython()
+        user_ns = ipython.user_ns if ipython is not None else {}
+        rows, value_types = filter_rows(user_ns)
+        tab = QWidget()
+        vbox = QVBoxLayout(tab)
+        if rows:
+            box = QGroupBox("Filters")
+            box_layout = QVBoxLayout(box)
+            # Batch by default: each move trips the front-end shutter interlock.
+            box_layout.addWidget(
+                QtMovableGroup(
+                    rows,
+                    re_client,
+                    user_ns,
+                    value_types=value_types,
+                    move_plan="move_filters",
+                    tweak_plan=None,
+                    batch=True,
+                )
+            )
+            vbox.addWidget(box)
+        else:
+            vbox.addWidget(QLabel("No filters found"))
+        vbox.addStretch(1)
+        return tab
 
 
 class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):

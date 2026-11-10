@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import enum
 import inspect
+import keyword
 import typing
 from collections.abc import Callable, MutableMapping, Sequence
 from typing import Any
 
 import numpy as np
 from bluesky import RunEngine
-from bluesky import plan_stubs as bps
 from bluesky.protocols import Movable, Subscribable
 from ophyd_async.core import Signal
 from qtpy.QtCore import Qt, QTimer
@@ -78,13 +78,28 @@ def move_command(plan_name: str, moves: Sequence[tuple[str, Any]]) -> str:
     return f"RE({plan_name}({args}))"
 
 
+def check_plan_name(name: str) -> str:
+    """Return ``name`` if it is a (dotted) Python name, so it is safe in a command.
+
+    Raises
+    ------
+    ValueError
+        If ``name`` is anything else.
+    """
+    parts = name.split(".")
+    if not all(p.isidentifier() and not keyword.iskeyword(p) for p in parts):
+        raise ValueError(f"{name!r} is not a plan name")
+    return name
+
+
 class QtMovableControl(QWidget):
     """``label  readback  [setpoint]  [<] [tweak] [>]`` for a movable.
 
-    Entering a setpoint runs ``RE(mv(path, value))`` in the IPython shell, and the
-    tweak buttons run ``RE(mvr(path, -tweak))`` / ``RE(mvr(path, tweak))``. Tweaks
-    are offered only for int and float movables; enum and bool movables get a
-    dropdown setpoint. The setpoint starts at the first readback value.
+    Entering a setpoint runs ``RE(move_plan(path, value))`` in the IPython shell,
+    and the tweak buttons run ``RE(tweak_plan(path, -tweak))`` /
+    ``RE(tweak_plan(path, tweak))``. Tweaks are offered only for int and float
+    movables with a ``tweak_plan``; enum and bool movables get a dropdown
+    setpoint. The setpoint starts at the first readback value.
 
     Parameters
     ----------
@@ -93,16 +108,25 @@ class QtMovableControl(QWidget):
     re : RunEngine
         The in-process RunEngine.
     namespace : MutableMapping[str, object], optional
-        Namespace holding the movable, and where ``mv``/``mvr`` are added if
-        missing. Defaults to the IPython ``user_ns``.
+        Namespace holding the movable and the plans. Defaults to the IPython
+        ``user_ns``.
     label : str, optional
         Row label. Defaults to ``path``.
     readback : Subscribable, optional
         What the readback shows. Defaults to the movable itself, if subscribable.
+    value_type : type, optional
+        The type ``set`` takes, e.g. an enum for a dropdown. Inferred from the
+        movable if not given, which fails for most ophyd v1 devices.
     precision : int, optional
         Decimal places shown for a float readback.
     tweak : float, optional
         Initial tweak step.
+    move_plan : str, optional
+        Namespace name of a plan called as ``move_plan(device, value, device,
+        value, ...)`` that returns once the move is complete.
+    tweak_plan : str or None, optional
+        Namespace name of the relative-move plan, with the same signature.
+        None disables tweaking.
     """
 
     def __init__(
@@ -114,6 +138,9 @@ class QtMovableControl(QWidget):
         readback: Subscribable[Any] | None = None,
         precision: int = 3,
         tweak: float = 1.0,
+        value_type: type | None = None,
+        move_plan: str = "mv",
+        tweak_plan: str | None = "mvr",
         parent=None,
     ):
         super().__init__(parent)
@@ -130,11 +157,14 @@ class QtMovableControl(QWidget):
         self._path = path
         self._re = re
         self._namespace = namespace
+        self._move_plan = check_plan_name(move_plan)
+        self._tweak_plan = check_plan_name(tweak_plan) if tweak_plan else None
         self._pending = False
         self._busy = False
         self._stage: StageHandler | None = None
+        self._original: Any = None
         self._precision = precision
-        self._type = set_type(obj)
+        self._type = value_type if value_type is not None else set_type(obj)
         if not _is_supported(self._type):
             raise TypeError(
                 f"{path!r} takes {getattr(self._type, '__name__', 'an unknown type')}; "
@@ -160,7 +190,7 @@ class QtMovableControl(QWidget):
             self._readback.value_changed.connect(self._init_setpoint)
         self._tweak: QLineEdit | None = None
         self._tweak_widgets: list[QWidget] = []
-        if self._is_numeric:
+        if self._is_numeric and self._tweak_plan is not None:
             left = QPushButton("\u25c0")
             right = QPushButton("\u25b6")
             self._tweak = QLineEdit(_format_number(tweak, self._type))
@@ -200,11 +230,37 @@ class QtMovableControl(QWidget):
     def set_batch(self, handler: StageHandler | None):
         """Stage setpoints with ``handler`` instead of moving; None moves again.
 
-        Tweaks are disabled while staging.
+        Tweaks are disabled while staging. A setpoint changed back to the value it
+        had when staging began (see :meth:`capture_original`) is unstaged.
         """
         self._stage = handler
+        if handler is not None:
+            self.capture_original()
         self.mark_staged(False)
         self._update_enabled()
+
+    def capture_original(self):
+        """Remember the current setpoint as the value that needs no move."""
+        self._original = self._current_value()
+
+    def _current_value(self) -> Any:
+        """Return the setpoint's value, or None if it is empty or invalid."""
+        setpoint = self._setpoint
+        if isinstance(setpoint, QComboBox):
+            index = setpoint.currentIndex()
+            return setpoint.itemData(index) if index >= 0 else None
+        try:
+            return self._parse(setpoint.text().strip())  # type: ignore[attr-defined]
+        except ValueError:
+            return None
+
+    def _is_original(self, value: Any) -> bool:
+        if self._original is None:
+            return False
+        if self._type is float:
+            # Compare as displayed, so re-typing the shown value counts as unchanged.
+            return self._format(value) == self._format(self._original)
+        return value == self._original
 
     def mark_staged(self, staged: bool):
         """Highlight the setpoint while it holds a staged value."""
@@ -222,16 +278,17 @@ class QtMovableControl(QWidget):
             self._readback.value_changed.disconnect(self._init_setpoint)
         setpoint = self._setpoint
         if isinstance(setpoint, QComboBox):
-            if setpoint.currentIndex() != -1:
-                return
-            for i in range(setpoint.count()):
-                if setpoint.itemData(i) == value:
-                    setpoint.setCurrentIndex(i)
-                    return
+            if setpoint.currentIndex() == -1:
+                for i in range(setpoint.count()):
+                    if setpoint.itemData(i) == value:
+                        setpoint.setCurrentIndex(i)
+                        break
         elif isinstance(setpoint, QLineEdit) and not setpoint.text():
             text = self._format(value)
             if text is not None:
                 setpoint.setText(text)
+        if self._stage is not None and self._original is None:
+            self.capture_original()
 
     def _format(self, value: Any) -> str | None:
         """Setpoint text for a readback ``value``, or None if it doesn't fit."""
@@ -250,6 +307,8 @@ class QtMovableControl(QWidget):
         if choices is not None:
             combo = QComboBox()
             combo.setPlaceholderText("Select\u2026")
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+            combo.setMinimumWidth(100)
             for text, value in choices:
                 combo.addItem(text, value)
             combo.setCurrentIndex(-1)
@@ -259,8 +318,6 @@ class QtMovableControl(QWidget):
         edit = QLineEdit()
         edit.setFixedWidth(100)
         edit.setPlaceholderText("Setpoint")
-        if self._is_numeric:
-            edit.setAlignment(Qt.AlignmentFlag.AlignRight)
         edit.returnPressed.connect(lambda: self._on_setpoint_entered(edit))
         edit.editingFinished.connect(lambda: self._on_setpoint_finished(edit))
         edit.textEdited.connect(lambda *_: self._on_setpoint_edited(edit))
@@ -306,7 +363,7 @@ class QtMovableControl(QWidget):
         self._move(value)
 
     def _on_tweak(self, sign: int):
-        if self._tweak is None:
+        if self._tweak is None or self._tweak_plan is None:
             return
         try:
             step = self._parse(self._tweak.text().strip())
@@ -314,18 +371,17 @@ class QtMovableControl(QWidget):
             self._tweak.setStyleSheet(_INVALID_STYLE)
             return
         self._tweak.setStyleSheet("")
-        self._run("mvr", bps.mvr, sign * step)
+        self._run(self._tweak_plan, sign * step)
 
     def _move(self, value: Any):
         if self._stage is not None:
-            self._stage(self, value)
+            self._stage(self, None if self._is_original(value) else value)
             return
-        self._run("mv", bps.mv, value)
+        self._run(self._move_plan, value)
 
-    def _run(self, plan_name: str, plan: Callable, value: Any):
+    def _run(self, plan_name: str, value: Any):
         if self._pending or self._busy or self._re.state != "idle":
             return
-        self._namespace.setdefault(plan_name, plan)
         code = move_command(plan_name, [(self._path, value)])
         self._pending = True
         self._update_enabled()

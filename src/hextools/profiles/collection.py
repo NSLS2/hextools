@@ -10,6 +10,7 @@ from bluesky import plan_stubs as bps  # noqa: F401 - operator namespace
 from bluesky import plans as bp  # noqa: F401 - operator namespace
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
+from bluesky.plan_stubs import mv, mvr  # noqa: F401 - operator namespace
 from bluesky.run_engine import (
     RunEngine,
     autoawait_in_bluesky_event_loop,

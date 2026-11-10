@@ -6,7 +6,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("qtpy")
 
 from bluesky import RunEngine  # noqa: E402
-from bluesky import plan_stubs as bps  # noqa: E402
 from bluesky.run_engine import call_in_bluesky_event_loop  # noqa: E402
 from ophyd_async.core import (  # noqa: E402
     StrictEnum,
@@ -82,7 +81,6 @@ def test_setpoint_runs_mv_and_tweaks_run_mvr(app, RE, namespace, commands):
         control._on_tweak(-1)
         app.processEvents()
         assert commands == ["RE(mv(motor, 2.5))", "RE(mvr(motor, -0.1))"]
-        assert namespace["mv"] is bps.mv and namespace["mvr"] is bps.mvr
     finally:
         control.close()
 
@@ -147,6 +145,79 @@ def test_rejects_unknown_paths_and_unsupported_types(app, RE, namespace):
         _control(namespace, RE, "motor; import os")
     with pytest.raises(TypeError):
         _control(namespace, RE, "slits")
+
+
+def test_explicit_value_type_covers_untyped_ophyd_v1_movables(
+    app, RE, namespace, commands
+):
+    ophyd = pytest.importorskip("ophyd")
+    namespace["axis"] = ophyd.Signal(name="axis", value=1.0)
+    with pytest.raises(TypeError):
+        _control(namespace, RE, "axis")
+    control = QtMovableControl("axis", RE, namespace=namespace, value_type=float)
+    try:
+        assert control._tweak is not None
+        _enter(control, "2.5")
+        app.processEvents()
+        assert commands == ["RE(mv(axis, 2.5))"]
+    finally:
+        control.close()
+
+
+def test_plans_are_named_for_single_tweak_and_batch_moves(app, RE, namespace, commands):
+    namespace["other"] = soft_signal_rw(float, name="other")
+    group = QtMovableGroup(
+        ["motor", "other"],
+        RE,
+        namespace=namespace,
+        move_plan="custom_move",
+        tweak_plan="bps.mvr",
+    )
+    try:
+        motor, other = group.controls
+        _enter(motor, "1")
+        app.processEvents()
+        motor._tweak.setText("0.5")
+        motor._on_tweak(1)
+        app.processEvents()
+        group.set_batch(True)
+        _enter(motor, "2")
+        _enter(other, "3")
+        group._on_move_clicked()
+        app.processEvents()
+        assert commands == [
+            "RE(custom_move(motor, 1.0))",
+            "RE(bps.mvr(motor, 0.5))",
+            "RE(custom_move(motor, 2.0, other, 3.0))",
+        ]
+    finally:
+        group.close()
+
+
+def test_no_tweak_plan_disables_tweaks_for_numbers(app, RE, namespace):
+    control = QtMovableControl("motor", RE, namespace=namespace, tweak_plan=None)
+    try:
+        assert control._tweak is None
+    finally:
+        control.close()
+
+
+@pytest.mark.parametrize("name", ["mv; import os", "mv(x)", "for", ""])
+def test_plan_names_must_be_python_names(app, RE, namespace, name):
+    with pytest.raises(ValueError):
+        QtMovableControl("motor", RE, namespace=namespace, move_plan=name)
+
+
+def test_explicit_enum_value_type_gives_a_dropdown(app, RE, namespace, commands):
+    control = QtMovableControl("label", RE, namespace=namespace, value_type=_Mode)
+    try:
+        combo = control.findChild(QComboBox)
+        assert [combo.itemText(i) for i in range(combo.count())] == ["Fast", "Slow"]
+        combo.activated.emit(0)
+        app.processEvents()
+        assert commands == ["RE(mv(label, 'Fast'))"]
+    finally:
+        control.close()
 
 
 async def _noop():
@@ -273,6 +344,34 @@ def test_leaving_the_field_does_not_move_outside_batch_mode(
         _type_and_leave(motor, "1.5")
         app.processEvents()
         assert commands == []
+    finally:
+        group.close()
+
+
+def test_setpoint_changed_back_to_its_original_value_is_unstaged(
+    app, RE, namespace, commands
+):
+    namespace["temperature"] = soft_signal_rw(float, 1.5, name="temperature")
+    group = QtMovableGroup(["temperature", "mode"], RE, namespace=namespace)
+    try:
+        temperature, mode = group.controls
+        setpoint = temperature.findChild(QLineEdit)
+        assert _process_until(app, lambda: setpoint.text() == "1.500")
+        group.set_batch(True)
+
+        _type_and_leave(temperature, "2")
+        assert group.staged == [("temperature", 2.0)]
+        _type_and_leave(temperature, "1.5")
+        assert group.staged == []
+        assert not setpoint.styleSheet()
+
+        combo = mode.findChild(QComboBox)
+        combo.setCurrentIndex(0)
+        mode.capture_original()
+        combo.activated.emit(1)
+        assert group.staged == [("mode", _Mode.SLOW)]
+        combo.activated.emit(0)
+        assert group.staged == []
     finally:
         group.close()
 

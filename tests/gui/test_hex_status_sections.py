@@ -7,14 +7,20 @@ pytest.importorskip("qtpy")
 
 from bluesky import RunEngine  # noqa: E402
 from ophyd_async.core import init_devices  # noqa: E402
-from qtpy.QtWidgets import QApplication  # noqa: E402
+from qtpy.QtWidgets import QApplication, QComboBox  # noqa: E402
 
+from hextools.gui import movable_group  # noqa: E402
 from hextools.gui.device_status import QtBeamlineStatus  # noqa: E402
-from hextools.gui.hex_config import status_sections  # noqa: E402
+from hextools.gui.hex_config import filter_rows, status_sections  # noqa: E402
+from hextools.gui.movable_group import QtMovableGroup  # noqa: E402
 from hextools.machine import NSLS2StorageRing  # noqa: E402
 from hextools.motors import SampleTower  # noqa: E402
 from hextools.photon_delivery_system.dclm import DCLM  # noqa: E402
-from hextools.photon_delivery_system.filters import Filter  # noqa: E402
+from hextools.photon_delivery_system.filters import (  # noqa: E402
+    Filter,
+    Filter1UpstreamPosition,
+    Filter2Position,
+)
 from hextools.photon_delivery_system.shutter import Shutter  # noqa: E402
 from hextools.photon_delivery_system.slits import FrontEndSlit, Slits  # noqa: E402
 
@@ -70,3 +76,59 @@ def test_status_sections_cover_beamline_devices():
 
 def test_status_sections_skip_missing_devices():
     assert status_sections({}, RunEngine().loop) == []
+
+
+def test_filter_rows_offer_only_filters_one_and_two():
+    RunEngine()
+    names = ["filter1_upstream", "filter1_downstream", "filter2", "filter3", "filter4"]
+    with init_devices(mock=True):
+        namespace = {n: Filter(f"{n}:", f"{n}:Sw", name=n) for n in names}
+    rows, _ = filter_rows(namespace)
+    assert list(rows.values()) == names[:3]
+
+
+def test_filter_group_batches_material_settings_into_move_filters(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    RE = RunEngine()
+    with init_devices(mock=True):
+        filter2 = Filter("F2:", "F2:Sw", name="filter2")
+        filter1_upstream = Filter("F1U:", "F1U:Sw", name="filter1_upstream")
+    namespace = {"filter2": filter2, "filter1_upstream": filter1_upstream}
+    rows, value_types = filter_rows(namespace)
+    assert rows == {"Filter 1 Upstream": "filter1_upstream", "Filter 2": "filter2"}
+    assert value_types == {
+        "filter1_upstream": Filter1UpstreamPosition,
+        "filter2": Filter2Position,
+    }
+
+    commands: list[str] = []
+    monkeypatch.setattr(movable_group, "run_in_ipython", commands.append)
+    group = QtMovableGroup(
+        rows,
+        RE,
+        namespace,
+        value_types=value_types,
+        move_plan="move_filters",
+        tweak_plan=None,
+        batch=True,
+    )
+    try:
+        assert group._batch.isChecked()
+        upstream, f2 = group.controls
+        assert upstream._tweak is None
+        for control, member in (
+            (upstream, list(Filter1UpstreamPosition)[1]),
+            (f2, list(Filter2Position)[0]),
+        ):
+            combo = control.findChild(QComboBox)
+            combo.activated.emit(combo.findData(member))
+        group._on_move_clicked()
+        app.processEvents()
+        assert commands == [
+            "RE(move_filters(filter1_upstream, "
+            f"{list(Filter1UpstreamPosition)[1].value!r}, "
+            f"filter2, {list(Filter2Position)[0].value!r}))"
+        ]
+    finally:
+        group.close()
+        app.processEvents()
