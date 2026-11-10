@@ -90,7 +90,7 @@ def test_signal_status_colors_by_alarm_severity(severity, colored):
     widget = QtSignalStatus(signal, RE.loop)
     try:
         _wait_for_text(app, widget, "0")
-        widget._on_reading(
+        widget._subscription._on_reading(
             {"counter": {"value": 7, "timestamp": 0.0, "alarm_severity": severity}}
         )
         _wait_for_text(app, widget, "7")
@@ -120,4 +120,4 @@ def test_signal_status_unsubscribes_once_when_closed_repeatedly():
     widget.close()
     widget.close()
     call_in_bluesky_event_loop(_noop())
-    assert fake.cleared == [widget._on_reading]
+    assert fake.cleared == [widget._subscription._on_reading]
