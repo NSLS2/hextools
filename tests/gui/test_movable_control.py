@@ -209,6 +209,7 @@ def test_slits_control_groups_blades_gaps_and_centers(app, RE, namespace):
             ["slits.horizontal_center", "slits.vertical_center"],
         ]
         assert all(c._tweak is not None for g in widget.groups for c in g.controls)
+        assert all(c._readback is not None for g in widget.groups for c in g.controls)
     finally:
         widget.close()
 
