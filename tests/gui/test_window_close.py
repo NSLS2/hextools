@@ -21,6 +21,8 @@ from qtpy.QtWidgets import QApplication  # noqa: E402
 
 import hextools.gui.__main__ as gui_main  # noqa: E402
 from hextools.gui.__main__ import QtDataAcquisitionWindow  # noqa: E402
+from hextools.gui.slits_control import QtSlitsSelector  # noqa: E402
+from hextools.photon_delivery_system.slits import Slits  # noqa: E402
 
 
 @pytest.fixture
@@ -64,6 +66,52 @@ def test_closing_the_window_tears_down(RE, det):
 
     window._qt_window.close()
 
+    _assert_torn_down(RE, det, before)
+
+
+def test_view_menu_opens_one_beamline_status_window(RE, det):
+    before = _hooks(RE)
+    window = _open_window(RE)
+    action = next(
+        a for a in window.view_menu.actions() if a.text() == "Beamline Status"
+    )
+
+    action.trigger()
+    status = window._beamline_status
+    action.trigger()
+
+    assert status is not None and window._beamline_status is status
+    assert status.isWindow() and status.isVisible()
+    assert status.parent() is None
+    window._qt_window.close()
+    assert not status.isVisible()
+    _assert_torn_down(RE, det, before)
+
+
+def test_beamline_slits_tab_selects_between_slits(RE, det):
+    before = _hooks(RE)
+    with init_devices(mock=True):
+        a_slits = Slits("A:", name="a-slits")
+        edxd_slits = Slits("E:", name="edxd-slits")
+    InteractiveShell.instance().user_ns.update(a_slits=a_slits, edxd_slits=edxd_slits)
+    try:
+        window = _open_window(RE)
+        selector = window.qt_widget.findChild(QtSlitsSelector)
+        assert selector is not None
+        combo = selector._combo
+        assert [combo.itemText(i) for i in range(combo.count())] == [
+            "A Slits",
+            "EDXD Slits",
+        ]
+        assert list(selector.controls) == ["a_slits"]
+        selector.select("edxd_slits")
+        assert list(selector.controls) == ["a_slits", "edxd_slits"]
+        assert selector._pages.currentWidget() is selector.controls["edxd_slits"]
+        window._qt_window.close()
+    finally:
+        user_ns = InteractiveShell.instance().user_ns
+        user_ns.pop("a_slits")
+        user_ns.pop("edxd_slits")
     _assert_torn_down(RE, det, before)
 
 
