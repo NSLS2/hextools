@@ -352,7 +352,11 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         deadtime : float
             How long between exposures, in s, 0 means the shortest possible.
         """
-        coros = [self.driver.ext_sync_type.set(PhantomExtSyncType.FREE_RUN)]
+        coros = [
+            self.driver.ext_sync_type.set(PhantomExtSyncType.FREE_RUN),
+            # The IOC refuses to download while live preview runs.
+            self.driver.preview.set(0),
+        ]
         if livetime != 0:
             coros.append(self.driver.acquire_time_ms.set(livetime * 1000))
         await asyncio.gather(*coros)
@@ -368,7 +372,10 @@ class PhantomTriggerLogic(DetectorTriggerLogic):
         livetime : float
             How long the exposure should be, in s, 0 means what is currently set.
         """
-        coros = [self.driver.ext_sync_type.set(PhantomExtSyncType.FSYNC)]
+        coros = [
+            self.driver.ext_sync_type.set(PhantomExtSyncType.FSYNC),
+            self.driver.preview.set(0),
+        ]
         if livetime != 0:
             coros.append(self.driver.acquire_time_ms.set(livetime * 1000))
         await asyncio.gather(*coros)

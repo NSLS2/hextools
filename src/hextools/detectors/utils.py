@@ -24,6 +24,7 @@ from ophyd_async.epics.advimba import (
 )
 
 from hextools.detectors.perkin_elmer import PerkinElmerDetector
+from hextools.detectors.phantom import PhantomDetector
 
 logger = logging.getLogger("hextools")
 
@@ -195,16 +196,25 @@ def calculate_zero_encoder_value(
     return int(zero_encoder)
 
 
-def enable_preview_mode(cam: KinetixDetector | VimbaDetector | PerkinElmerDetector):
+def enable_preview_mode(
+    cam: KinetixDetector | VimbaDetector | PerkinElmerDetector | PhantomDetector,
+):
     """Enable preview mode for the Camera.
 
-    This sets the image mode to continuous and starts acquisition.
+    This sets the image mode to continuous and starts acquisition. A Phantom
+    instead stops any recording and turns on its live preview.
 
     Parameters
     ----------
-    cam : KinetixDetector | VimbaDetector | PerkinElmerDetector
+    cam : KinetixDetector | VimbaDetector | PerkinElmerDetector | PhantomDetector
         The camera to enable preview mode for.
     """
+    if isinstance(cam, PhantomDetector):
+        acquiring = yield from bps.rd(cam.driver.acquire)
+        if acquiring:
+            yield from bps.abs_set(cam.driver.acquire, False, wait=True)
+        yield from bps.mv(cam.driver.preview, 1)
+        return
     # In the case of a PE, we want to keep the proc plugin on, and instead switch away
     # from having the CB plugin be the source of the image viewing
     if isinstance(cam, PerkinElmerDetector):
