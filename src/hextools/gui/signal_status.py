@@ -1,16 +1,15 @@
-"""Label showing the live value of a subscribable signal or device."""
+"""Label showing the live value of a signal or device, looked up by name."""
 
 from __future__ import annotations
 
-import asyncio
-import inspect
-from collections.abc import Callable, Mapping
 from typing import Any
 
 import numpy as np
-from bluesky.protocols import Reading, Subscribable
-from qtpy.QtCore import QObject, Qt, Signal, Slot
+from bluesky.protocols import Reading
+from qtpy.QtCore import Qt, Signal, Slot
 from qtpy.QtWidgets import QHBoxLayout, QLabel, QWidget
+
+from hextools.gui.reading_sources import ReadingSource
 
 
 def format_value(value: Any, precision: int = 3) -> str:
@@ -40,68 +39,8 @@ _ALARM_STYLES = {
 }
 
 
-def reading_key(obj: Subscribable[Any], keys: Mapping[str, Any]) -> str | None:
-    """Return the key of ``obj``'s own reading in ``keys``: its name, else the first."""
-    if obj.name in keys:
-        return obj.name
-    return next(iter(keys), None)
-
-
-class QtReadingSubscription(QObject):
-    """Subscribe to ``obj`` and re-emit its readings on the Qt thread.
-
-    Parameters
-    ----------
-    obj : Subscribable
-        The signal or device. For a device, the reading named after the device
-        is emitted, otherwise its first reading.
-    loop : asyncio.AbstractEventLoop
-        The bluesky event loop (e.g. ``RE.loop``) that ``obj`` lives on.
-    on_reading : Callable[[Reading], None]
-        Called on the Qt thread with each new reading.
-    """
-
-    reading_changed = Signal(object)
-
-    def __init__(
-        self,
-        obj: Subscribable[Any],
-        loop: asyncio.AbstractEventLoop,
-        on_reading: Callable[[Reading[Any]], None],
-        parent=None,
-    ):
-        super().__init__(parent)
-        self._obj = obj
-        self._loop = loop
-        # Connected first: the initial reading can arrive as soon as we subscribe.
-        self.reading_changed.connect(on_reading)
-        # ophyd-async subscriptions must be made on the bluesky event loop, and
-        # callbacks arrive on that thread; the queued Qt signal hops back.
-        loop.call_soon_threadsafe(obj.subscribe_reading, self._on_reading)
-        self._subscribed = True
-
-    def _on_reading(self, readings: Mapping[str, Reading[Any]]):
-        key = reading_key(self._obj, readings)
-        if key is not None:
-            self.reading_changed.emit(readings[key])
-
-    def unsubscribe(self):
-        """Remove the subscription; safe to call more than once."""
-        if not self._subscribed:
-            return
-        self._subscribed = False
-
-        def _clear():
-            try:
-                self._obj.clear_sub(self._on_reading)
-            except KeyError:
-                pass
-
-        self._loop.call_soon_threadsafe(_clear)
-
-
 class QtSignalStatus(QWidget):
-    """A ``label: value units`` row that tracks a subscribable signal or device.
+    """A ``label: value units`` row that tracks a signal or device.
 
     The value is colored by its alarm severity: amber for minor, red for major,
     and purple for invalid. Subclasses can show the value differently by
@@ -109,18 +48,19 @@ class QtSignalStatus(QWidget):
 
     Parameters
     ----------
-    obj : Subscribable
-        The signal or device. For a device, the reading named after the device
-        is shown, otherwise its first reading.
-    loop : asyncio.AbstractEventLoop
-        The bluesky event loop (e.g. ``RE.loop``) that ``obj`` lives on.
+    name : str
+        The signal or device, as named in ``source``.
+    source : ReadingSource
+        Where ``name`` is looked up and its readings come from.
     label : str, optional
-        Text shown before the value. Defaults to ``obj.name``.
+        Text shown before the value. Defaults to ``name``.
     precision : int, optional
         Decimal places shown for float values.
     """
 
     _signal_units = Signal(str)
+    # Sources may call back from any thread; this queued signal hops to Qt's.
+    _signal_reading = Signal(object)
     #: Emitted on the Qt thread with each new raw value.
     value_changed = Signal(object)
     #: Whether to look up and show the readback's units.
@@ -128,19 +68,19 @@ class QtSignalStatus(QWidget):
 
     def __init__(
         self,
-        obj: Subscribable[Any],
-        loop: asyncio.AbstractEventLoop,
+        name: str,
+        source: ReadingSource,
         label: str | None = None,
         precision: int = 3,
         parent=None,
     ):
         super().__init__(parent)
-        self._obj = obj
+        self._name = name
         self._precision = precision
         self._units = ""
         self._text = "--"
 
-        self._label = QLabel(f"{label if label is not None else obj.name}:")
+        self._label = QLabel(f"{label if label is not None else name}:")
         self._value = self._make_value_widget()
         hbox = QHBoxLayout()
         hbox.setContentsMargins(0, 0, 0, 0)
@@ -149,9 +89,13 @@ class QtSignalStatus(QWidget):
         self.setLayout(hbox)
 
         self._signal_units.connect(self._set_units)
-        self._subscription = QtReadingSubscription(obj, loop, self._set_reading, self)
+        # Connected first: the initial reading can arrive as soon as we subscribe.
+        self._signal_reading.connect(self._set_reading)
+        self._source = source
+        self._token = source.subscribe(name, self._signal_reading.emit)
+        self._subscribed = True
         if self.show_units:
-            asyncio.run_coroutine_threadsafe(self._fetch_units(), loop)
+            source.fetch_units(name, self._signal_units.emit)
 
     @property
     def label_widget(self) -> QLabel:
@@ -163,21 +107,6 @@ class QtSignalStatus(QWidget):
         value = QLabel("--")
         value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         return value
-
-    async def _fetch_units(self):
-        describe = getattr(self._obj, "describe", None)
-        if describe is None:
-            return
-        try:
-            descriptions = describe()
-            if inspect.isawaitable(descriptions):
-                descriptions = await descriptions
-        except Exception:
-            return
-        key = reading_key(self._obj, descriptions)
-        units = descriptions[key].get("units") if key is not None else None
-        if units:
-            self._signal_units.emit(str(units))
 
     @Slot(object)
     def _set_reading(self, reading: Reading[Any]):
@@ -208,5 +137,7 @@ class QtSignalStatus(QWidget):
 
     def closeEvent(self, event):
         # Parents and Qt teardown can each close this widget.
-        self._subscription.unsubscribe()
+        if self._subscribed:
+            self._subscribed = False
+            self._source.unsubscribe(self._token)
         super().closeEvent(event)

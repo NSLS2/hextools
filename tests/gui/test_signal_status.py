@@ -11,6 +11,10 @@ from ophyd_async.core import init_devices, soft_signal_rw  # noqa: E402
 from ophyd_async.sim import SimMotor  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
+from hextools.gui.reading_sources import (  # noqa: E402
+    NamespaceReadingSource,
+    ReadingSource,
+)
 from hextools.gui.signal_status import QtSignalStatus, format_value  # noqa: E402
 
 
@@ -44,11 +48,15 @@ async def _set(signal, value):
     await signal.set(value)
 
 
+def _status(RE, name, obj, **kwargs) -> QtSignalStatus:
+    return QtSignalStatus(name, NamespaceReadingSource({name: obj}, RE.loop), **kwargs)
+
+
 def test_signal_status_tracks_signal_and_defaults_label_to_name():
     app = QApplication.instance() or QApplication([])
     RE = RunEngine()
     signal = soft_signal_rw(float, initial_value=1.5, name="temperature")
-    widget = QtSignalStatus(signal, RE.loop)
+    widget = _status(RE, "temperature", signal)
     try:
         assert widget._label.text() == "temperature:"
         _wait_for_text(app, widget, "1.500")
@@ -63,7 +71,7 @@ def test_signal_status_shows_device_reading_with_custom_label():
     RE = RunEngine()
     with init_devices():
         motor = SimMotor(name="sim_x")
-    widget = QtSignalStatus(motor, RE.loop, label="X")
+    widget = _status(RE, "sim_x", motor, label="X")
     try:
         assert widget._label.text() == "X:"
         _wait_for_text(app, widget, "0.000 mm")
@@ -75,7 +83,7 @@ def test_signal_status_shows_units():
     app = QApplication.instance() or QApplication([])
     RE = RunEngine()
     signal = soft_signal_rw(float, initial_value=4.0, units="keV", name="energy")
-    widget = QtSignalStatus(signal, RE.loop, precision=1)
+    widget = _status(RE, "energy", signal, precision=1)
     try:
         _wait_for_text(app, widget, "4.0 keV")
     finally:
@@ -87,11 +95,11 @@ def test_signal_status_colors_by_alarm_severity(severity, colored):
     app = QApplication.instance() or QApplication([])
     RE = RunEngine()
     signal = soft_signal_rw(int, name="counter")
-    widget = QtSignalStatus(signal, RE.loop)
+    widget = _status(RE, "counter", signal)
     try:
         _wait_for_text(app, widget, "0")
-        widget._subscription._on_reading(
-            {"counter": {"value": 7, "timestamp": 0.0, "alarm_severity": severity}}
+        widget._signal_reading.emit(
+            {"value": 7, "timestamp": 0.0, "alarm_severity": severity}
         )
         _wait_for_text(app, widget, "7")
         assert bool(widget._value.styleSheet()) is colored
@@ -99,26 +107,42 @@ def test_signal_status_colors_by_alarm_severity(severity, colored):
         widget.close()
 
 
-class _FakeSubscribable:
-    name = "fake"
-
+class _FakeSource(ReadingSource):
     def __init__(self):
-        self.cleared = []
+        self.subscribed: list[str] = []
+        self.unsubscribed: list[object] = []
 
-    def subscribe_reading(self, function):
+    def lookup(self, name):
+        return object()
+
+    def subscribe(self, name, callback):
+        self.subscribed.append(name)
+        return name
+
+    def unsubscribe(self, token):
+        self.unsubscribed.append(token)
+
+    def fetch_units(self, name, callback):
         pass
 
-    def clear_sub(self, function):
-        self.cleared.append(function)
 
-
-def test_signal_status_unsubscribes_once_when_closed_repeatedly():
+def test_signal_status_subscribes_by_name_and_unsubscribes_once():
     if QApplication.instance() is None:
         QApplication([])
+    source = _FakeSource()
+    widget = QtSignalStatus("fake.signal", source)
+    widget.close()
+    widget.close()
+    assert source.subscribed == ["fake.signal"]
+    assert source.unsubscribed == ["fake.signal"]
+
+
+def test_namespace_reading_source_looks_up_dotted_paths_only():
     RE = RunEngine()
-    fake = _FakeSubscribable()
-    widget = QtSignalStatus(fake, RE.loop)  # type: ignore[arg-type]
-    widget.close()
-    widget.close()
-    call_in_bluesky_event_loop(_noop())
-    assert fake.cleared == [widget._subscription._on_reading]
+    with init_devices(mock=True):
+        motor = SimMotor(name="motor")
+    source = NamespaceReadingSource({"motor": motor}, RE.loop)
+    assert source.lookup("motor.user_readback") is motor.user_readback
+    for bad in ("missing", "motor.nope", "motor._connector", "motor; import os"):
+        with pytest.raises(KeyError):
+            source.lookup(bad)
