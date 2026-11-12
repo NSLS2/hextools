@@ -327,7 +327,7 @@ with init_devices(
     )
 
     f_hutch_cam = VimbaDetector(
-        "XF:27IDA-BI{GigE-Cam:5}",
+        "XF:27ID1-ES{GigE-Cam:5}",
         ADWriterFactory.hdf(path_provider, hinted=False),
         name="f_hutch_cam",
     )

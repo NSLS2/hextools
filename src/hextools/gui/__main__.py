@@ -473,7 +473,7 @@ class QtBeamlineView(QWidget):
             ("fs_window_cam", "XF:27IDA-BI{FS:1-Cam:1}"),
             ("diamond_window_cam", "XF:27IDA-BI{FAM:1-Cam:1}"),
             ("sample_cam", "XF:27ID1-ES{Sample-Cam:1}"),
-            ("f_hutch_cam", "XF:27IDA-BI{GigE-Cam:5}"),
+            ("f_hutch_cam", "XF:27ID1-ES{GigE-Cam:5}"),
         ):
             cameras.add_detector(name, prefix, preserve_aspect_ratio=True)
         top.addWidget(cameras, stretch=3)
