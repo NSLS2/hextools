@@ -128,7 +128,6 @@ log_state_changes(RE, logger)
 # Uncomment if running in the terminal to get progress bars.
 # RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
 
-print("\n\033[1mActive Proposal Information\033[0m\n")
 # Display active proposal information in the console.
 print_proposal_info(RE.md)
 

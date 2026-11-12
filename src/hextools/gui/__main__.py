@@ -88,6 +88,7 @@ from hextools.gui.plan_widget import QtPlanWidget
 from hextools.gui.re_execution_controls import (
     QtReExecutionControls as QtReExecutionControlsLocal,
 )
+from hextools.gui.reading_sources import NamespaceReadingSource
 from hextools.gui.scan_browser import QtScanBrowser
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui.signal_status_group import QtBeamlineStatus
@@ -595,7 +596,14 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             from hextools.gui.hex_config import shutter_controls
 
             shutters, shutter_command = shutter_controls(user_ns)
-            controls.addWidget(QtShutterStatus(re_client, shutters, shutter_command))
+            controls.addWidget(
+                QtShutterStatus(
+                    re_client,
+                    NamespaceReadingSource(user_ns, re_client.loop),
+                    shutters,
+                    shutter_command,
+                )
+            )
         vbox.addLayout(controls)
 
         # Technique tabs.
@@ -836,9 +844,10 @@ class QtDataAcquisitionWindow:
             ipython = IPython.get_ipython()
             user_ns = ipython.user_ns if ipython is not None else {}
             # No parent: a parented window is kept above the main window.
+            source = NamespaceReadingSource(user_ns, re.loop)
             window = QtBeamlineStatus(
-                status_sections(user_ns, re.loop),
-                re.loop,
+                status_sections(user_ns, source),
+                source,
                 title=None,
             )
             window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)

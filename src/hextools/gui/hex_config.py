@@ -1,9 +1,9 @@
 """HEX-specific policy adapters for generic GUI extension points."""
 
-import asyncio
 from collections.abc import Callable, Mapping, MutableMapping
 from typing import Any
 
+from hextools.gui.reading_sources import ReadingSource
 from hextools.gui.signal_status_group import QtDeviceStatus, QtStatusGroup
 from hextools.machine import NSLS2StorageRing
 from hextools.motors import (
@@ -104,60 +104,61 @@ def filter_rows(
 
 
 def status_sections(
-    namespace: Mapping[str, Any], loop: asyncio.AbstractEventLoop
+    namespace: Mapping[str, Any], source: ReadingSource
 ) -> list[QtStatusGroup]:
     """Status sections for the HEX storage ring, apertures, optics, and towers.
 
-    Devices are found by type in ``namespace``; any that are missing are skipped.
+    Devices are found by type in ``namespace`` and read through ``source`` by
+    their namespace paths; any that are missing are skipped.
     """
     sections: list[QtStatusGroup] = []
-    for _, ring in _find(namespace, NSLS2StorageRing):
+    for name, _ in _find(namespace, NSLS2StorageRing):
         sections.append(
             QtStatusGroup(
                 "Storage Ring",
-                {"Current": ring.beam_current, "Mode": ring.operating_mode},
-                loop,
+                {"Current": f"{name}.beam_current", "Mode": f"{name}.operating_mode"},
+                source,
             )
         )
     fe_slits = _find(namespace, FrontEndSlit)
-    for name, fe_slit in fe_slits:
+    for name, _ in fe_slits:
         title = f"Front-End Slit ({name})" if len(fe_slits) > 1 else "Front-End Slit"
-        sections.append(QtStatusGroup(title, {"Aperture": fe_slit.aperture}, loop))
+        sections.append(QtStatusGroup(title, {"Aperture": f"{name}.aperture"}, source))
     filters = _filters(namespace)
     if filters:
         sections.append(
             QtStatusGroup(
                 "Filters",
-                {_filter_label(name): f.description for name, f in filters},
-                loop,
+                {_filter_label(name): f"{name}.description" for name, _ in filters},
+                source,
             )
         )
-    for _, mono in _find(namespace, DCLM):
+    for name, _ in _find(namespace, DCLM):
         sections.append(
             QtStatusGroup(
                 "Monochromator",
-                {"Beam Mode": mono.beam_mode, "Energy": mono.energy},
-                loop,
+                {"Beam Mode": f"{name}.beam_mode", "Energy": f"{name}.energy"},
+                source,
             )
         )
-    for name, slits in _find(namespace, Slits):
+    for name, _ in _find(namespace, Slits):
         sections.append(
             QtStatusGroup(
                 _slits_title(name),
                 {
-                    "H Gap": slits.horizontal_gap,
-                    "H Center": slits.horizontal_center,
-                    "V Gap": slits.vertical_gap,
-                    "V Center": slits.vertical_center,
+                    "H Gap": f"{name}.horizontal_gap",
+                    "H Center": f"{name}.horizontal_center",
+                    "V Gap": f"{name}.vertical_gap",
+                    "V Center": f"{name}.vertical_center",
                 },
-                loop,
+                source,
             )
         )
     for tower_type, title in _TOWER_TITLES.items():
         towers = _find(namespace, tower_type)
-        for name, tower in towers:
+        for name, _ in towers:
             display_name = f"{title} ({name})" if len(towers) > 1 else title
-            sections.append(QtDeviceStatus(tower, loop, display_name=display_name))
+            sections.append(QtDeviceStatus(name, source, display_name=display_name))
     return sections
 
 

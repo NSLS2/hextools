@@ -12,6 +12,7 @@ from qtpy.QtWidgets import QApplication, QComboBox  # noqa: E402
 from hextools.gui import movable_group  # noqa: E402
 from hextools.gui.hex_config import filter_rows, status_sections  # noqa: E402
 from hextools.gui.movable_group import QtMovableGroup  # noqa: E402
+from hextools.gui.reading_sources import NamespaceReadingSource  # noqa: E402
 from hextools.gui.signal_status_group import QtBeamlineStatus  # noqa: E402
 from hextools.machine import NSLS2StorageRing  # noqa: E402
 from hextools.motors import SampleTower  # noqa: E402
@@ -53,7 +54,8 @@ def test_status_sections_cover_beamline_devices():
         "sample_tower": sample_tower,
         "_hidden": sample_tower,
     }
-    widget = QtBeamlineStatus(status_sections(namespace, RE.loop), RE.loop)
+    source = NamespaceReadingSource(namespace, RE.loop)
+    widget = QtBeamlineStatus(status_sections(namespace, source), source)
     try:
         sections = {
             group.title: [s.label_widget.text() for s in group._statuses]
@@ -75,7 +77,7 @@ def test_status_sections_cover_beamline_devices():
 
 
 def test_status_sections_skip_missing_devices():
-    assert status_sections({}, RunEngine().loop) == []
+    assert status_sections({}, NamespaceReadingSource({}, RunEngine().loop)) == []
 
 
 def test_filter_rows_offer_only_filters_one_and_two():
