@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import math
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
-from bluesky.protocols import Subscribable
-from ophyd_async.core import Device, SignalR, walk_devices
+from ophyd_async.core import SignalR, walk_devices
 from qtpy.QtCore import QSize, Qt
 from qtpy.QtWidgets import (
     QGridLayout,
@@ -20,22 +18,25 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from hextools.gui.reading_sources import ReadingSource
 from hextools.gui.signal_status import QtSignalStatus
-from hextools.utils import get_obj_from_ipython_ns
 
 # Sections with more fields than this split them over two columns.
 _MAX_ROWS_PER_FIELD_COLUMN = 4
 
 
-def hinted_signals(device: Device) -> dict[str, SignalR[Any]]:
-    """Map each hinted field of ``device`` to its signal, in definition order."""
+def hinted_fields(device: Any) -> dict[str, str]:
+    """Map each hinted field of ``device`` to its attribute path, in definition order.
+
+    A signal maps its own name to ``""``.
+    """
     if isinstance(device, SignalR):
-        return {device.name: device}
+        return {device.name: ""}
     fields = set(getattr(device, "hints", {}).get("fields", []))
     # Hints are not reliably ordered, so follow the device tree instead.
     return {
-        child.name: child
-        for child in walk_devices(device).values()
+        child.name: path
+        for path, child in walk_devices(device).items()
         if isinstance(child, SignalR) and child.name in fields
     }
 
@@ -58,10 +59,11 @@ class QtStatusGroup(QWidget):
     ----------
     title : str
         Section header.
-    fields : Mapping[str, Subscribable]
-        Row label to the signal or device shown on that row, in order.
-    loop : asyncio.AbstractEventLoop
-        The bluesky event loop (e.g. ``RE.loop``) that the signals live on.
+    fields : Mapping[str, str]
+        Row label to the name, in ``source``, of the signal or device shown on
+        that row, in order.
+    source : ReadingSource
+        Where the names are looked up and their readings come from.
     precision : int, optional
         Decimal places shown for float values.
     """
@@ -69,8 +71,8 @@ class QtStatusGroup(QWidget):
     def __init__(
         self,
         title: str,
-        fields: Mapping[str, Subscribable[Any]],
-        loop: asyncio.AbstractEventLoop,
+        fields: Mapping[str, str],
+        source: ReadingSource,
         precision: int = 3,
         parent=None,
     ):
@@ -86,8 +88,8 @@ class QtStatusGroup(QWidget):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(0)
         self._statuses: list[QtSignalStatus] = []
-        for i, (label, signal) in enumerate(fields.items()):
-            status = QtSignalStatus(signal, loop, label=label, precision=precision)
+        for i, (label, name) in enumerate(fields.items()):
+            status = QtSignalStatus(name, source, label=label, precision=precision)
             status.label_widget.setObjectName("statusFieldLabel")
             status.label_widget.setAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -127,10 +129,10 @@ class QtDeviceStatus(QtStatusGroup):
 
     Parameters
     ----------
-    device : Device or str
-        The device, or its variable name in the IPython namespace.
-    loop : asyncio.AbstractEventLoop
-        The bluesky event loop (e.g. ``RE.loop``) that the device lives on.
+    name : str
+        The device, as named in ``source``.
+    source : ReadingSource
+        Where the device and its fields are looked up and read from.
     display_name : str, optional
         Section header. Defaults to the device's ``name``.
     precision : int, optional
@@ -139,26 +141,21 @@ class QtDeviceStatus(QtStatusGroup):
 
     def __init__(
         self,
-        device: Device | str,
-        loop: asyncio.AbstractEventLoop,
+        name: str,
+        source: ReadingSource,
         display_name: str | None = None,
         precision: int = 3,
         parent=None,
     ):
-        if isinstance(device, str):
-            resolved = get_obj_from_ipython_ns(device, Device)
-            if resolved is None:
-                raise ValueError(f"No device named {device!r} in the IPython namespace")
-            device = resolved
-        self._device = device
+        device = source.lookup(name)
         fields = {
-            field_label(device.name, field): signal
-            for field, signal in hinted_signals(device).items()
+            field_label(device.name, field): f"{name}.{path}" if path else name
+            for field, path in hinted_fields(device).items()
         }
         super().__init__(
             display_name if display_name is not None else device.name,
             fields,
-            loop,
+            source,
             precision=precision,
             parent=parent,
         )
@@ -172,11 +169,11 @@ class QtBeamlineStatus(QWidget):
 
     Parameters
     ----------
-    devices : Iterable[Device | str | QtStatusGroup] or Mapping[str, Device | str]
-        The devices, their IPython namespace variable names, or ready-made
-        status sections. A mapping gives each device section a display name.
-    loop : asyncio.AbstractEventLoop
-        The bluesky event loop (e.g. ``RE.loop``) that the devices live on.
+    devices : Iterable[str | QtStatusGroup] or Mapping[str, str]
+        Device names in ``source``, or ready-made status sections. A mapping
+        gives each device section a display name.
+    source : ReadingSource
+        Where the devices are looked up and read from.
     columns : int, optional
         Number of section columns.
     precision : int, optional
@@ -187,17 +184,17 @@ class QtBeamlineStatus(QWidget):
 
     def __init__(
         self,
-        devices: Iterable[Device | str | QtStatusGroup] | Mapping[str, Device | str],
-        loop: asyncio.AbstractEventLoop,
+        devices: Iterable[str | QtStatusGroup] | Mapping[str, str],
+        source: ReadingSource,
         columns: int = 4,
         precision: int = 3,
         title: str | None = "Beamline Status",
         parent=None,
     ):
         super().__init__(parent)
-        entries: list[tuple[Device | str | QtStatusGroup, str | None]]
+        entries: list[tuple[str | QtStatusGroup, str | None]]
         if isinstance(devices, Mapping):
-            mapping = cast(Mapping[str, Device | str], devices)
+            mapping = cast(Mapping[str, str], devices)
             entries = [(device, name) for name, device in mapping.items()]
         else:
             entries = [(device, None) for device in devices]
@@ -210,7 +207,7 @@ class QtBeamlineStatus(QWidget):
                 device
                 if isinstance(device, QtStatusGroup)
                 else QtDeviceStatus(
-                    device, loop, display_name=display_name, precision=precision
+                    device, source, display_name=display_name, precision=precision
                 )
             )
             col = heights.index(min(heights))

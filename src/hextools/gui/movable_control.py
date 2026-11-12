@@ -25,6 +25,7 @@ from qtpy.QtWidgets import (
 
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_sources import NamespaceDeviceSource
+from hextools.gui.reading_sources import NamespaceReadingSource, ReadingSource
 from hextools.gui.signal_status import QtSignalStatus
 
 _INVALID_STYLE = "border: 1px solid #c62828;"
@@ -112,8 +113,9 @@ class QtMovableControl(QWidget):
         ``user_ns``.
     label : str, optional
         Row label. Defaults to ``path``.
-    readback : Subscribable, optional
-        What the readback shows. Defaults to the movable itself, if subscribable.
+    readback : str, optional
+        Name, in ``source``, of what the readback shows. Defaults to ``path``
+        if the movable is subscribable.
     value_type : type, optional
         The type ``set`` takes, e.g. an enum for a dropdown. Inferred from the
         movable if not given, which fails for most ophyd v1 devices.
@@ -135,7 +137,7 @@ class QtMovableControl(QWidget):
         re: RunEngine,
         namespace: MutableMapping[str, Any] | None = None,
         label: str | None = None,
-        readback: Subscribable[Any] | None = None,
+        readback: str | None = None,
         precision: int = 3,
         tweak: float = 1.0,
         value_type: type | None = None,
@@ -174,9 +176,12 @@ class QtMovableControl(QWidget):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         if readback is None and isinstance(obj, Subscribable):
-            readback = obj
+            readback = path
+        reading_source: ReadingSource = NamespaceReadingSource(namespace, re.loop)
         self._readback = (
-            QtSignalStatus(readback, re.loop, label=label or path, precision=precision)
+            QtSignalStatus(
+                readback, reading_source, label=label or path, precision=precision
+            )
             if readback is not None
             else None
         )

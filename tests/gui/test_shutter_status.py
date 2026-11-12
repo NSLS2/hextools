@@ -14,9 +14,16 @@ from ophyd_async.core import init_devices
 from qtpy.QtWidgets import QApplication
 
 from hextools.gui.hex_config import shutter_controls
+from hextools.gui.reading_sources import NamespaceReadingSource
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui.signal_status import QtSignalStatus
 from hextools.photon_delivery_system import Shutter
+
+
+def _shutter_status(re: RunEngine, namespace: dict) -> QtShutterStatus:
+    shutters, command = shutter_controls(namespace)
+    source = NamespaceReadingSource(namespace, re.loop)
+    return QtShutterStatus(re, source, shutters, command)
 
 
 @pytest.mark.parametrize(
@@ -30,7 +37,7 @@ def test_shutter_buttons_exclude_duplicate_and_counterpart_submissions(
     with init_devices(mock=True):
         fe = Shutter("FE:", name="fe")
         photon = Shutter("PH:", name="photon")
-    widget = QtShutterStatus(re, *shutter_controls({"fe": fe, "photon": photon}))
+    widget = _shutter_status(re, {"fe": fe, "photon": photon})
     calls = []
 
     def execute(code):
@@ -61,7 +68,7 @@ def test_busy_or_paused_engine_blocks_shutters_until_abort(monkeypatch, queued):
     with init_devices(mock=True):
         fe = Shutter("FE:", name="fe")
         photon = Shutter("PH:", name="photon")
-    widget = QtShutterStatus(re, *shutter_controls({"fe": fe, "photon": photon}))
+    widget = _shutter_status(re, {"fe": fe, "photon": photon})
     calls = []
     monkeypatch.setattr(
         "hextools.gui.shutter_status.run_in_ipython", lambda code: calls.append(code)
@@ -100,7 +107,7 @@ def test_indicator_follows_readings_and_shows_invalid_as_unknown(
     re = RunEngine({})
     with init_devices(mock=True):
         fe = Shutter("FE:", name="fe")
-    widget = QtShutterStatus(re, *shutter_controls({"fe": fe}))
+    widget = _shutter_status(re, {"fe": fe})
     try:
         (indicator,) = widget._indicators
         assert isinstance(indicator, QtSignalStatus)

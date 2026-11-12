@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from bluesky import RunEngine
-from bluesky.protocols import Reading, Subscribable
+from bluesky.protocols import Reading
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QGroupBox,
@@ -17,6 +16,7 @@ from qtpy.QtWidgets import (
 )
 
 from hextools.gui._ipython import run_in_ipython, show_plan_error
+from hextools.gui.reading_sources import ReadingSource
 from hextools.gui.signal_status import QtSignalStatus
 
 # (top, bottom) gradient stops.
@@ -35,14 +35,8 @@ class _ShutterIndicator(QtSignalStatus):
 
     show_units = False
 
-    def __init__(
-        self,
-        var_name: str,
-        shutter: Subscribable[bool],
-        loop: asyncio.AbstractEventLoop,
-        parent=None,
-    ):
-        super().__init__(shutter, loop, label=var_name, parent=parent)
+    def __init__(self, var_name: str, source: ReadingSource, parent=None):
+        super().__init__(var_name, source, label=var_name, parent=parent)
         self.var_name = var_name
         self.is_open: bool | None = None
         self._blocked_reason: str | None = None
@@ -117,8 +111,11 @@ class QtShutterStatus(QWidget):
     ----------
     re : RunEngine
         The in-process RunEngine.
-    shutters : Mapping[str, Subscribable[bool]]
-        Explicitly selected readbacks, keyed by their session variable name.
+    source : ReadingSource
+        Where the shutters' open/closed states are read from.
+    shutters : Iterable[str]
+        Names, in ``source``, of explicitly selected boolean readbacks; also the
+        names passed to ``command_builder``.
     command_builder : Callable[[str, bool], str]
         Build the command for a named shutter and desired open state.
         Device discovery, plan choice and settling policy belong to the caller.
@@ -127,7 +124,8 @@ class QtShutterStatus(QWidget):
     def __init__(
         self,
         re: RunEngine,
-        shutters: Mapping[str, Subscribable[bool]],
+        source: ReadingSource,
+        shutters: Iterable[str],
         command_builder: Callable[[str, bool], str],
         parent=None,
     ):
@@ -139,8 +137,8 @@ class QtShutterStatus(QWidget):
         self._indicators: list[_ShutterIndicator] = []
         rows = QVBoxLayout()
         rows.setContentsMargins(8, 6, 8, 6)
-        for name, shutter in shutters.items():
-            indicator = _ShutterIndicator(name, shutter, re.loop)
+        for name in shutters:
+            indicator = _ShutterIndicator(name, source)
             indicator.button.clicked.connect(lambda *_, i=indicator: self._toggle(i))
             rows.addWidget(indicator)
             self._indicators.append(indicator)
