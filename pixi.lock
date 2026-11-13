@@ -350,7 +350,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#7fa7b26d8711db686e1cee01b8bbccb137f15397
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#d3008a03ec669465aa89b16e050366702d2a45c0
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=nd-process-fixes#e25650f26c97581b54d4ecd9362b1c53815780f6
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -898,7 +898,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#7fa7b26d8711db686e1cee01b8bbccb137f15397
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#d3008a03ec669465aa89b16e050366702d2a45c0
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#754b4aed15fd82c11d398933d0a85752af354d17
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=nd-process-fixes#e25650f26c97581b54d4ecd9362b1c53815780f6
@@ -1314,7 +1314,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#7fa7b26d8711db686e1cee01b8bbccb137f15397
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#d3008a03ec669465aa89b16e050366702d2a45c0
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=nd-process-fixes#e25650f26c97581b54d4ecd9362b1c53815780f6
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -1699,7 +1699,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#7fa7b26d8711db686e1cee01b8bbccb137f15397
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#d3008a03ec669465aa89b16e050366702d2a45c0
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=nd-process-fixes#e25650f26c97581b54d4ecd9362b1c53815780f6
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -2254,7 +2254,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#7fa7b26d8711db686e1cee01b8bbccb137f15397
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#d3008a03ec669465aa89b16e050366702d2a45c0
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#754b4aed15fd82c11d398933d0a85752af354d17
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=nd-process-fixes#e25650f26c97581b54d4ecd9362b1c53815780f6
@@ -2809,7 +2809,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#7fa7b26d8711db686e1cee01b8bbccb137f15397
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#d3008a03ec669465aa89b16e050366702d2a45c0
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#754b4aed15fd82c11d398933d0a85752af354d17
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=nd-process-fixes#e25650f26c97581b54d4ecd9362b1c53815780f6
@@ -3363,7 +3363,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#7fa7b26d8711db686e1cee01b8bbccb137f15397
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#d3008a03ec669465aa89b16e050366702d2a45c0
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#754b4aed15fd82c11d398933d0a85752af354d17
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=nd-process-fixes#e25650f26c97581b54d4ecd9362b1c53815780f6
@@ -3793,7 +3793,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#7fa7b26d8711db686e1cee01b8bbccb137f15397
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#d3008a03ec669465aa89b16e050366702d2a45c0
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=nd-process-fixes#e25650f26c97581b54d4ecd9362b1c53815780f6
       - pypi: https://files.pythonhosted.org/packages/0c/98/ad65d39cab6cf071d09823aa525a0ff531cb9a4868130b9dfc44bb84828b/pymongo-4.19.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
@@ -4260,7 +4260,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/zict-3.0.0-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.2-pyh5ded981_0.conda
       - pypi: ./
-      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#7fa7b26d8711db686e1cee01b8bbccb137f15397
+      - pypi: git+https://github.com/NSLS2/nslsii?rev=main#d3008a03ec669465aa89b16e050366702d2a45c0
       - pypi: git+https://github.com/bluesky/bluesky?rev=main#2ca46def4a98f1632bdeb408235e0ff114e0ac97
       - pypi: git+https://github.com/jwlodek/ntnda-qt-viewer?rev=main#754b4aed15fd82c11d398933d0a85752af354d17
       - pypi: git+https://github.com/jwlodek/ophyd-async?rev=nd-process-fixes#e25650f26c97581b54d4ecd9362b1c53815780f6
@@ -4376,7 +4376,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/adbc-driver-manager?source=compressed-mapping
+  - pkg:pypi/adbc-driver-manager?source=hash-mapping
   run_exports: {}
   size: 396749
   timestamp: 1793069943967
@@ -5441,7 +5441,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/cytoolz?source=compressed-mapping
+  - pkg:pypi/cytoolz?source=hash-mapping
   run_exports: {}
   size: 760733
   timestamp: 1791511265780
@@ -10457,7 +10457,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/rpds-py?source=compressed-mapping
+  - pkg:pypi/rpds-py?source=hash-mapping
   run_exports: {}
   size: 302657
   timestamp: 1791202432096
@@ -11583,7 +11583,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/zstandard?source=compressed-mapping
+  - pkg:pypi/zstandard?source=hash-mapping
   run_exports: {}
   size: 472702
   timestamp: 1788604307981
@@ -11980,7 +11980,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/bluesky-tiled-plugins?source=compressed-mapping
+  - pkg:pypi/bluesky-tiled-plugins?source=hash-mapping
   run_exports: {}
   size: 67457
   timestamp: 1793717923309
@@ -12003,7 +12003,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/bokeh?source=compressed-mapping
+  - pkg:pypi/bokeh?source=hash-mapping
   run_exports: {}
   size: 4454345
   timestamp: 1787144786949
@@ -13221,7 +13221,7 @@ packages:
   - python
   license: BSD-3-Clause
   purls:
-  - pkg:pypi/jsonpointer?source=compressed-mapping
+  - pkg:pypi/jsonpointer?source=hash-mapping
   run_exports: {}
   size: 16220
   timestamp: 1793919599041
@@ -13600,7 +13600,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/nexusformat?source=compressed-mapping
+  - pkg:pypi/nexusformat?source=hash-mapping
   run_exports: {}
   size: 1021789
   timestamp: 1791251134726
@@ -14125,7 +14125,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/pytest-asyncio?source=compressed-mapping
+  - pkg:pypi/pytest-asyncio?source=hash-mapping
   run_exports: {}
   size: 43551
   timestamp: 1793562833938
@@ -14263,7 +14263,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/python-discovery?source=compressed-mapping
+  - pkg:pypi/python-discovery?source=hash-mapping
   run_exports: {}
   size: 43960
   timestamp: 1793791764996
@@ -15012,7 +15012,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/tenacity?source=compressed-mapping
+  - pkg:pypi/tenacity?source=hash-mapping
   run_exports: {}
   size: 34691
   timestamp: 1791389550882
@@ -15320,7 +15320,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/tzlocal?source=compressed-mapping
+  - pkg:pypi/tzlocal?source=hash-mapping
   run_exports: {}
   size: 24206
   timestamp: 1792678127238
@@ -15494,7 +15494,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/xyzservices?source=compressed-mapping
+  - pkg:pypi/xyzservices?source=hash-mapping
   run_exports: {}
   size: 53963
   timestamp: 1788530754725
@@ -15607,9 +15607,9 @@ packages:
   - qtpy ; extra == 'gui'
   - tiled[client] ; extra == 'gui'
   requires_python: '>=3.11'
-- pypi: git+https://github.com/NSLS2/nslsii?rev=main#7fa7b26d8711db686e1cee01b8bbccb137f15397
+- pypi: git+https://github.com/NSLS2/nslsii?rev=main#d3008a03ec669465aa89b16e050366702d2a45c0
   name: nslsii
-  version: 0.12.1.dev2
+  version: 0.12.1.dev4
   requires_dist:
   - appdirs
   - bluesky-kafka>=0.8.0

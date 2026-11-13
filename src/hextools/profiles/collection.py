@@ -73,7 +73,7 @@ from hextools.utils import (
     reset_scan_id,  # noqa: F401 - operator namespace
     show_docs,  # noqa: F401 - operator namespace
 )
-from hextools.utils.path_providers import HEXPathProvider, mock_path_provider
+from hextools.utils.path_providers import mock_path_provider
 from hextools.xrd import *
 
 # TODO: Enable mock customization via flags once
@@ -209,7 +209,7 @@ else:
 pe_path_provider = (
     path_provider
     if is_running_in_ci()
-    else HEXPathProvider(
+    else NSLS2PathProvider(
         RE.md,
         filename_provider=filename_provider,
         base_write_dir=PureWindowsPath("Z:\\proposals"),
@@ -335,7 +335,7 @@ with init_devices(
     )
 
     f_hutch_cam = VimbaDetector(
-        "XF:27IDA-BI{GigE-Cam:5}",
+        "XF:27ID1-ES{GigE-Cam:5}",
         ADWriterFactory.hdf(path_provider, hinted=False),
         name="f_hutch_cam",
     )
