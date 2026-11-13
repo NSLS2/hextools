@@ -8,6 +8,7 @@ from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
 from IPython.core.interactiveshell import InteractiveShell
 from ophyd_async.core import (
+    WatchableAsyncStatus,
     callback_on_mock_put,
     get_mock_put,
     init_devices,
@@ -291,6 +292,48 @@ def test_move_filters_refuses_another_filters_setting(RE: RunEngine):
     devices = _set_filters_devices()
     with pytest.raises(ValueError, match="not a setting of"):
         RE(move_filters(devices["filter2"], "6 mm Al", fe_shutter=_fe_shutter()))
+
+
+def test_move_filters_checkpoints_before_moving_so_a_resume_moves_again(
+    RE: RunEngine,
+):
+    devices = _set_filters_devices()
+    commands: list[str] = []
+    RE.msg_hook = lambda msg: commands.append(msg.command)  # type: ignore[assignment]
+    RE(move_filters(devices["filter2"], "1 mm Cu", fe_shutter=_fe_shutter()))
+    assert commands.index("checkpoint") < commands.index("set")
+
+
+async def test_stopping_a_filter_with_success_ends_its_move_without_error(
+    RE: RunEngine, monkeypatch
+):
+    with init_devices(mock=True):
+        test_filter = Filter("TEST:MTR", "TEST:IN_POS", name="filter1_upstream")
+    moving = asyncio.Event()
+    stopped = asyncio.Event()
+
+    @WatchableAsyncStatus.wrap
+    async def slow_move(motor, value):
+        moving.set()
+        await stopped.wait()
+        if False:
+            yield
+
+    async def stop_motor(motor, success: bool = False):
+        assert success
+        stopped.set()
+
+    motor_type = type(test_filter.filter_motor)
+    monkeypatch.setattr(motor_type, "set", slow_move)
+    monkeypatch.setattr(motor_type, "stop", stop_motor)
+    # Stopped between settings, so it never reports in position.
+    set_mock_value(test_filter.in_position, False)
+
+    status = test_filter.set(FilterPosition.POS_1)
+    await moving.wait()
+    await test_filter.stop(success=True)
+    await asyncio.wait_for(status, timeout=1)
+    assert status.success
 
 
 async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):

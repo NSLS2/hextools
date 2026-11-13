@@ -144,6 +144,7 @@ class Filter(
             ) from e
         self.in_position = epics_signal_r(bool, in_pos_switch_pv)
         self.filter_motor = AsyncEpicsMotor(motor_pv)
+        self._stopped = False
         with self.add_children_as_readables(Format.CONFIG_SIGNAL):
             self.description = derived_signal_r(
                 self._get_description,
@@ -225,14 +226,22 @@ class Filter(
                 f"Defined positions are: {list(self.positions.keys())}"
             )
 
+        self._stopped = False
         move = self.filter_motor.set(self.positions[value].position)
         async for update in forward_watcher_updates([move], self.name, combine=False):
             yield update
+        if self._stopped:
+            # Stopped short of the position, e.g. by a pause; it never arrives.
+            return
         await wait_for_value(self.in_position, True, timeout=10)
 
     async def stop(self, success: bool = False):
-        """Stop the filter motor, so pausing or aborting the RunEngine stops a move."""
-        await self.filter_motor.stop()
+        """Stop the filter motor, so pausing or aborting the RunEngine stops a move.
+
+        With ``success``, as when the RunEngine pauses, the move ends without error.
+        """
+        self._stopped = True
+        await self.filter_motor.stop(success=success)
 
 
 # Dynamically build enums for filter positions from beamline constants
@@ -346,6 +355,8 @@ def move_filters(
         moves += [device, device.position_for(setting)]  # type: ignore[arg-type]
 
     fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
+    # Resuming after a pause rewinds here, so the filters are moved again.
+    yield from bps.checkpoint()
     yield from bps.mv(*moves)
     yield from bps.mv(fe_shutter.interlock_ack, True)
     if fe_was_open:
