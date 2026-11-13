@@ -48,6 +48,7 @@ from qtpy.QtWidgets import (
     QApplication,
     QFileDialog,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QMainWindow,
     QMessageBox,
@@ -87,8 +88,10 @@ from hextools.gui.plan_widget import QtPlanWidget
 from hextools.gui.re_execution_controls import (
     QtReExecutionControls as QtReExecutionControlsLocal,
 )
+from hextools.gui.reading_sources import NamespaceReadingSource
 from hextools.gui.scan_browser import QtScanBrowser
 from hextools.gui.shutter_status import QtShutterStatus
+from hextools.gui.signal_status_group import QtBeamlineStatus
 from hextools.gui.theme_switch import QtThemeAction
 from hextools.machine import NSLS2StorageRing
 from hextools.motors import (
@@ -483,9 +486,9 @@ class QtBeamlineView(QWidget):
         # IPython vs. Queue Server).
         plan_tabs = QTabWidget()
         plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
-        plan_tabs.addTab(QtPlanWidget(re_client, move_slits), "Slits")
+        plan_tabs.addTab(self._slits_tab(re_client), "Slits")
         plan_tabs.addTab(QtPlanWidget(re_client, set_fe_aperture), "Frontend Aperture")
-        plan_tabs.addTab(QtPlanWidget(re_client, set_filters), "Filters")
+        plan_tabs.addTab(self._filters_tab(re_client), "Filters")
         plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
         plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
         plan_tabs.addTab(QtPlanWidget(re_client, reset_scan_id), "Reset Scan ID")
@@ -506,6 +509,52 @@ class QtBeamlineView(QWidget):
         vbox.addLayout(top, stretch=1)
 
         self.setLayout(vbox)
+
+    @staticmethod
+    def _slits_tab(re_client: RunEngineClient | RunEngine) -> QWidget:
+        """Live slit controls locally; the ``move_slits`` plan for the Queue Server."""
+        if not isinstance(re_client, RunEngine):
+            return QtPlanWidget(re_client, move_slits)
+        from hextools.gui.hex_config import slits_entries
+        from hextools.gui.slits_control import QtSlitsSelector
+
+        ipython = IPython.get_ipython()
+        user_ns = ipython.user_ns if ipython is not None else {}
+        return QtSlitsSelector(dict(slits_entries(user_ns)), re_client, user_ns)
+
+    @staticmethod
+    def _filters_tab(re_client: RunEngineClient | RunEngine) -> QWidget:
+        """Live filter controls locally; the ``set_filters`` plan for Queue Server."""
+        if not isinstance(re_client, RunEngine):
+            return QtPlanWidget(re_client, set_filters)
+        from hextools.gui.hex_config import filter_rows
+        from hextools.gui.movable_group import QtMovableGroup
+
+        ipython = IPython.get_ipython()
+        user_ns = ipython.user_ns if ipython is not None else {}
+        rows, value_types = filter_rows(user_ns)
+        tab = QWidget()
+        vbox = QVBoxLayout(tab)
+        if rows:
+            box = QGroupBox("Filters")
+            box_layout = QVBoxLayout(box)
+            # Batch by default: each move trips the front-end shutter interlock.
+            box_layout.addWidget(
+                QtMovableGroup(
+                    rows,
+                    re_client,
+                    user_ns,
+                    value_types=value_types,
+                    move_plan="move_filters",
+                    tweak_plan=None,
+                    batch=True,
+                )
+            )
+            vbox.addWidget(box)
+        else:
+            vbox.addWidget(QLabel("No filters found"))
+        vbox.addStretch(1)
+        return tab
 
 
 class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
@@ -547,7 +596,14 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
             from hextools.gui.hex_config import shutter_controls
 
             shutters, shutter_command = shutter_controls(user_ns)
-            controls.addWidget(QtShutterStatus(re_client, shutters, shutter_command))
+            controls.addWidget(
+                QtShutterStatus(
+                    re_client,
+                    NamespaceReadingSource(user_ns, re_client.loop),
+                    shutters,
+                    shutter_command,
+                )
+            )
         vbox.addLayout(controls)
 
         # Technique tabs.
@@ -735,6 +791,8 @@ class QtDataAcquisitionWindow:
         atexit.unregister(self._close_at_exit)
         if isinstance(self._re_client, RunEngine):
             self._uninstall_state_hook(self._re_client)
+        if self._beamline_status is not None:
+            self._beamline_status.close()
         # WA_DeleteOnClose deletes the children without sending them closeEvent.
         for widget in self._qt_window.findChildren(QWidget):
             # Closing one widget can delete others (pyqtgraph deletes its viewport).
@@ -760,11 +818,53 @@ class QtDataAcquisitionWindow:
         screenshot = self.file_menu.addAction("Take Screenshot…")
         screenshot.triggered.connect(self._on_take_screenshot)
 
+        self.view_menu = menu_bar.addMenu("&View")
+        beamline_status = self.view_menu.addAction("Beamline Status")
+        beamline_status.triggered.connect(self._on_show_beamline_status)
+        if not isinstance(self._re_client, RunEngine):
+            beamline_status.setEnabled(False)
+            beamline_status.setToolTip(
+                "Beamline status is only available when running plans locally."
+            )
+        self._beamline_status: QtBeamlineStatus | None = None
+
         self.settings_menu = menu_bar.addMenu("&Settings")
         self.settings_menu.addAction(QtThemeAction(self._qt_window))
 
         self.help_menu = menu_bar.addMenu("&Help")
         self.help_menu.addAction("About", self._on_about)
+
+    def _on_show_beamline_status(self):
+        if self._beamline_status is None:
+            from hextools.gui.hex_config import status_sections
+
+            re = self._re_client
+            if not isinstance(re, RunEngine):
+                return
+            ipython = IPython.get_ipython()
+            user_ns = ipython.user_ns if ipython is not None else {}
+            # No parent: a parented window is kept above the main window.
+            source = NamespaceReadingSource(user_ns, re.loop)
+            window = QtBeamlineStatus(
+                status_sections(user_ns, source),
+                source,
+                title=None,
+            )
+            window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            window.setWindowTitle("HEX Beamline Status")
+            window.destroyed.connect(self._on_beamline_status_destroyed)
+            screen = self._qt_window.screen().availableGeometry()
+            window.resize(
+                min(max(window.sizeHint().width(), 1400), screen.width()),
+                min(max(window.sizeHint().height(), 700), screen.height()),
+            )
+            self._beamline_status = window
+        self._beamline_status.show()
+        self._beamline_status.raise_()
+        self._beamline_status.activateWindow()
+
+    def _on_beamline_status_destroyed(self, *_):
+        self._beamline_status = None
 
     def _on_about(self):
         import platform

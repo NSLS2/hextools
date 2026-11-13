@@ -5,7 +5,7 @@ from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, TypeAlias
 
 import bluesky.plan_stubs as bps
-from bluesky.protocols import Reading
+from bluesky.protocols import Callback, Reading, Subscribable
 from ophyd_async.core import (
     AsyncMovable,
     DeviceMock,
@@ -101,12 +101,15 @@ class FilterMock(DeviceMock["Filter"]):
 
 
 @default_mock_class(FilterMock)
-class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
+class Filter(
+    StandardReadable, EpicsDevice, AsyncMovable[FilterPosition], Subscribable[str]
+):
     """Filter device with multiple positions.
 
     This class represents a filter device with multiple positions, each corresponding
     to a specific filter setting. It provides methods to set the filter position and
-    retrieve the description of the current filter setting.
+    retrieve the description of the current filter setting. Subscribing follows the
+    description.
 
     Attributes
     ----------
@@ -149,6 +152,41 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
             )
         super().__init__(name=name)
 
+    def subscribe_reading(self, function: Callback[str]) -> None:
+        """Subscribe to the description of the current setting."""
+        self.description.subscribe_reading(function)
+
+    def clear_sub(self, function: Callback[str]) -> None:
+        """Remove a description subscription."""
+        self.description.clear_sub(function)
+
+    def label(self, position: FilterPosition) -> str:
+        """Return the label of ``position``, as used by this filter's position enum."""
+        return (
+            self.positions[position].description
+            or position.name.replace("_", " ").title()
+        )
+
+    def position_for(self, setting: FilterPosition | str) -> FilterPosition:
+        """Return the position for ``setting``: a position, or its label.
+
+        Raises
+        ------
+        ValueError
+            If ``setting`` is not one of this filter's positions or labels.
+        """
+        if isinstance(setting, FilterPosition):
+            if setting in self.positions:
+                return setting
+        else:
+            for position in self.positions:
+                if self.label(position) == setting:
+                    return position
+        raise ValueError(
+            f"{setting!r} is not a setting of {self.name}; choose from "
+            f"{[self.label(p) for p in self.positions]}"
+        )
+
     def _get_description(self, in_pos: bool, motor_pos: float) -> str:
         """Get the description of the current filter setting based on motor position.
 
@@ -162,14 +200,15 @@ class Filter(StandardReadable, EpicsDevice, AsyncMovable[FilterPosition]):
         Returns
         -------
         str
-            Description of the current filter setting.
+            Label of the closest setting, matching this filter's position enum,
+            or ``"out of position"``.
         """
         if not in_pos:
             return "out of position"
         closest = min(
             self.positions.items(), key=lambda item: abs(item[1].position - motor_pos)
         )
-        return closest[1].description or closest[0].name.lower().replace("_", " ")
+        return self.label(closest[0])
 
     @WatchableAsyncStatus.wrap
     async def set(self, value: FilterPosition):
@@ -255,7 +294,6 @@ def set_filters(
     filter1_upstream = ensure_available(Filter, filter1_upstream=filter1_upstream)
     filter1_downstream = ensure_available(Filter, filter1_downstream=filter1_downstream)
     filter2 = ensure_available(Filter, filter2=filter2)
-    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
 
     args = []
     for device, setting, choices in (
@@ -269,9 +307,46 @@ def set_filters(
             args += [device, FilterPosition[choices(setting).name]]
     if not args:
         raise ValueError("Choose a setting for at least one filter.")
+    yield from move_filters(*args, fe_shutter=fe_shutter)
+
+
+def move_filters(
+    *args: Filter | FilterPosition | str, fe_shutter: PPSShutter | None = None
+):
+    """Move filters, given as ``filter1, setting1, filter2, setting2, ...``.
+
+    Each setting is a :class:`FilterPosition` or that filter's label for it (for
+    example ``"6 mm Cu"`` or ``"Pass Through"``). The filters move together, and
+    the plan returns once they are in position.
+
+    Moving a filter closes the front-end shutter through its interlock. Once the
+    filters are in position the interlock is acknowledged, and the front-end
+    shutter is reopened if it was open before.
+
+    Parameters
+    ----------
+    *args : Filter, FilterPosition or str
+        Alternating filters and settings.
+    fe_shutter : PPSShutter, optional
+        The front-end shutter. If None, taken from the session namespace.
+
+    Raises
+    ------
+    ValueError
+        If no filters are given, the arguments don't pair up, or a setting is not
+        one of its filter's.
+    """
+    if not args or len(args) % 2:
+        raise ValueError("Give one or more filter, setting pairs.")
+    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
+    moves: list = []
+    for device, setting in zip(args[::2], args[1::2], strict=True):
+        if not isinstance(device, Filter):
+            raise ValueError(f"{device!r} is not a filter")
+        moves += [device, device.position_for(setting)]  # type: ignore[arg-type]
 
     fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
-    yield from bps.mv(*args)
+    yield from bps.mv(*moves)
     yield from bps.mv(fe_shutter.interlock_ack, True)
     if fe_was_open:
         yield from ensure_shutter_open(fe_shutter, allow_actuation=True)

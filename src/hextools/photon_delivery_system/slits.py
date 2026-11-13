@@ -4,7 +4,7 @@ import asyncio
 from enum import StrEnum
 
 import bluesky.plan_stubs as bps
-from bluesky.protocols import Locatable, Location
+from bluesky.protocols import Callback, Locatable, Location, Subscribable
 from ophyd_async.core import (
     AsyncMovable,
     AsyncStatus,
@@ -105,11 +105,14 @@ def set_fe_aperture(aperture: SlitAperture, fe_slit1: FrontEndSlit | None = None
     yield from bps.mv(fe_slit1, SlitAperture(aperture))
 
 
-class _BladePairAxis(StandardReadable, AsyncMovable[float], Locatable[float]):
+class _BladePairAxis(
+    StandardReadable, AsyncMovable[float], Locatable[float], Subscribable[float]
+):
     """A gap or center of a pair of slit blades, moved by moving both blades.
 
     Each blade moves with its own motor's timeout, and progress is reported to
-    watchers as the gap or center.
+    watchers as the gap or center. Subscribing follows the readback, as a motor's
+    subscription follows its user readback.
 
     Parameters
     ----------
@@ -151,6 +154,14 @@ class _BladePairAxis(StandardReadable, AsyncMovable[float], Locatable[float]):
         """Name the readback after this device, as a motor's readback is."""
         super().set_name(name, child_name_separator=child_name_separator)
         self.readback.set_name(name)
+
+    def subscribe_reading(self, function: Callback[float]) -> None:
+        """Subscribe to the readback."""
+        self.readback.subscribe_reading(function)
+
+    def clear_sub(self, function: Callback[float]) -> None:
+        """Remove a readback subscription."""
+        self.readback.clear_sub(function)
 
     @staticmethod
     def _forward(low: float, high: float) -> float:

@@ -1,7 +1,9 @@
+import asyncio
 from typing import Any, cast
 
 import bluesky.plan_stubs as bps
 import pytest
+from bluesky.protocols import Subscribable
 from bluesky.run_engine import RunEngine
 from bluesky.utils import FailedStatus
 from IPython.core.interactiveshell import InteractiveShell
@@ -23,6 +25,7 @@ from hextools.photon_delivery_system.filters import (
     FilterMock,
     FilterPosition,
     FilterSetting,
+    move_filters,
     set_filters,
 )
 from hextools.photon_delivery_system.shutter import PPSShutter, ShutterStatus
@@ -39,9 +42,9 @@ def test_filter() -> Filter:
 @pytest.mark.parametrize(
     "position, expected_description",
     [
-        (FilterPosition.PASS_THROUGH, "pass through"),
+        (FilterPosition.PASS_THROUGH, "Pass Through"),
         (FilterPosition.POS_1, "6 mm Cu"),
-        (FilterPosition.POS_3, "pos 3"),
+        (FilterPosition.POS_3, "Pos 3"),
     ],
 )
 async def test_filter_description_changes_with_position(
@@ -62,6 +65,20 @@ async def test_filter_description_changes_with_position(
     assert desc == expected_description
 
 
+async def test_filter_subscription_follows_the_description(
+    RE: RunEngine, test_filter: Filter
+):
+    assert isinstance(test_filter, Subscribable)
+    readings: list = []
+    test_filter.subscribe_reading(readings.append)
+    try:
+        await asyncio.sleep(0.01)
+        expected = await test_filter.description.get_value()
+        assert [r["value"] for r in readings[-1].values()] == [expected]
+    finally:
+        test_filter.clear_sub(readings.append)
+
+
 async def test_filter_rejects_undefined_position(RE: RunEngine, test_filter: Filter):
     with pytest.raises(FailedStatus) as exc_info:
         RE(bps.mv(test_filter, cast(FilterPosition, len(FilterPosition))))
@@ -74,7 +91,7 @@ async def test_mock_filter_starts_in_pass_through_and_moves_into_position(
     with init_devices(mock=True):
         f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name="filter2")
     assert await f.in_position.get_value()
-    assert await f.description.get_value() == "pass through"
+    assert await f.description.get_value() == "Pass Through"
 
     set_mock_value(f.filter_motor.user_readback, 12.345)
     assert not await f.in_position.get_value()
@@ -223,6 +240,57 @@ def test_filter_choices_are_pass_through_and_each_filters_materials():
     assert "1 mm Cu" in list(Filter2Position)
     # Filters 3 and 4 hold no described materials
     assert list(Filter3Position) == list(Filter4Position) == ["Pass Through"]
+
+
+@pytest.mark.parametrize(
+    "name, choices",
+    [
+        ("filter1_upstream", Filter1UpstreamPosition),
+        ("filter1_downstream", Filter1DownstreamPosition),
+        ("filter2", Filter2Position),
+    ],
+)
+def test_filter_labels_match_its_position_enum(RE: RunEngine, name: str, choices):
+    with init_devices(mock=True):
+        f = Filter("TEST:FILTER:MTR", "TEST:FILTER:IN_POS", name=name)
+    for member in choices:
+        position = FilterPosition[member.name]
+        assert f.label(position) == member.value
+        assert f.position_for(member.value) is position
+
+
+async def test_move_filters_takes_device_setting_pairs(RE: RunEngine):
+    devices = _set_filters_devices()
+    for device in devices.values():
+        set_mock_value(device.filter_motor.user_readback, 999.0)
+
+    RE(
+        move_filters(
+            devices["filter1_upstream"],
+            "6 mm Cu",
+            devices["filter2"],
+            Filter2Position("1 mm Cu"),
+            fe_shutter=_fe_shutter(),
+        )
+    )
+
+    assert await devices["filter1_upstream"].description.get_value() == "6 mm Cu"
+    assert await devices["filter2"].description.get_value() == "1 mm Cu"
+    assert await devices[
+        "filter1_downstream"
+    ].filter_motor.user_readback.get_value() == (999.0)
+
+
+@pytest.mark.parametrize("args", [(), ("not a filter", "6 mm Cu")])
+def test_move_filters_refuses_bad_pairs(RE: RunEngine, args):
+    with pytest.raises(ValueError):
+        RE(move_filters(*args, fe_shutter=_fe_shutter()))
+
+
+def test_move_filters_refuses_another_filters_setting(RE: RunEngine):
+    devices = _set_filters_devices()
+    with pytest.raises(ValueError, match="not a setting of"):
+        RE(move_filters(devices["filter2"], "6 mm Al", fe_shutter=_fe_shutter()))
 
 
 async def test_set_filters_moves_only_the_chosen_filters(RE: RunEngine):

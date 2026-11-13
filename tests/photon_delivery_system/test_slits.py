@@ -1,5 +1,8 @@
+import asyncio
+
 import bluesky.plan_stubs as bps
 import pytest
+from bluesky.protocols import Subscribable
 from bluesky.run_engine import RunEngine
 from ophyd_async.core import callback_on_mock_put, init_devices, set_mock_value
 
@@ -137,6 +140,24 @@ async def test_slits_gap_and_center_read_under_their_own_names(slits: Slits):
     reading = await slits.read()
     for name in ("horizontal_gap", "horizontal_center", "vertical_gap"):
         assert getattr(slits, name).name in reading
+
+
+@pytest.mark.parametrize("axis, low, high, gap, center", _AXES)
+async def test_slits_gap_and_center_are_subscribable(
+    slits: Slits, axis: str, low: str, high: str, gap: str, center: str
+):
+    set_mock_value(getattr(slits, low).user_readback, -2.0)
+    set_mock_value(getattr(slits, high).user_readback, 4.0)
+    for name, expected in ((gap, 6.0), (center, 1.0)):
+        device = getattr(slits, name)
+        assert isinstance(device, Subscribable)
+        readings = []
+        device.subscribe_reading(readings.append)
+        try:
+            await asyncio.sleep(0.01)
+            assert readings[-1][device.name]["value"] == pytest.approx(expected)
+        finally:
+            device.clear_sub(readings.append)
 
 
 def _re_slits(blades: tuple[float, float, float, float]) -> Slits:
