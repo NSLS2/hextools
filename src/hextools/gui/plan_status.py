@@ -46,7 +46,6 @@ from hextools.gui._hook_chain import install_hook, uninstall_hook
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_sources import _walk_namespace
 from hextools.gui.log_watcher import LogWatcher, level_color
-from hextools.gui.narrator import MsgHookNarrator, nl_msg_hook
 
 _NO_PLAN = "\u2014"  # em dash
 _NOT_APPLICABLE = "N/A"
@@ -264,7 +263,7 @@ class PlanMonitor(QObject):
     def __init__(
         self,
         re: RunEngine,
-        narrator: MsgHookNarrator = nl_msg_hook,
+        narrator=None,
         namespace: Mapping[str, Any] | None = None,
         parent=None,
     ):
@@ -275,7 +274,7 @@ class PlanMonitor(QObject):
         self._current: PlanRecord | None = None
 
         self._msg_hook = None
-        if re.msg_hook is not narrator:
+        if narrator is not None and re.msg_hook is not narrator:
             self._msg_hook = install_hook(re, "msg_hook", narrator)
         self._state_hook = install_hook(
             re, "state_hook", lambda new, old: self._on_state(str(new), str(old))
@@ -312,7 +311,8 @@ class PlanMonitor(QObject):
             self._current.start_time = time.time()
             self.plan_started.emit(self._current.name, self._current.call)
         elif new_state == "idle":
-            self._narrator.flush()
+            if self._narrator is not None:
+                self._narrator.flush()
             record, self._current = self._current, None
             if record is not None:
                 record.stop_time = time.time()

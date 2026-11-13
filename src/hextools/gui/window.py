@@ -53,7 +53,6 @@ from hextools.gui.available_devices import QtAvailableDevices
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor
 from hextools.gui.live_re_md_viewer import QtProposalInfo
 from hextools.gui.misc import QtTabbedDetectorsWidget, QtWeatherWidget
-from hextools.gui.narrator import MsgHookNarrator
 from hextools.gui.plan_status import (
     PlanMonitor,
     QtPlanExecutionView,
@@ -174,7 +173,6 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         self._plan_monitor = (
             PlanMonitor(
                 re_client,
-                narrator=MsgHookNarrator(logger=spec.logger_name),
                 namespace=user_ns,
                 parent=self,
             )
