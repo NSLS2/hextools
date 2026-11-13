@@ -141,7 +141,8 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
     async def stop(self, success: bool = False):
         """Stop the motors a beam-mode change moves."""
         await asyncio.gather(
-            self.xtal1_vertical_trans.stop(), self.cooled_beam_stop.stop()
+            self.xtal1_vertical_trans.stop(success=success),
+            self.cooled_beam_stop.stop(success=success),
         )
 
 
@@ -168,6 +169,8 @@ def change_beam_mode(
     if mode == BeamMode.WHITE:
         yield from ensure_shutter_closed(fe_shutter)
 
+    # Resuming after a pause rewinds here, so the beam mode change is made again.
+    yield from bps.checkpoint()
     yield from bps.mv(dclm, mode)
     yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
 
@@ -247,6 +250,8 @@ def change_energy(
         else:
             fluo_y = c.fs_in
 
+        # Resuming after a pause rewinds to the checkpoint before each move.
+        yield from bps.checkpoint()
         # fmt: off
         yield from bps.mv(
             dclm.xtal2_z, z,
@@ -296,6 +301,7 @@ def change_energy(
         coarse_center = yield from energy_auto_tune(
             "coarse", coarse_angle_range, coarse_num_steps
         )
+        yield from bps.checkpoint()
         yield from bps.mv(dclm.xtal2_pitch, coarse_center)
 
         fine_center = yield from energy_auto_tune(
@@ -304,6 +310,7 @@ def change_energy(
 
         # To minimize issues with backlash, always approach the final position
         # from below.
+        yield from bps.checkpoint()
         yield from bps.mv(dclm.xtal2_pitch, fine_center - 0.05)
         yield from bps.mv(dclm.xtal2_pitch, fine_center)
 
