@@ -14,6 +14,7 @@ from ophyd_async.core import (
     StaticPathProvider,
     TriggerInfo,
     callback_on_mock_put,
+    get_mock_put,
     init_devices,
     set_mock_value,
 )
@@ -25,6 +26,7 @@ from ophyd_async.epics.adcore import (
 )
 
 import hextools.detectors.phantom
+from hextools.detectors import enable_preview_mode
 from hextools.detectors.phantom import (
     PhantomAcquireLogic,
     PhantomDetector,
@@ -432,3 +434,32 @@ async def test_detector_full_stack(
     # A single event, containing all 11 downloaded frames
     assert data.shape == (1, 11, 3, 4)
     assert data.dtype == np.uint16
+
+
+@pytest.mark.parametrize("acquiring", [False, True])
+def test_enable_preview_mode_starts_live_preview(
+    RE: RunEngine, phantom_detector: PhantomDetector, acquiring: bool
+):
+    set_mock_value(phantom_detector.driver.acquire, acquiring)
+
+    RE(enable_preview_mode(phantom_detector))
+
+    assert get_mock_put(phantom_detector.driver.preview).call_args.args[0] == 1
+    # A running recording is stopped first.
+    acquire_puts = get_mock_put(phantom_detector.driver.acquire).call_args_list
+    assert [c.args[0] for c in acquire_puts] == ([False] if acquiring else [])
+
+
+@pytest.mark.parametrize("edge", [False, True])
+async def test_prepare_stops_live_preview(
+    phantom_trigger_logic: PhantomTriggerLogic, edge: bool
+):
+    # The IOC refuses to download while live preview runs.
+    set_mock_value(phantom_trigger_logic.driver.preview, 1)
+
+    if edge:
+        await phantom_trigger_logic.prepare_edge(10, 0.01)
+    else:
+        await phantom_trigger_logic.prepare_internal(10, 0.01, 0)
+
+    assert await phantom_trigger_logic.driver.preview.get_value() == 0

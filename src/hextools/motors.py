@@ -1,9 +1,11 @@
 """Motion stages and related utility functions for the HEX beamline."""
 
 import asyncio
-from typing import Any
+from typing import Any, NamedTuple
 
 import bluesky.plan_stubs as bps
+from bluesky import plan_patterns
+from bluesky.protocols import Movable
 from ophyd_async.core import (
     AsyncMovable,
     AsyncStatus,
@@ -30,6 +32,7 @@ from ophyd_async.epics.motor import (
 from ophyd_async.epics.motor import (
     VeloAndAcclRespectingMotorMock,
 )
+from ophyd_async.sim import SimMotor
 
 # Make every Motor respect velocity/acceleration in mock mode by default.
 default_mock_class(VeloAndAcclRespectingMotorMock)(AsyncEpicsMotor)
@@ -319,7 +322,21 @@ class CollimatorTable(StandardReadable, EpicsDevice):
             )
 
 
-def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = None):
+class DiffractionTable(StandardReadable, EpicsDevice):
+    """HEX diffraction table."""
+
+    def __init__(self, prefix: str, name: str = "diff_table"):
+        super().__init__(prefix, name=name)
+        with self.add_children_as_readables(Format.CHILD):
+            self.x = AsyncEpicsMotor(prefix + "X}Mtr", name="x")
+            self.x_rbk = AsyncEpicsMotor(prefix + "XRbk}Mtr", name="x_rbk")
+            self.y = AsyncEpicsMotor(prefix + "Y}Mtr", name="y")
+            self.z = AsyncEpicsMotor(prefix + "Z}Mtr", name="z")
+
+
+def move_motor(
+    motor: AsyncEpicsMotor | SimMotor, value: float, timeout: float | None = None
+):
     """Move the specified motor to the given position.
 
     Wraps the `bps.mv` plan stub to create a plan signature more conducive to creating
@@ -327,7 +344,7 @@ def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = Non
 
     Parameters
     ----------
-    motor : AsyncEpicsMotor
+    motor : AsyncEpicsMotor | SimMotor
         The motor to move.
     value : float
         The target position for the motor.
@@ -341,3 +358,43 @@ def move_motor(motor: AsyncEpicsMotor, value: float, timeout: float | None = Non
         If the motor fails to reach the target position within the specified timeout.
     """
     yield from bps.mv(motor, value, timeout=timeout)
+
+
+class NDAxis(NamedTuple):
+    """One axis of an N-dimensional step trajectory."""
+
+    axis: Movable[float]
+    start: float
+    stop: float
+    num_points: int
+
+
+def construct_nd_trajectory(
+    *axes: NDAxis, snake_axes: bool | list = False, num_iterations: int = 1
+):
+    """Construct an ND trajectory for the specified axes."""
+    # Extract the step axes from the positional arguments.
+    motors = [axis.axis for axis in axes]
+
+    # Determine which axes are snaked based on the snake_axes argument.
+    if isinstance(snake_axes, bool):
+        snaked = motors[1:] if snake_axes else []
+    else:
+        snaked = list(snake_axes)
+
+    # Make sure we didn't ask to snake the outermost axis.
+    if motors and motors[0] in snaked:
+        raise ValueError("The outermost axis cannot be snaked.")
+
+    # Construct the grid of positions for the scan.
+    if axes:
+        pattern_args: list[Any] = [*axes[0]]
+        for axis in axes[1:]:
+            pattern_args += [*axis, axis.axis in snaked]
+        grid = plan_patterns.outer_product(pattern_args)
+    else:
+        grid = [{}]  # When no axes are specified, create a single-point grid.
+
+    # Repeat the trajectory the specified number of times.
+    trajectory = grid * num_iterations
+    return trajectory

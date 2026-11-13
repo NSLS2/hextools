@@ -2,16 +2,18 @@
 
 import asyncio
 from enum import StrEnum
-from functools import partial
 
 import bluesky.plan_stubs as bps
+from bluesky.protocols import Callback, Locatable, Location, Subscribable
 from ophyd_async.core import (
     AsyncMovable,
+    AsyncStatus,
     StandardReadable,
     WatchableAsyncStatus,
+    WatcherUpdate,
     derived_signal_r,
-    derived_signal_rw,
     forward_watcher_updates,
+    observe_value,
 )
 from ophyd_async.core import StandardReadableFormat as Format
 from ophyd_async.epics.core import EpicsDevice
@@ -103,6 +105,145 @@ def set_fe_aperture(aperture: SlitAperture, fe_slit1: FrontEndSlit | None = None
     yield from bps.mv(fe_slit1, SlitAperture(aperture))
 
 
+class _BladePairAxis(
+    StandardReadable, AsyncMovable[float], Locatable[float], Subscribable[float]
+):
+    """A gap or center of a pair of slit blades, moved by moving both blades.
+
+    Each blade moves with its own motor's timeout, and progress is reported to
+    watchers as the gap or center. Subscribing follows the readback, as a motor's
+    subscription follows its user readback.
+
+    Parameters
+    ----------
+    low : AsyncEpicsMotor
+        The low blade (inboard or bottom).
+    high : AsyncEpicsMotor
+        The high blade (outboard or top).
+    name : str
+        Device name.
+    units : str
+        Units of the gap or center, as reported to watchers.
+    precision : int
+        Decimal places of the gap or center, as reported to watchers.
+    """
+
+    def __init__(
+        self,
+        low: AsyncEpicsMotor,
+        high: AsyncEpicsMotor,
+        name: str = "",
+        units: str = "mm",
+        precision: int = 3,
+    ):
+        # A tuple, so the blades are not adopted as children of this device
+        self._blades = (low, high)
+        self._units = units
+        self._precision = precision
+        with self.add_children_as_readables(Format.HINTED_SIGNAL):
+            self.readback = derived_signal_r(
+                self._forward,
+                derived_units=units,
+                derived_precision=precision,
+                low=low,
+                high=high,
+            )
+        super().__init__(name=name)
+
+    def set_name(self, name: str, *, child_name_separator: str | None = None) -> None:
+        """Name the readback after this device, as a motor's readback is."""
+        super().set_name(name, child_name_separator=child_name_separator)
+        self.readback.set_name(name)
+
+    def subscribe_reading(self, function: Callback[float]) -> None:
+        """Subscribe to the readback."""
+        self.readback.subscribe_reading(function)
+
+    def clear_sub(self, function: Callback[float]) -> None:
+        """Remove a readback subscription."""
+        self.readback.clear_sub(function)
+
+    @staticmethod
+    def _forward(low: float, high: float) -> float:
+        """Forward kinematics: the gap or center from the blade positions."""
+        raise NotImplementedError
+
+    @staticmethod
+    def _backward(value: float, low: float, high: float) -> tuple[float, float]:
+        """Backward kinematics: blade targets that give ``value``."""
+        raise NotImplementedError
+
+    async def locate(self) -> Location[float]:
+        """Return the setpoint and readback computed from both blades."""
+        low, high = self._blades
+        low_sp, high_sp, low_rb, high_rb = await asyncio.gather(
+            low.user_setpoint.get_value(),
+            high.user_setpoint.get_value(),
+            low.user_readback.get_value(),
+            high.user_readback.get_value(),
+        )
+        return Location(
+            setpoint=self._forward(low_sp, high_sp),
+            readback=self._forward(low_rb, high_rb),
+        )
+
+    @WatchableAsyncStatus.wrap
+    async def set(self, value: float):
+        """Move both blades so the gap or center reaches ``value``."""
+        low, high = self._blades
+        low_rb, high_rb = await asyncio.gather(
+            low.user_readback.get_value(), high.user_readback.get_value()
+        )
+        low_target, high_target = self._backward(value, low_rb, high_rb)
+        initial = self._forward(low_rb, high_rb)
+
+        async def move_blades():
+            await asyncio.gather(low.set(low_target), high.set(high_target))
+
+        move_status = AsyncStatus(move_blades())
+        async for current in observe_value(self.readback, done_status=move_status):
+            yield WatcherUpdate(
+                current=current,
+                initial=initial,
+                target=value,
+                name=self.name,
+                unit=self._units,
+                precision=self._precision,
+            )
+        # Re-raise a blade's failure; observe_value only stops when the move ends
+        await move_status
+
+    async def stop(self, success: bool = False):
+        """Stop both blades, so pausing or aborting the RunEngine stops a move."""
+        await asyncio.gather(*(blade.stop() for blade in self._blades))
+
+
+class SlitGap(_BladePairAxis):
+    """Separation between a pair of slit blades; setting it keeps the center."""
+
+    @staticmethod
+    def _forward(low: float, high: float) -> float:
+        return high - low
+
+    @staticmethod
+    def _backward(value: float, low: float, high: float) -> tuple[float, float]:
+        center = (low + high) / 2
+        return center - value / 2, center + value / 2
+
+
+class SlitCenter(_BladePairAxis):
+    """Midpoint of a pair of slit blades; setting it keeps the gap."""
+
+    @staticmethod
+    def _forward(low: float, high: float) -> float:
+        return (low + high) / 2
+
+    @staticmethod
+    def _backward(value: float, low: float, high: float) -> tuple[float, float]:
+        shift = value - (low + high) / 2
+        return low + shift, high + shift
+
+
 class Slits(
     StandardReadable,
     EpicsDevice,
@@ -113,9 +254,9 @@ class Slits(
 ):
     """Generic slits with inboard, outboard, bottom, and top motors.
 
-    Exposes gap and center as read-write derived signals for both the horizontal
-    (inboard/outboard) and vertical (bottom/top) axes. Setting a gap keeps the
-    center fixed; setting a center keeps the gap fixed.
+    Exposes gap and center as movable :class:`SlitGap` and :class:`SlitCenter`
+    devices for both the horizontal (inboard/outboard) and vertical (bottom/top)
+    axes. Setting a gap keeps the center fixed; setting a center keeps the gap fixed.
     """
 
     def __init__(self, prefix: str, name: str = ""):
@@ -125,129 +266,13 @@ class Slits(
             self.bottom = AsyncEpicsMotor(prefix + "B}Mtr")
             self.top = AsyncEpicsMotor(prefix + "T}Mtr")
 
-        with self.add_children_as_readables(Format.HINTED_SIGNAL):
-            self.horizontal_gap = derived_signal_rw(
-                self._get_gap,
-                partial(self._set_gap, self.inboard, self.outboard),
-                derived_units="mm",
-                derived_precision=3,
-                low=self.inboard,
-                high=self.outboard,
-            )
-            self.horizontal_center = derived_signal_rw(
-                self._get_center,
-                partial(self._set_center, self.inboard, self.outboard),
-                derived_units="mm",
-                derived_precision=3,
-                low=self.inboard,
-                high=self.outboard,
-            )
-            self.vertical_gap = derived_signal_rw(
-                self._get_gap,
-                partial(self._set_gap, self.bottom, self.top),
-                derived_units="mm",
-                derived_precision=3,
-                low=self.bottom,
-                high=self.top,
-            )
-            self.vertical_center = derived_signal_rw(
-                self._get_center,
-                partial(self._set_center, self.bottom, self.top),
-                derived_units="mm",
-                derived_precision=3,
-                low=self.bottom,
-                high=self.top,
-            )
+        with self.add_children_as_readables(Format.CHILD):
+            self.horizontal_gap = SlitGap(self.inboard, self.outboard)
+            self.horizontal_center = SlitCenter(self.inboard, self.outboard)
+            self.vertical_gap = SlitGap(self.bottom, self.top)
+            self.vertical_center = SlitCenter(self.bottom, self.top)
 
         super().__init__(name=name)
-
-    def _get_gap(self, low: float, high: float) -> float:
-        """Gap is the separation between the low and high blades.
-
-        Parameters
-        ----------
-        low : float
-            The position of the low blade (inboard or bottom).
-        high : float
-            The position of the high blade (outboard or top).
-
-        Returns
-        -------
-        float
-            The gap between the low and high blades.
-        """
-        return high - low
-
-    def _get_center(self, low: float, high: float) -> float:
-        """Center is the midpoint between the low and high blades.
-
-        Parameters
-        ----------
-        low : float
-            The position of the low blade (inboard or bottom).
-        high : float
-            The position of the high blade (outboard or top).
-
-        Returns
-        -------
-        float
-            The center position between the low and high blades.
-        """
-        return (low + high) / 2
-
-    @WatchableAsyncStatus.wrap
-    async def _set_gap(
-        self, low_motor: AsyncEpicsMotor, high_motor: AsyncEpicsMotor, gap: float
-    ):
-        """Set the gap while holding the center fixed.
-
-        Parameters
-        ----------
-        low_motor : AsyncEpicsMotor
-            The motor controlling the low blade (inboard or bottom).
-        high_motor : AsyncEpicsMotor
-            The motor controlling the high blade (outboard or top).
-        gap : float
-            The desired gap between the low and high blades.
-        """
-        low, high = await asyncio.gather(
-            low_motor.user_readback.get_value(),
-            high_motor.user_readback.get_value(),
-        )
-        center = (low + high) / 2
-        statuses = [
-            low_motor.set(center - gap / 2),
-            high_motor.set(center + gap / 2),
-        ]
-        async for update in forward_watcher_updates(statuses, self.name, combine=False):
-            yield update
-
-    @WatchableAsyncStatus.wrap
-    async def _set_center(
-        self, low_motor: AsyncEpicsMotor, high_motor: AsyncEpicsMotor, center: float
-    ):
-        """Set the center while holding the gap fixed.
-
-        Parameters
-        ----------
-        low_motor : AsyncEpicsMotor
-            The motor controlling the low blade (inboard or bottom).
-        high_motor : AsyncEpicsMotor
-            The motor controlling the high blade (outboard or top).
-        center : float
-            The desired center position for the blades.
-        """
-        low, high = await asyncio.gather(
-            low_motor.user_readback.get_value(),
-            high_motor.user_readback.get_value(),
-        )
-        shift = center - (low + high) / 2
-        statuses = [
-            low_motor.set(low + shift),
-            high_motor.set(high + shift),
-        ]
-        async for update in forward_watcher_updates(statuses, self.name, combine=False):
-            yield update
 
     @WatchableAsyncStatus.wrap
     async def set(
@@ -273,16 +298,13 @@ class Slits(
             )
 
         # Set gaps first to preserve centers, then set centers to preserve gaps.
-        gaps = [
-            self._set_gap(self.inboard, self.outboard, h_gap),
-            self._set_gap(self.bottom, self.top, v_gap),
-        ]
+        gaps = [self.horizontal_gap.set(h_gap), self.vertical_gap.set(v_gap)]
         async for update in forward_watcher_updates(gaps, self.name, combine=False):
             yield update
 
         centers = [
-            self._set_center(self.inboard, self.outboard, h_center),
-            self._set_center(self.bottom, self.top, v_center),
+            self.horizontal_center.set(h_center),
+            self.vertical_center.set(v_center),
         ]
         async for update in forward_watcher_updates(centers, self.name, combine=False):
             yield update

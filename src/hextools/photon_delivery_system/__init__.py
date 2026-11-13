@@ -1,7 +1,7 @@
 """Photon delivery system (PDS) devices and plans."""
 
 from .dclm import DCLM, change_beam_mode, change_energy
-from .filters import Filter, FilterPosition, set_filters
+from .filters import Filter, FilterPosition, move_filters, set_filters
 from .shutter import (
     InterlockAcknowledge,
     PPSShutter,
@@ -20,6 +20,7 @@ __all__ = [
     "ShutterStatus",
     "Filter",
     "set_filters",
+    "move_filters",
     "FilterPosition",
     "Slits",
     "FrontEndSlit",

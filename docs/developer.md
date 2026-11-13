@@ -7,7 +7,10 @@ test it, and how to make it available in the GUI.
 
 ```bash
 pixi install -e dev
-pixi run tests                 # pytest with coverage
+pixi run tests                 # unit tests, no coverage
+pixi run gui-tests             # GUI tests (their own process, as in CI)
+pixi run all-tests             # both, each in its own process
+pixi run tests-cov             # both, with one combined coverage report
 pixi run lint                  # pre-commit hooks (ruff, ...)
 pixi run type-check            # pyright
 pixi run start-mock            # try your code in a mock IPython session
@@ -241,6 +244,19 @@ The `RE` fixture comes from `tests/conftest.py`. Pass every supporting device
 explicitly in tests: there is no IPython namespace for `ensure_available` to
 search. See `tests/tomography/` for fixtures that build mock shutters which
 respond to open/close commands and mock Kinetix detectors with file writers.
+
+Keep tests fast:
+
+- **Tiled**: use the `tiled_client` fixture. It hands each test its own container
+  in one Tiled server shared by the whole run (starting a server takes seconds),
+  plus a data directory the server can read.
+- **Waits**: a plan that settles for seconds (e.g. 4 s after a shutter moves)
+  wastes that time in tests. Add `@pytest.mark.usefixtures("skip_long_sleeps")`
+  to make sleeps of a second or more return at once; the fixture yields the
+  lengths that were requested, if the test wants to check them.
+- **Timing**: don't assert wall-clock times close to how long a step takes; a
+  loaded machine runs slower. E.g. `bps.repeat` subtracts an iteration's own
+  duration from its delay, so tests use a delay far longer than an iteration.
 
 ### Describing the data (optional)
 

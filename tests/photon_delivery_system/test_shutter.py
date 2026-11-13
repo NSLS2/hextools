@@ -174,6 +174,7 @@ async def test_mock_shutter_default_behavior(
     assert uniform_calls == [(0.0, 3.0), (0.0, 3.0)]
 
 
+@pytest.mark.usefixtures("skip_long_sleeps")
 @pytest.mark.parametrize("allow_actuation", [True, False])
 @pytest.mark.parametrize(
     ("ensure_plan", "initial_status", "desired_status"),

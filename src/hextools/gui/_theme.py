@@ -130,6 +130,13 @@ QGroupBox::title {{
     color: {ACCENT_TEXT};
     font-weight: 600;
 }}
+QLabel#statusSectionHeader {{
+    color: {ACCENT_TEXT};
+    font-weight: 600;
+    border-bottom: 1px solid {BORDER};
+    padding-bottom: 1px;
+}}
+QLabel#statusFieldLabel {{ color: {TEXT_MUTED}; }}
 
 QPushButton {{
     background-color: {TEAL};

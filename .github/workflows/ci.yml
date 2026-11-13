@@ -80,8 +80,14 @@ jobs:
 
       - name: Run tests
         # The GUI tests run in their own job: in one process with the rest, Qt objects
-        # they leave behind crash later tests when garbage-collected.
-        run: pixi run --as-is -e ${{ steps.pixi.outputs.env }} pytest --ignore=tests/gui --cov=src/hextools --cov-report=xml --cov-report=term
+        # they leave behind crash later tests when garbage-collected. Coverage is
+        # measured on one Python version only (the one Codecov will read), with the
+        # faster sys.monitoring core.
+        env:
+          COVERAGE_CORE: sysmon
+        run: >-
+          pixi run --as-is -e ${{ steps.pixi.outputs.env }} pytest --ignore=tests/gui
+          ${{ matrix.python-version == '3.13' && '--cov=src/hextools --cov-report=xml --cov-report=term' || '' }}
 
   gui-test:
     name: GUI Tests
@@ -106,7 +112,8 @@ jobs:
       - name: Run GUI tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pixi run --as-is -e dev pytest tests/gui
+          COVERAGE_CORE: sysmon
+        run: pixi run --as-is -e dev pytest tests/gui --cov=src/hextools --cov-report=xml:coverage-gui.xml --cov-report=term
 
       # Uncomment once codecov is enabled.
       # - name: Upload coverage to Codecov
