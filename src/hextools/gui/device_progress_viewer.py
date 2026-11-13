@@ -1,15 +1,11 @@
 """Widgets showing live RunEngine device progress bars."""
 
-from functools import partial
 from typing import Any
 
-from bluesky import RunEngine
-from bluesky_widgets.models.run_engine_client import RunEngineClient
 from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
 
-from ._hook_chain import live_hook, uninstall_hook
-from ._threading import FunctionWorker
+from .run_engine_clients import RunEngineClient
 
 
 class _ReDeviceProgressBar(QWidget):
@@ -24,7 +20,7 @@ class _ReDeviceProgressBar(QWidget):
     percentage are drawn on the bar.
     """
 
-    def __init__(self, name, parent=None):
+    def __init__(self, name: str, parent: QWidget | None = None):
         super().__init__(parent)
 
         self._lb_name = QLabel(f"{name}")
@@ -138,71 +134,6 @@ class _ReDeviceProgressBar(QWidget):
         self._lb_end.setText(f"\u2192 {fmt_pos(target)}  ({eta})")
 
 
-class _WaitingHookDispatcher:
-    """A RunEngine ``waiting_hook`` that forwards watcher updates to a monitor.
-
-    Installed as ``RE.waiting_hook``. Any previously-installed hook (e.g. a
-    terminal ``ProgressBarManager``) is preserved in ``previous_hook`` and still
-    receives every call, so existing behavior keeps working alongside the GUI.
-    """
-
-    def __init__(self, monitor: "QtReWaitingHookMonitor", previous_hook=None):
-        self._monitor = monitor
-        self.previous = previous_hook
-        self.detached = False
-        self._names: dict[int, str] = {}  # id(status) -> device name
-
-    def __call__(self, status_objects):
-        # Pass through to any pre-existing hook first.
-        previous = live_hook(self.previous)
-        if previous is not None:
-            try:
-                previous(status_objects)
-            except Exception:
-                pass
-        if self.detached:
-            return
-
-        if status_objects is None:
-            self._names.clear()
-            self._monitor.signal_completed.emit()
-            return
-
-        for status in status_objects:
-            if not hasattr(status, "watch"):
-                continue
-            try:
-                status.watch(partial(self._on_watch, status))
-            except Exception:
-                pass
-            try:
-                status.add_callback(self._on_finished)
-            except Exception:
-                pass
-
-    def _on_watch(self, status, *, name=None, **kwargs):
-        if self.detached:
-            return
-        if name is None:
-            name = self._names.get(id(status))
-        else:
-            self._names[id(status)] = name
-        msg = dict(kwargs)
-        msg["name"] = name
-        msg["done"] = bool(getattr(status, "done", False))
-        self._monitor.signal_progress_update.emit(msg)
-
-    def _on_finished(self, status=None, *args, **kwargs):
-        if self.detached:
-            return
-        name = self._names.get(id(status)) if status is not None else None
-        if name is None and status is not None:
-            name = getattr(getattr(status, "device", None), "name", None)
-        if name is None:
-            return
-        self._monitor.signal_progress_update.emit({"name": name, "done": True})
-
-
 class QtReWaitingHookMonitor(QWidget):
     """Display live progress bars for RunEngine ``waiting_hook``/watcher updates.
 
@@ -210,21 +141,18 @@ class QtReWaitingHookMonitor(QWidget):
     position, target, current position and estimated time remaining. All progress
     bars are cleared when the wait completes.
 
-    Accepts either a Queue Server ``RunEngineClient`` (progress is streamed from
-    RE Manager) or a raw in-process ``RunEngine`` (the widget installs itself as
-    ``RE.waiting_hook``, chaining to any hook that was already set).
+    Parameters
+    ----------
+    re_client : RunEngineClient
+        The RunEngine whose progress stream is shown.
     """
 
+    # The client may call back from any thread; this queued signal hops to Qt's.
     signal_progress_update = Signal(object)
-    signal_completed = Signal()
 
-    def __init__(self, re_client: RunEngineClient | RunEngine, parent=None):
+    def __init__(self, re_client: RunEngineClient, parent: QWidget | None = None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-
-        self._re_client = re_client
-        self._hook: _WaitingHookDispatcher | None = None
-        self._thread = None
 
         # Maps device name -> _ReDeviceProgressBar
         self._progress_bars = {}
@@ -243,58 +171,17 @@ class QtReWaitingHookMonitor(QWidget):
         self.setLayout(vbox)
 
         self.signal_progress_update.connect(self._handle_progress_msg)
-        self.signal_completed.connect(self._on_completed)
+        token = re_client.subscribe_progress(self.signal_progress_update.emit)
+        subscribed = [True]
 
-        if isinstance(self._re_client, RunEngineClient):
-            # Not in released bluesky-widgets (0.0.18); needs a newer release.
-            self._re_client.start_re_progress_monitoring()  # type: ignore
-            self._start_thread()
-        else:
-            self._install_waiting_hook()
+        def unsubscribe(*_):
+            if subscribed:
+                subscribed.clear()
+                re_client.unsubscribe_progress(token)
 
-    # -- Queue Server (RE Manager) path ---------------------------------------
-
-    def _start_thread(self):
-        # Not in released bluesky-widgets (0.0.18); needs a newer release.
-        self._thread = FunctionWorker(self._re_client.re_progress_monitoring_thread)  # type: ignore
-        if self._thread.returned is None:
-            raise RuntimeError(
-                "Failed to connect to the returned signal of the thread."
-            )
-        if self._thread.finished is None:
-            raise RuntimeError(
-                "Failed to connect to the finished signal of the thread."
-            )
-        self._thread.returned.connect(self._process_new_progress_update)
-        self._thread.finished.connect(self._finished_receiving_progress_update)
-        self._thread.start()
-
-    def _finished_receiving_progress_update(self):
-        self._start_thread()
-
-    def _process_new_progress_update(self, result):
-        if not result:
-            return
-        _, msg = result
-        self._handle_progress_msg(msg)
-
-    # -- In-process RunEngine path --------------------------------------------
-
-    def _install_waiting_hook(self):
-        run_engine = self._re_client
-        self._hook = _WaitingHookDispatcher(
-            self, getattr(run_engine, "waiting_hook", None)
-        )
-        run_engine.waiting_hook = self._hook  # type: ignore
-
-    def _uninstall_waiting_hook(self):
-        run_engine = self._re_client
-        if isinstance(run_engine, RunEngineClient) or self._hook is None:
-            return
-        uninstall_hook(run_engine, "waiting_hook", self._hook)
-        self._hook = None
-
-    # -- Shared display logic --------------------------------------------------
+        self._unsubscribe = unsubscribe
+        # Also on deletion without a close; holds no reference to this widget.
+        self.destroyed.connect(unsubscribe)
 
     def _handle_progress_msg(self, msg):
         if not msg:
@@ -328,16 +215,5 @@ class QtReWaitingHookMonitor(QWidget):
         self._progress_bars = {}
 
     def closeEvent(self, event):
-        self._uninstall_waiting_hook()
+        self._unsubscribe()
         super().closeEvent(event)
-
-    def __del__(self):
-        """Stop progress monitoring or restore the previous waiting hook."""
-        try:
-            if isinstance(self._re_client, RunEngineClient):
-                # Not in released bluesky-widgets (0.0.18); needs a newer release.
-                self._re_client.stop_re_progress_monitoring()  # type: ignore
-            else:
-                self._uninstall_waiting_hook()
-        except Exception:
-            pass

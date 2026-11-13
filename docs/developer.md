@@ -385,8 +385,8 @@ of several detectors.
 
 ### Other extension points
 
-- **Available Devices tab** — `EXPECTED_DEVICES` in `__main__.py` lists the
-  devices the beamline should have, with their types; add new devices there.
+- **Available Devices tab** — lists every device in the RunEngine client's
+  device registry, with its type and connection status.
 - **Scan Browser actions** — `QtScanBrowser.add_callback(spec, label, callback)`
   adds a button (and right-click action) for runs of a given spec. `callback`
   is called with the selected run's uid.

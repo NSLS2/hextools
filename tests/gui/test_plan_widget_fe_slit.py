@@ -4,13 +4,12 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("qtpy")
-pytest.importorskip("bluesky_widgets")
 
 from bluesky import RunEngine  # noqa: E402
-from IPython.core.interactiveshell import InteractiveShell  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
+from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 from hextools.photon_delivery_system.slits import (  # noqa: E402
     SlitAperture,
     set_fe_aperture,
@@ -19,8 +18,11 @@ from hextools.photon_delivery_system.slits import (  # noqa: E402
 
 def test_fe_slit1_form_is_one_aperture_dropdown_and_no_device_picker():
     app = QApplication.instance() or QApplication([])
-    InteractiveShell.instance()
-    widget = QtPlanWidget(RunEngine({}, call_returns_result=True), set_fe_aperture)
+    namespace = {
+        "RE": RunEngine({}, call_returns_result=True),
+        "set_fe_aperture": set_fe_aperture,
+    }
+    widget = QtPlanWidget(InProcessRunEngineClient(namespace), "set_fe_aperture")
     try:
         combos = {name: combo for name, combo, _ in widget._enum_fields}
         assert list(combos) == ["aperture"]

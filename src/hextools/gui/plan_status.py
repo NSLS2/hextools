@@ -4,24 +4,18 @@ from __future__ import annotations
 
 import enum
 import html
-import importlib
-import inspect
-import json
 import logging
-import os
-import time
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-from bluesky import RunEngine
-from bluesky.callbacks.best_effort import BestEffortCallback, hinted_fields
-from matplotlib.backends.backend_qt import NavigationToolbar2QT
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-from matplotlib.figure import Figure
-from qtpy.QtCore import QObject, Qt, QTimer, Signal, Slot
+from bluesky.callbacks.best_effort import hinted_fields
+
+# TODO: Restore with QtPlanProgressView.
+# from bluesky.callbacks.best_effort import BestEffortCallback
+# from matplotlib.backends.backend_qt import NavigationToolbar2QT
+# from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+# from matplotlib.figure import Figure
+from qtpy.QtCore import Qt, QTimer, Slot
 from qtpy.QtGui import QColor, QFont, QFontDatabase, QPainter, QPen
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -34,7 +28,6 @@ from qtpy.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -42,292 +35,24 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui._hook_chain import install_hook, uninstall_hook
-from hextools.gui._ipython import run_in_ipython, show_plan_error
-from hextools.gui.device_sources import _walk_namespace
-from hextools.gui.log_watcher import LogWatcher, level_color
-from hextools.utils.nl_msg_hook import MsgHookNarrator, nl_msg_hook
+from hextools.gui._client_signals import (
+    QtCurrentPlan,
+    QtLogRecords,
+    QtPlanHistoryChanges,
+    QtRunEngineState,
+)
+from hextools.gui.log_watcher import level_color
+from hextools.gui.plan_errors import show_plan_error
+from hextools.gui.run_engine_clients import HistoryItem, PlanInfo, RunEngineClient
 
 _NO_PLAN = "\u2014"  # em dash
 _NOT_APPLICABLE = "N/A"
-_EXIT_STATUS_LABELS = {"success": "Success", "fail": "Failed", "abort": "Aborted"}
 
 logger = logging.getLogger(__name__)
 
 
-class _UnrenderableError(Exception):
-    """A plan argument has no expression that would recreate it in the namespace."""
-
-
-def _render(value: Any, names: Mapping[int, str]) -> str:
-    """Return a Python expression for ``value`` that evaluates in the namespace."""
-    if id(value) in names:
-        return names[id(value)]
-    if isinstance(value, enum.Enum):
-        if isinstance(value, str):
-            return repr(value.value)
-        raise _UnrenderableError
-    if value is None or isinstance(value, (bool, int, float, complex, str, bytes)):
-        return repr(value)
-    if (
-        hasattr(value, "dtype")
-        and hasattr(value, "item")
-        and getattr(value, "ndim", None) == 0
-    ):
-        return repr(value.item())  # numpy scalar
-    if isinstance(value, list):
-        return "[" + ", ".join(_render(v, names) for v in value) + "]"
-    if isinstance(value, tuple):
-        inner = ", ".join(_render(v, names) for v in value)
-        return f"({inner},)" if len(value) == 1 else f"({inner})"
-    if isinstance(value, dict):
-        return (
-            "{"
-            + ", ".join(
-                f"{_render(k, names)}: {_render(v, names)}" for k, v in value.items()
-            )
-            + "}"
-        )
-    raise _UnrenderableError
-
-
-def _display(value: Any, names: Mapping[int, str]) -> str:
-    """Like :func:`_render`, but always returns something readable."""
-    try:
-        return _render(value, names)
-    except _UnrenderableError:
-        name = getattr(value, "name", None)
-        return name if isinstance(name, str) else repr(value)
-
-
-@dataclass
-class PlanRecord:
-    """A plan run through the RunEngine, as captured just before it started."""
-
-    name: str
-    arguments: str
-    rerunnable: bool
-    func: Callable | None = None
-    scan_ids: list = field(default_factory=list)
-    uids: list[str] = field(default_factory=list)
-    exit_status: str | None = None
-    start_time: float | None = None
-    stop_time: float | None = None
-
-    @property
-    def call(self) -> str:
-        return f"{self.name}({self.arguments})"
-
-    def to_json(self) -> dict[str, Any]:
-        func = None
-        if self.func is not None:
-            func = f"{self.func.__module__}:{self.func.__qualname__}"  # type: ignore
-        return {
-            "name": self.name,
-            "arguments": self.arguments,
-            "rerunnable": self.rerunnable,
-            "function": func,
-            "scan_ids": self.scan_ids,
-            "uids": self.uids,
-            "exit_status": self.exit_status,
-            "start_time": self.start_time,
-            "stop_time": self.stop_time,
-        }
-
-    @classmethod
-    def from_json(cls, data: dict[str, Any]) -> PlanRecord:
-        func = _import_function(data.get("function"))
-        return cls(
-            name=data["name"],
-            arguments=data["arguments"],
-            rerunnable=bool(data.get("rerunnable")) and func is not None,
-            func=func,
-            scan_ids=list(data.get("scan_ids") or []),
-            uids=list(data.get("uids") or []),
-            exit_status=data.get("exit_status"),
-            start_time=data.get("start_time"),
-            stop_time=data.get("stop_time"),
-        )
-
-
-def _import_function(reference: str | None) -> Callable | None:
-    """Resolve a ``module:qualname`` reference, or return None if it is gone."""
-    if not reference:
-        return None
-    module_name, _, qualname = reference.partition(":")
-    try:
-        obj: Any = importlib.import_module(module_name)
-        for part in qualname.split("."):
-            obj = getattr(obj, part)
-    except (ImportError, AttributeError):
-        return None
-    return obj if callable(obj) else None
-
-
-def _record_plan(plan: Any, namespace: Mapping[str, Any]) -> PlanRecord:
-    """Capture a plan's name and arguments before its first message is sent."""
-    gen = getattr(plan, "_iter", plan)  # unwrap bluesky's @plan ``Plan`` object
-    if not inspect.isgenerator(gen):
-        name = getattr(plan, "__name__", None) or type(plan).__name__
-        return PlanRecord(name=name, arguments="...", rerunnable=False)
-
-    code = gen.gi_code
-    # Before the first send, the generator's locals are exactly its arguments.
-    args = inspect.getgeneratorlocals(gen)
-    names = {id(obj): path for path, obj in _walk_namespace(namespace).items()}
-
-    varnames = code.co_varnames
-    n_pos, n_kwonly = code.co_argcount, code.co_kwonlyargcount
-    positional = varnames[:n_pos]
-    kwonly = varnames[n_pos : n_pos + n_kwonly]
-    index = n_pos + n_kwonly
-    varargs = varkw = None
-    if code.co_flags & inspect.CO_VARARGS:
-        varargs = varnames[index]
-        index += 1
-    if code.co_flags & inspect.CO_VARKEYWORDS:
-        varkw = varnames[index]
-
-    # (keyword or None for positional, value) in call order.
-    items: list[tuple[str | None, Any]] = []
-    extra_positional = args.get(varargs, ()) if varargs else ()
-    for i, param in enumerate(positional):
-        as_positional = i < code.co_posonlyargcount or bool(extra_positional)
-        items.append((None if as_positional else param, args[param]))
-    items.extend((None, v) for v in extra_positional)
-    items.extend((param, args[param]) for param in kwonly)
-    if varkw:
-        items.extend(args.get(varkw, {}).items())
-
-    func = (
-        gen.gi_frame.f_globals.get(code.co_name) if gen.gi_frame is not None else None
-    )
-    # Only re-run via a module-level function whose (unwrapped) code is this
-    # generator's.
-    if (
-        not callable(func)
-        or getattr(inspect.unwrap(func), "__code__", None) is not code
-    ):
-        func = None
-
-    # Keyword arguments left at a ``None`` default (e.g. auto-resolved devices) add
-    # nothing.
-    if func is not None:
-        defaults = {
-            name: p.default for name, p in inspect.signature(func).parameters.items()
-        }
-        items = [
-            (key, value)
-            for key, value in items
-            if not (
-                key is not None
-                and value is None
-                and defaults.get(key, inspect.Parameter.empty) is None
-            )
-        ]
-
-    rerunnable = True
-    parts = []
-    for key, value in items:
-        try:
-            text = _render(value, names)
-        except _UnrenderableError:
-            rerunnable = False
-            text = _display(value, names)
-        parts.append(text if key is None else f"{key}={text}")
-
-    return PlanRecord(
-        name=code.co_name,
-        arguments=", ".join(parts),
-        rerunnable=rerunnable and func is not None,
-        func=func,
-    )
-
-
 def _monospace_font() -> QFont:
     return QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-
-
-class PlanMonitor(QObject):
-    """Bridges RunEngine activity to Qt signals on the GUI thread.
-
-    Attaches ``narrator`` as the RunEngine ``msg_hook`` and chains onto any
-    existing ``msg_hook`` and ``state_hook`` rather than replacing them.
-    """
-
-    plan_started = Signal(str, str)
-    plan_finished = Signal(object)
-    run_started = Signal(object, str, str)
-    document = Signal(str, object)
-    state_changed = Signal(str)
-
-    def __init__(
-        self,
-        re: RunEngine,
-        narrator: MsgHookNarrator = nl_msg_hook,
-        namespace: Mapping[str, Any] | None = None,
-        parent=None,
-    ):
-        super().__init__(parent)
-        self._re = re
-        self._narrator = narrator
-        self._namespace = namespace if namespace is not None else {}
-        self._current: PlanRecord | None = None
-
-        self._msg_hook = None
-        if re.msg_hook is not narrator:
-            self._msg_hook = install_hook(re, "msg_hook", narrator)
-        self._state_hook = install_hook(
-            re, "state_hook", lambda new, old: self._on_state(str(new), str(old))
-        )
-        self._tokens = [
-            re.subscribe(self._on_start, "start"),
-            re.subscribe(self._on_document),
-        ]
-
-    def detach(self) -> None:
-        """Take this monitor's hooks and subscriptions off the RunEngine."""
-        re = self._re
-        if self._msg_hook is not None:
-            uninstall_hook(re, "msg_hook", self._msg_hook)
-        uninstall_hook(re, "state_hook", self._state_hook)
-        for token in self._tokens:
-            re.unsubscribe(token)
-        self._tokens = []
-
-    @property
-    def namespace(self) -> Mapping[str, Any]:
-        return self._namespace
-
-    @property
-    def run_engine(self) -> RunEngine:
-        return self._re
-
-    # These run on the RunEngine thread; Qt queues the signals onto the GUI thread.
-    def _on_state(self, new_state: str, old_state: str):
-        self.state_changed.emit(new_state)
-        if new_state == "running" and old_state == "idle":
-            plan = getattr(self._re, "_plan", None)  # noqa: SLF001
-            self._current = _record_plan(plan, self._namespace)
-            self._current.start_time = time.time()
-            self.plan_started.emit(self._current.name, self._current.call)
-        elif new_state == "idle":
-            self._narrator.flush()
-            record, self._current = self._current, None
-            if record is not None:
-                record.stop_time = time.time()
-                record.exit_status = getattr(self._re, "_exit_status", None)  # noqa: SLF001
-                self.plan_finished.emit(record)
-
-    def _on_start(self, name, doc):
-        scan_id, uid = doc.get("scan_id"), doc.get("uid", "")
-        if self._current is not None:
-            self._current.scan_ids.append(scan_id)
-            self._current.uids.append(uid)
-        self.run_started.emit(scan_id, uid, doc.get("plan_name") or "")
-
-    def _on_document(self, name, doc):
-        self.document.emit(name, doc)
 
 
 _STATE_COLORS = {
@@ -393,9 +118,10 @@ class QtPlanStatus(QWidget):
 
     When the plan runs another plan that opens a run under a different name, that inner
     plan and the current run's scan id are shown too, updating with each new run.
+    Log messages are the RunEngine client's.
     """
 
-    def __init__(self, monitor: PlanMonitor, logger_name: str, parent=None):
+    def __init__(self, re_client: RunEngineClient, parent=None):
         super().__init__(parent)
         self._plan = QLabel(_NO_PLAN)
         self._inner_plan = QLabel(_NO_PLAN)
@@ -410,7 +136,7 @@ class QtPlanStatus(QWidget):
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
         )
         self._outer_name = ""
-        self._scan_ids: list[str] = []
+        self._start_time: float | None = None
 
         self._indicator = _RunEngineStateIndicator()
         self._state = QLabel()
@@ -437,27 +163,44 @@ class QtPlanStatus(QWidget):
         vbox.addWidget(group_box)
         self.setLayout(vbox)
 
-        monitor.plan_started.connect(self._on_plan_started)
-        monitor.run_started.connect(self._on_run_started)
-        monitor.state_changed.connect(self._on_state_changed)
-        self._on_state_changed(str(monitor.run_engine.state))
-        self._watcher = LogWatcher(logger_name, level=logging.INFO, parent=self)
-        self._watcher.record.connect(self._on_record)
+        self._re_state = QtRunEngineState(re_client, self)
+        self._re_state.changed.connect(self._on_state_changed)
+        self._current_plan = QtCurrentPlan(re_client, self)
+        self._current_plan.changed.connect(self._on_plan_changed)
+        self._on_state_changed(re_client.state)
+        self._on_plan_changed(re_client.current_plan())
+        self._logs = QtLogRecords(re_client, self)
+        self._logs.record.connect(self._on_record)
 
     def _set_inner_visible(self, visible: bool):
         self._form.setRowVisible(self._inner_plan, visible)
         self._form.setRowVisible(self._inner_scan_id, visible)
 
-    @Slot(str, str)
-    def _on_plan_started(self, name: str, call: str):
-        self._outer_name = name
-        self._scan_ids = []
-        self._plan.setText(name)
-        self._scan_id.setText(_NO_PLAN)
-        self._inner_plan.setText(_NO_PLAN)
-        self._inner_scan_id.setText(_NO_PLAN)
-        self._set_inner_visible(False)
-        self._last.setText(_NO_PLAN)
+    @Slot(object)
+    def _on_plan_changed(self, plan: PlanInfo | None):
+        # Keep showing the last plan once it finishes.
+        if plan is None:
+            return
+        if plan.start_time != self._start_time or plan.name != self._outer_name:
+            self._start_time = plan.start_time
+            self._outer_name = plan.name
+            self._last.setText(_NO_PLAN)
+        self._plan.setText(plan.name)
+        scan_ids = [
+            _NO_PLAN if r.scan_id is None else str(r.scan_id) for r in plan.runs
+        ]
+        self._scan_id.setText(", ".join(scan_ids) or _NO_PLAN)
+        inner = [r for r in plan.runs if r.plan_name and r.plan_name != plan.name]
+        if inner:
+            run = inner[-1]
+            self._inner_plan.setText(run.plan_name or _NO_PLAN)
+            self._inner_scan_id.setText(
+                _NO_PLAN if run.scan_id is None else str(run.scan_id)
+            )
+        else:
+            self._inner_plan.setText(_NO_PLAN)
+            self._inner_scan_id.setText(_NO_PLAN)
+        self._set_inner_visible(bool(inner))
 
     @Slot(str)
     def _on_state_changed(self, state: str):
@@ -468,19 +211,16 @@ class QtPlanStatus(QWidget):
         font.setBold(state != "idle")
         self._state.setFont(font)
 
-    @Slot(object, str, str)
-    def _on_run_started(self, scan_id, uid: str, plan_name: str):
-        current = _NO_PLAN if scan_id is None else str(scan_id)
-        self._scan_ids.append(current)
-        self._scan_id.setText(", ".join(self._scan_ids))
-        if plan_name and plan_name != self._outer_name:
-            self._inner_plan.setText(plan_name)
-            self._inner_scan_id.setText(current)
-            self._set_inner_visible(True)
-
     @Slot(float, int, str, str)
     def _on_record(self, created: float, levelno: int, levelname: str, message: str):
-        self._last.setText(message)
+        if levelno >= logging.INFO:
+            self._last.setText(message)
+
+    def closeEvent(self, event):
+        self._re_state.stop()
+        self._current_plan.stop()
+        self._logs.stop()
+        super().closeEvent(event)
 
 
 class QtLiveTable(QWidget):
@@ -637,70 +377,68 @@ class QtLiveTable(QWidget):
         return str(value)
 
 
-class QtPlanProgressView(QWidget):
-    """Live table of the running plan, with the BestEffortCallback's plots beside it.
-
-    Any ``BestEffortCallback`` in the session namespace is redirected to draw its
-    figures here instead of in separate windows. The plot side stays hidden
-    until a figure is created.
-    """
-
-    def __init__(self, monitor: PlanMonitor, parent=None):
-        super().__init__(parent)
-        self._table = QtLiveTable()
-
-        self._plots = QWidget()
-        self._plots_layout = QVBoxLayout(self._plots)
-        self._plots_layout.setContentsMargins(0, 0, 0, 0)
-        self._plots.hide()
-
-        self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(self._table)
-        self._splitter.addWidget(self._plots)
-
-        vbox = QVBoxLayout(self)
-        vbox.setContentsMargins(0, 0, 0, 0)
-        vbox.addWidget(self._splitter)
-
-        monitor.document.connect(self._table.on_document)
-        monitor.plan_started.connect(self._clear_plots)
-        for obj in monitor.namespace.values():
-            if isinstance(obj, BestEffortCallback):
-                obj._fig_factory = self._make_figure  # noqa: SLF001
-
-    def _make_figure(self, name: str) -> Figure:
-        # The BEC is a QtAwareCallback, so this is called on the GUI thread.
-        figure = Figure(layout="constrained")
-        figure.set_label(name)
-        canvas = FigureCanvasQTAgg(figure)
-        plot = QWidget()
-        plot_layout = QVBoxLayout(plot)
-        plot_layout.setContentsMargins(0, 0, 0, 0)
-        plot_layout.addWidget(NavigationToolbar2QT(canvas, plot))
-        plot_layout.addWidget(canvas, stretch=1)
-        self._plots_layout.addWidget(plot, stretch=1)
-        if not self._plots.isVisible():
-            self._plots.show()
-            half = max(1, self._splitter.width() // 2)
-            self._splitter.setSizes([half, half])
-        return figure
-
-    @Slot()
-    def _clear_plots(self, *_):
-        while self._plots_layout.count():
-            item = self._plots_layout.takeAt(0)
-            if item is not None and item.widget() is not None:
-                item.widget().deleteLater()  # type: ignore
-        self._plots.hide()
+# TODO: Restore once the progress view gets documents from the RunEngine client.
+# class QtPlanProgressView(QWidget):
+#     """Live table of the running plan, with the BestEffortCallback's plots beside it.
+#
+#     Any ``BestEffortCallback`` in the session namespace is redirected to draw its
+#     figures here instead of in separate windows. The plot side stays hidden
+#     until a figure is created.
+#     """
+#
+#     def __init__(self, monitor: PlanMonitor, parent=None):
+#         super().__init__(parent)
+#         self._table = QtLiveTable()
+#
+#         self._plots = QWidget()
+#         self._plots_layout = QVBoxLayout(self._plots)
+#         self._plots_layout.setContentsMargins(0, 0, 0, 0)
+#         self._plots.hide()
+#
+#         self._splitter = QSplitter(Qt.Orientation.Horizontal)
+#         self._splitter.addWidget(self._table)
+#         self._splitter.addWidget(self._plots)
+#
+#         vbox = QVBoxLayout(self)
+#         vbox.setContentsMargins(0, 0, 0, 0)
+#         vbox.addWidget(self._splitter)
+#
+#         monitor.document.connect(self._table.on_document)
+#         monitor.plan_started.connect(self._clear_plots)
+#         for obj in monitor.namespace.values():
+#             if isinstance(obj, BestEffortCallback):
+#                 obj._fig_factory = self._make_figure  # noqa: SLF001
+#
+#     def _make_figure(self, name: str) -> Figure:
+#         # The BEC is a QtAwareCallback, so this is called on the GUI thread.
+#         figure = Figure(layout="constrained")
+#         figure.set_label(name)
+#         canvas = FigureCanvasQTAgg(figure)
+#         plot = QWidget()
+#         plot_layout = QVBoxLayout(plot)
+#         plot_layout.setContentsMargins(0, 0, 0, 0)
+#         plot_layout.addWidget(NavigationToolbar2QT(canvas, plot))
+#         plot_layout.addWidget(canvas, stretch=1)
+#         self._plots_layout.addWidget(plot, stretch=1)
+#         if not self._plots.isVisible():
+#             self._plots.show()
+#             half = max(1, self._splitter.width() // 2)
+#             self._splitter.setSizes([half, half])
+#         return figure
+#
+#     @Slot()
+#     def _clear_plots(self, *_):
+#         while self._plots_layout.count():
+#             item = self._plots_layout.takeAt(0)
+#             if item is not None and item.widget() is not None:
+#                 item.widget().deleteLater()  # type: ignore
+#         self._plots.hide()
 
 
 class QtPlanExecutionView(QWidget):
-    """The running plan's full call, above the records logged since it started.
+    """The running plan's call, above the client's log records since it started."""
 
-    Records are those logged to ``logger_name``.
-    """
-
-    def __init__(self, monitor: PlanMonitor, logger_name, parent=None):
+    def __init__(self, re_client: RunEngineClient, parent=None):
         super().__init__(parent)
         self._call = QLabel("No plan has run yet.")
         self._call.setFont(_monospace_font())
@@ -719,7 +457,7 @@ class QtPlanExecutionView(QWidget):
         )
 
         progress_tabs = QTabWidget()
-        progress_tabs.addTab(QtPlanProgressView(monitor), "Progress")
+        # progress_tabs.addTab(QtPlanProgressView(monitor), "Progress")
         progress_tabs.addTab(self._messages, "Debug")
         self._tabs = progress_tabs
 
@@ -728,18 +466,26 @@ class QtPlanExecutionView(QWidget):
         vbox.addWidget(progress_tabs, stretch=1)
         self.setLayout(vbox)
 
-        monitor.plan_started.connect(self._on_plan_started)
-        self._watcher = LogWatcher(logger_name, parent=self)
-        self._watcher.record.connect(self._on_record)
+        self._item_uid: str | None = None
+        self._current_plan = QtCurrentPlan(re_client, self)
+        self._current_plan.changed.connect(self._on_plan_changed)
+        self._on_plan_changed(re_client.current_plan())
+        self._logs = QtLogRecords(re_client, self)
+        self._logs.record.connect(self._on_record)
 
     def add_tab(self, widget: QWidget, label: str) -> None:
-        """Add a tab beside Progress and Debug."""
+        """Add a tab beside Debug."""
         self._tabs.addTab(widget, label)
 
-    @Slot(str, str)
-    def _on_plan_started(self, name: str, call: str):
-        self._call.setText(call)
-        self._messages.clear()
+    @Slot(object)
+    def _on_plan_changed(self, plan: PlanInfo | None):
+        # Keep showing the last plan once it finishes.
+        if plan is None:
+            return
+        self._call.setText(plan.call)
+        if plan.item_uid != self._item_uid:
+            self._item_uid = plan.item_uid
+            self._messages.clear()
 
     @Slot(float, int, str, str)
     def _on_record(self, created: float, levelno: int, levelname: str, message: str):
@@ -766,11 +512,14 @@ def _record_html(
 
 
 class QtPlanLogView(QWidget):
-    """Every record logged to ``logger_name`` this session, color-coded by level."""
+    """Every record the client logs this session, color-coded by level.
+
+    Each plan's records follow a line with its call.
+    """
 
     _MAX_LINES = 20000
 
-    def __init__(self, monitor: PlanMonitor, logger_name: str, parent=None):
+    def __init__(self, re_client: RunEngineClient, parent=None):
         super().__init__(parent)
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
@@ -780,14 +529,21 @@ class QtPlanLogView(QWidget):
         vbox.addWidget(self._log)
         self.setLayout(vbox)
 
-        monitor.plan_started.connect(self._on_plan_started)
-        self._watcher = LogWatcher(logger_name, parent=self)
-        self._watcher.record.connect(self._on_record)
+        self._item_uid: str | None = None
+        self._current_plan = QtCurrentPlan(re_client, self)
+        self._current_plan.changed.connect(self._on_plan_changed)
+        self._logs = QtLogRecords(re_client, self)
+        self._logs.record.connect(self._on_record)
 
-    @Slot(str, str)
-    def _on_plan_started(self, name: str, call: str):
-        stamp = datetime.now()
-        self._log.appendHtml(html.escape(f"[{stamp:%Y-%m-%d %H:%M:%S}] === {call} ==="))
+    @Slot(object)
+    def _on_plan_changed(self, plan: PlanInfo | None):
+        if plan is None or plan.item_uid == self._item_uid:
+            return
+        self._item_uid = plan.item_uid
+        stamp = datetime.fromtimestamp(plan.start_time or 0)
+        self._log.appendHtml(
+            html.escape(f"[{stamp:%Y-%m-%d %H:%M:%S}] === {plan.call} ===")
+        )
 
     @Slot(float, int, str, str)
     def _on_record(self, created: float, levelno: int, levelname: str, message: str):
@@ -797,27 +553,23 @@ class QtPlanLogView(QWidget):
 
 
 class QtPlanHistory(QWidget):
-    """Table of completed plans, newest first, with re-run of a selected plan.
+    """Table of a RunEngine client's plan history, newest first.
+
+    A selected plan can be re-run, and the history cleared.
 
     Parameters
     ----------
-    monitor : PlanMonitor
-        Source of finished plans.
-    history_file : str or Path, optional
-        JSON file the history is saved to after every plan. If it already
-        exists, its plans are loaded into the table on startup.
+    re_client : RunEngineClient
+        Keeps the history, and re-runs plans.
     """
 
     _COLUMNS = ("Start", "Stop", "Plan", "Arguments", "Status", "Scan ID", "UID")
     _ARGUMENTS_COLUMN = 3
 
-    def __init__(
-        self, monitor: PlanMonitor, history_file: str | Path | None = None, parent=None
-    ):
+    def __init__(self, re_client: RunEngineClient, parent=None):
         super().__init__(parent)
-        self._monitor = monitor
-        self._records: list[PlanRecord] = []  # same order as table rows
-        self._history_file = Path(history_file).expanduser() if history_file else None
+        self._re_client = re_client
+        self._items: list[HistoryItem] = []  # same order as table rows
 
         self._table = QTableWidget(0, len(self._COLUMNS))
         self._table.setHorizontalHeaderLabels(self._COLUMNS)
@@ -848,54 +600,9 @@ class QtPlanHistory(QWidget):
         vbox.addLayout(buttons)
         self.setLayout(vbox)
 
-        self._load()
-        monitor.plan_finished.connect(self._on_plan_finished)
-
-    def _load(self):
-        if self._history_file is None or not self._history_file.exists():
-            return
-        try:
-            entries = json.loads(self._history_file.read_text())
-            records = [PlanRecord.from_json(entry) for entry in entries]
-        except (OSError, ValueError, KeyError, TypeError) as ex:
-            # Don't overwrite a file we couldn't read; it may hold history worth
-            # recovering.
-            logger.warning(
-                "Not saving plan history: failed to load %s: %s", self._history_file, ex
-            )
-            self._history_file = None
-            return
-        for record in records:  # stored oldest first
-            self._add_row(record)
-
-    def _save(self):
-        if self._history_file is None:
-            return
-        try:
-            self._write(self._history_file)
-        except OSError as ex:
-            logger.warning(
-                "Failed to save plan history to %s: %s", self._history_file, ex
-            )
-
-    def save_as(self, path: str | Path):
-        """Write the history to ``path`` and keep saving there as plans finish.
-
-        Raises
-        ------
-        OSError
-            If the file can't be written; the previous save file is kept.
-        """
-        path = Path(path).expanduser()
-        self._write(path)
-        self._history_file = path
-
-    def _write(self, path: Path):
-        entries = [record.to_json() for record in reversed(self._records)]
-        tmp = path.with_name(path.name + ".tmp")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(entries, indent=2, default=str))
-        os.replace(tmp, path)  # atomic, so a crash can't truncate the file
+        self._history = QtPlanHistoryChanges(re_client, self)
+        self._history.changed.connect(self._show)
+        self._show(re_client.plan_history())
 
     @staticmethod
     def _fmt_time(timestamp: float | None) -> str:
@@ -904,16 +611,34 @@ class QtPlanHistory(QWidget):
         return f"{datetime.fromtimestamp(timestamp):%Y-%m-%d %H:%M:%S}"
 
     @Slot(object)
-    def _on_plan_finished(self, record: PlanRecord):
-        self._add_row(record)
-        self._save()
+    def _show(self, history: tuple[HistoryItem, ...]):
+        selected = self._selected_item()
+        self._items = list(reversed(history))
+        self._table.setRowCount(len(self._items))
+        for row, item in enumerate(self._items):
+            result = item.result
+            scan_ids = [str(s) for s in result.scan_ids if s is not None]
+            status = result.exit_status.capitalize()
+            cells = (
+                self._fmt_time(result.time_start),
+                self._fmt_time(result.time_stop),
+                item.name,
+                item.arguments,
+                f"{status}: {result.msg}" if result.msg else status,
+                ", ".join(scan_ids) or _NOT_APPLICABLE,
+                ", ".join(result.run_uids) or _NOT_APPLICABLE,
+            )
+            for column, text in enumerate(cells):
+                cell = QTableWidgetItem(text)
+                cell.setToolTip(text)
+                self._table.setItem(row, column, cell)
+            if selected is not None and item.item_uid == selected.item_uid:
+                self._table.selectRow(row)
+        self._update_button()
 
     def clear(self):
-        """Remove every plan from the table and the history file."""
-        self._table.setRowCount(0)
-        self._records.clear()
-        self._update_button()
-        self._save()
+        """Remove every plan from the client's history."""
+        self._re_client.clear_history()
 
     def _on_clear_clicked(self):
         answer = QMessageBox.question(
@@ -924,70 +649,46 @@ class QtPlanHistory(QWidget):
         if answer == QMessageBox.StandardButton.Yes:
             self.clear()
 
-    def _add_row(self, record: PlanRecord):
-        scan_ids = [str(s) for s in record.scan_ids if s is not None]
-        cells = (
-            self._fmt_time(record.start_time),
-            self._fmt_time(record.stop_time),
-            record.name,
-            record.arguments,
-            _EXIT_STATUS_LABELS.get(
-                record.exit_status or "", record.exit_status or _NOT_APPLICABLE
-            ),
-            ", ".join(scan_ids) or _NOT_APPLICABLE,
-            ", ".join(record.uids) or _NOT_APPLICABLE,
-        )
-        self._table.insertRow(0)
-        for column, text in enumerate(cells):
-            item = QTableWidgetItem(text)
-            item.setToolTip(text)
-            self._table.setItem(0, column, item)
-        self._records.insert(0, record)
-        self._update_button()
-
-    def _selected_record(self) -> PlanRecord | None:
+    def _selected_item(self) -> HistoryItem | None:
         rows = self._table.selectionModel().selectedRows()
-        return self._records[rows[0].row()] if rows else None
+        return self._items[rows[0].row()] if rows else None
+
+    def _rerun_problem(self, item: HistoryItem) -> str | None:
+        """Why ``item`` can't be re-run, or None if it can."""
+        if item.name not in self._re_client.plan_catalog:
+            return f"'{item.name}' is not an available plan."
+        try:
+            self._re_client.serialize_plan(item.name, *item.args, **item.kwargs)
+        except (TypeError, ValueError):
+            return "Some of this plan's arguments can't be passed to it again."
+        return None
 
     @Slot()
     def _update_button(self):
-        self._clear_button.setEnabled(bool(self._records))
-        record = self._selected_record()
-        self._rerun_button.setEnabled(record is not None and record.rerunnable)
-        if record is not None and not record.rerunnable:
-            self._rerun_button.setToolTip(
-                "This plan can't be re-run: its function or some of its arguments "
-                "can't be found in the session namespace."
-            )
-        else:
-            self._rerun_button.setToolTip("")
+        self._clear_button.setEnabled(bool(self._items))
+        item = self._selected_item()
+        problem = self._rerun_problem(item) if item is not None else None
+        self._rerun_button.setEnabled(item is not None and problem is None)
+        self._rerun_button.setToolTip(problem or "")
 
     def _on_rerun_clicked(self):
-        record = self._selected_record()
-        if record is None or not record.rerunnable:
+        item = self._selected_item()
+        if item is None or self._rerun_problem(item) is not None:
             return
-        if self._monitor.run_engine.state != "idle":
+        if self._re_client.state != "idle":
             QMessageBox.warning(
                 self, "RunEngine busy", "Wait for the current plan to finish."
             )
             return
-        namespace = self._monitor.namespace
-        existing = namespace.get(record.name)
-        if existing is None:
-            namespace[record.name] = record.func  # type: ignore
-        elif existing is not record.func:
-            QMessageBox.warning(
-                self,
-                "Name conflict",
-                f"'{record.name}' in the session refers to a different object than the "
-                "plan that originally ran, so it won't be re-run.",
-            )
-            return
-        code = f"RE({record.call})"
-        # Defer so the click handler returns before IPython executes the cell.
-        QTimer.singleShot(0, lambda: self._execute(code))
+        # Defer so the click handler returns before the plan runs.
+        QTimer.singleShot(0, lambda: self._execute(item))
 
-    def _execute(self, code: str):
-        error = run_in_ipython(code)
-        if error is not None:
+    def _execute(self, item: HistoryItem):
+        try:
+            self._re_client.execute_plan(item.name, *item.args, **item.kwargs)
+        except Exception as error:
             show_plan_error(self, "Re-run failed", error)
+
+    def closeEvent(self, event):
+        self._history.stop()
+        super().closeEvent(event)

@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from bluesky import RunEngine
 from bluesky.protocols import Reading
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
@@ -15,9 +14,13 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui._ipython import run_in_ipython, show_plan_error
-from hextools.gui.reading_sources import ReadingSource
+from hextools.gui._client_signals import QtRunEngineState
+from hextools.gui.plan_errors import show_plan_error
+from hextools.gui.run_engine_clients import DeviceName, RunEngineClient
 from hextools.gui.signal_status import QtSignalStatus
+
+#: Called with ``(shutter name, open?)``; returns the plan name and its keywords.
+ShutterPlanBuilder = Callable[[str, bool], tuple[str, dict[str, Any]]]
 
 # (top, bottom) gradient stops.
 _OPEN_COLORS = ("#7bb08a", "#4a7a58")
@@ -35,9 +38,9 @@ class _ShutterIndicator(QtSignalStatus):
 
     show_units = False
 
-    def __init__(self, var_name: str, source: ReadingSource, parent=None):
-        super().__init__(var_name, source, label=var_name, parent=parent)
-        self.var_name = var_name
+    def __init__(self, re_client: RunEngineClient, name: str, parent=None):
+        super().__init__(re_client, name, parent=parent)
+        self.var_name = name
         self.is_open: bool | None = None
         self._blocked_reason: str | None = None
         self.label_widget.setAlignment(
@@ -105,40 +108,38 @@ class _ShutterIndicator(QtSignalStatus):
 # TODO: Once ophyd as a service exists, this widget should use that when
 # running in remote mode.
 class QtShutterStatus(QWidget):
-    """Shutter indicators; click one to toggle it (local mode only).
+    """Shutter indicators; click one to toggle it.
 
     Parameters
     ----------
-    re : RunEngine
-        The in-process RunEngine.
-    source : ReadingSource
-        Where the shutters' open/closed states are read from.
+    re_client : RunEngineClient
+        Runs the shutter plans, and reads the shutters' open/closed states.
     shutters : Iterable[str]
-        Names, in ``source``, of explicitly selected boolean readbacks; also the
-        names passed to ``command_builder``.
-    command_builder : Callable[[str, bool], str]
-        Build the command for a named shutter and desired open state.
-        Device discovery, plan choice and settling policy belong to the caller.
+        Names, in the client's device registry, of explicitly selected boolean
+        readbacks; also the device names passed to the plan.
+    plan_builder : ShutterPlanBuilder
+        Return the plan, and its keyword arguments, that opens or closes a named
+        shutter. Device discovery, plan choice and settling policy belong to the
+        caller.
     """
 
     def __init__(
         self,
-        re: RunEngine,
-        source: ReadingSource,
+        re_client: RunEngineClient,
         shutters: Iterable[str],
-        command_builder: Callable[[str, bool], str],
+        plan_builder: ShutterPlanBuilder,
         parent=None,
     ):
         super().__init__(parent)
-        self._re = re
-        self._command_builder = command_builder
+        self._re_client = re_client
+        self._plan_builder = plan_builder
         self._pending = False
 
         self._indicators: list[_ShutterIndicator] = []
         rows = QVBoxLayout()
         rows.setContentsMargins(8, 6, 8, 6)
         for name in shutters:
-            indicator = _ShutterIndicator(name, source)
+            indicator = _ShutterIndicator(re_client, name)
             indicator.button.clicked.connect(lambda *_, i=indicator: self._toggle(i))
             rows.addWidget(indicator)
             self._indicators.append(indicator)
@@ -153,14 +154,12 @@ class QtShutterStatus(QWidget):
         vbox = QVBoxLayout()
         vbox.addWidget(group_box)
         self.setLayout(vbox)
-        self._timer = QTimer(self)
-        self._timer.setInterval(100)
-        self._timer.timeout.connect(self._update_enabled)
-        self._timer.start()
+        self._state = QtRunEngineState(re_client, self)
+        self._state.changed.connect(lambda *_: self._update_enabled())
         self._update_enabled()
 
     def _update_enabled(self):
-        if self._re.state != "idle":
+        if self._re_client.state != "idle":
             reason = "Shutters cannot be actuated while the RunEngine is not idle."
         elif self._pending:
             reason = "A shutter actuation command is running."
@@ -170,28 +169,29 @@ class QtShutterStatus(QWidget):
             indicator.set_blocked(reason)
 
     def _toggle(self, indicator: _ShutterIndicator):
-        if self._pending or self._re.state != "idle":
+        if self._pending or self._re_client.state != "idle":
             return
-        code = self._command_builder(indicator.var_name, not indicator.is_open)
-        # Reserve both controls before the deferred cell can run or Qt reenters.
+        name = indicator.var_name
+        plan, kwargs = self._plan_builder(name, not indicator.is_open)
+        # Reserve both controls before the deferred plan can run or Qt reenters.
         self._pending = True
         self._update_enabled()
-        # Defer so the click handler returns before IPython executes the cell.
-        QTimer.singleShot(0, lambda: self._execute_cell(code))
+        # Defer so the click handler returns before the plan runs.
+        QTimer.singleShot(0, lambda: self._execute(plan, name, kwargs))
 
-    def _execute_cell(self, code: str):
+    def _execute(self, plan: str, name: str, kwargs: dict[str, Any]):
         try:
-            if self._re.state != "idle":
+            if self._re_client.state != "idle":
                 return
-            error = run_in_ipython(code)
+            self._re_client.execute_plan(plan, DeviceName(name), **kwargs)
+        except Exception as error:
+            show_plan_error(self, "Shutter actuation failed", error)
         finally:
             self._pending = False
             self._update_enabled()
-        if error is not None:
-            show_plan_error(self, "Shutter actuation failed", error)
 
     def closeEvent(self, event):
-        self._timer.stop()
+        self._state.stop()
         for indicator in self._indicators:
             indicator.close()
         super().closeEvent(event)

@@ -9,6 +9,7 @@ pytest.importorskip("qtpy")
 from bluesky import RunEngine  # noqa: E402
 from bluesky.run_engine import call_in_bluesky_event_loop  # noqa: E402
 from ophyd_async.core import (  # noqa: E402
+    DeviceVector,
     StrictEnum,
     init_devices,
     soft_signal_rw,
@@ -24,9 +25,11 @@ from qtpy.QtWidgets import (  # noqa: E402
     QWidget,
 )
 
-from hextools.gui import movable_control, movable_group  # noqa: E402
-from hextools.gui.movable_control import QtMovableControl, set_type  # noqa: E402
+from hextools.catalog.generate import set_type, type_expr  # noqa: E402
+from hextools.gui import _ipython, movable_group  # noqa: E402
+from hextools.gui.movable_control import QtMovableControl  # noqa: E402
 from hextools.gui.movable_group import QtMovableGroup  # noqa: E402
+from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 from hextools.gui.slits_control import QtSlitsControl  # noqa: E402
 from hextools.photon_delivery_system.slits import Slits  # noqa: E402
 
@@ -49,8 +52,7 @@ def RE():
 @pytest.fixture
 def commands(monkeypatch):
     ran: list[str] = []
-    for module in (movable_control, movable_group):
-        monkeypatch.setattr(module, "run_in_ipython", ran.append)
+    monkeypatch.setattr(_ipython, "run_in_ipython", ran.append)
     return ran
 
 
@@ -69,8 +71,12 @@ def namespace(RE):
     }
 
 
+def _client(RE, namespace) -> InProcessRunEngineClient:
+    return InProcessRunEngineClient({**namespace, "RE": RE})
+
+
 def _control(namespace, RE, path):
-    return QtMovableControl(path, RE, namespace=namespace)
+    return QtMovableControl(path, _client(RE, namespace))
 
 
 def _edit(widget: QWidget) -> QLineEdit:
@@ -181,7 +187,9 @@ def test_explicit_value_type_covers_untyped_ophyd_v1_movables(
     namespace["axis"] = ophyd.Signal(name="axis", value=1.0)
     with pytest.raises(TypeError):
         _control(namespace, RE, "axis")
-    control = QtMovableControl("axis", RE, namespace=namespace, value_type=float)
+    control = QtMovableControl(
+        "axis", _client(RE, namespace), value_type={"kind": "number"}
+    )
     try:
         assert control._tweak is not None
         _enter(control, "2.5")
@@ -195,8 +203,7 @@ def test_plans_are_named_for_single_tweak_and_batch_moves(app, RE, namespace, co
     namespace["other"] = soft_signal_rw(float, name="other")
     group = QtMovableGroup(
         ["motor", "other"],
-        RE,
-        namespace=namespace,
+        _client(RE, namespace),
         move_plan="custom_move",
         tweak_plan="bps.mvr",
     )
@@ -221,8 +228,20 @@ def test_plans_are_named_for_single_tweak_and_batch_moves(app, RE, namespace, co
         group.close()
 
 
+def test_indexed_child_gets_a_readback(app, RE, namespace, commands):
+    namespace["axes"] = DeviceVector({1: soft_signal_rw(float)}, name="axes")
+    control = _control(namespace, RE, "axes[1]")
+    try:
+        assert control._readback is not None
+        _enter(control, "2")
+        app.processEvents()
+        assert commands == ["RE(mv(axes[1], 2.0))"]
+    finally:
+        control.close()
+
+
 def test_no_tweak_plan_disables_tweaks_for_numbers(app, RE, namespace):
-    control = QtMovableControl("motor", RE, namespace=namespace, tweak_plan=None)
+    control = QtMovableControl("motor", _client(RE, namespace), tweak_plan=None)
     try:
         assert control._tweak is None
     finally:
@@ -232,11 +251,13 @@ def test_no_tweak_plan_disables_tweaks_for_numbers(app, RE, namespace):
 @pytest.mark.parametrize("name", ["mv; import os", "mv(x)", "for", ""])
 def test_plan_names_must_be_python_names(app, RE, namespace, name):
     with pytest.raises(ValueError):
-        QtMovableControl("motor", RE, namespace=namespace, move_plan=name)
+        QtMovableControl("motor", _client(RE, namespace), move_plan=name)
 
 
 def test_explicit_enum_value_type_gives_a_dropdown(app, RE, namespace, commands):
-    control = QtMovableControl("label", RE, namespace=namespace, value_type=_Mode)
+    control = QtMovableControl(
+        "label", _client(RE, namespace), value_type=type_expr(_Mode)
+    )
     try:
         combo = _combo(control)
         assert [combo.itemText(i) for i in range(combo.count())] == ["Fast", "Slow"]
@@ -306,7 +327,7 @@ def test_dropdown_starts_at_the_readback(app, RE, namespace):
 
 
 def test_slits_control_groups_blades_gaps_and_centers(app, RE, namespace):
-    widget = QtSlitsControl("slits", RE, namespace=namespace)
+    widget = QtSlitsControl("slits", _client(RE, namespace))
     try:
         assert [[c.path for c in g.controls] for g in widget.groups] == [
             ["slits.inboard", "slits.outboard", "slits.bottom", "slits.top"],
@@ -329,7 +350,7 @@ def test_batch_mode_stages_setpoints_and_moves_them_together(
     app, RE, namespace, commands
 ):
     namespace["other"] = soft_signal_rw(float, name="other")
-    group = QtMovableGroup(["motor", "other"], RE, namespace=namespace)
+    group = QtMovableGroup(["motor", "other"], _client(RE, namespace))
     try:
         group.set_batch(True)
         motor, other = group.controls
@@ -348,6 +369,55 @@ def test_batch_mode_stages_setpoints_and_moves_them_together(
         group.close()
 
 
+def test_batch_move_waits_if_a_plan_started_after_the_click(
+    app, RE, namespace, commands, monkeypatch
+):
+    monkeypatch.setattr(movable_group, "show_plan_error", lambda *a: None)
+    group = QtMovableGroup(["motor"], _client(RE, namespace))
+    try:
+        group.set_batch(True)
+        (motor,) = group.controls
+        _enter(motor, "1.5")
+        group._on_move_clicked()
+        monkeypatch.setattr(type(RE), "state", property(lambda self: "running"))
+        app.processEvents()
+        assert commands == []
+        assert group.staged == [("motor", 1.5)]
+        assert not group._pending and not motor._busy
+    finally:
+        group.close()
+
+
+def test_failed_batch_move_keeps_staged_targets_for_a_retry(
+    app, RE, namespace, monkeypatch
+):
+    ran: list[str] = []
+
+    def fail(code):
+        ran.append(code)
+        return RuntimeError("paused")
+
+    monkeypatch.setattr(_ipython, "run_in_ipython", fail)
+    monkeypatch.setattr(movable_group, "show_plan_error", lambda *a: None)
+    group = QtMovableGroup(["motor"], _client(RE, namespace))
+    try:
+        group.set_batch(True)
+        (motor,) = group.controls
+        _enter(motor, "1.5")
+        group._on_move_clicked()
+        app.processEvents()
+        assert group.staged == [("motor", 1.5)]
+        assert _edit(motor).styleSheet()
+
+        _enter(motor, "1.5")
+        assert group.staged == [("motor", 1.5)]
+        group._on_move_clicked()
+        app.processEvents()
+        assert ran == ["RE(mv(motor, 1.5))"] * 2
+    finally:
+        group.close()
+
+
 def _type_and_leave(control, text):
     """Type ``text`` into the setpoint, then move focus away without Enter."""
     setpoint = _edit(control)
@@ -357,7 +427,7 @@ def _type_and_leave(control, text):
 
 
 def test_batch_mode_stages_on_leaving_the_field(app, RE, namespace, commands):
-    group = QtMovableGroup(["motor"], RE, namespace=namespace)
+    group = QtMovableGroup(["motor"], _client(RE, namespace))
     try:
         group.set_batch(True)
         (motor,) = group.controls
@@ -372,7 +442,7 @@ def test_batch_mode_stages_on_leaving_the_field(app, RE, namespace, commands):
 def test_leaving_the_field_does_not_move_outside_batch_mode(
     app, RE, namespace, commands
 ):
-    group = QtMovableGroup(["motor"], RE, namespace=namespace)
+    group = QtMovableGroup(["motor"], _client(RE, namespace))
     try:
         (motor,) = group.controls
         _type_and_leave(motor, "1.5")
@@ -386,7 +456,7 @@ def test_setpoint_changed_back_to_its_original_value_is_unstaged(
     app, RE, namespace, commands
 ):
     namespace["temperature"] = soft_signal_rw(float, 1.5, name="temperature")
-    group = QtMovableGroup(["temperature", "mode"], RE, namespace=namespace)
+    group = QtMovableGroup(["temperature", "mode"], _client(RE, namespace))
     try:
         temperature, mode = group.controls
         setpoint = _edit(temperature)
@@ -403,7 +473,7 @@ def test_setpoint_changed_back_to_its_original_value_is_unstaged(
         combo.setCurrentIndex(0)
         mode.capture_original()
         combo.activated.emit(1)
-        assert group.staged == [("mode", _Mode.SLOW)]
+        assert group.staged == [("mode", "Slow")]
         combo.activated.emit(0)
         assert group.staged == []
     finally:
@@ -411,7 +481,7 @@ def test_setpoint_changed_back_to_its_original_value_is_unstaged(
 
 
 def test_editing_a_staged_setpoint_unstages_it(app, RE, namespace, commands):
-    group = QtMovableGroup(["motor"], RE, namespace=namespace)
+    group = QtMovableGroup(["motor"], _client(RE, namespace))
     try:
         group.set_batch(True)
         (motor,) = group.controls
@@ -425,7 +495,7 @@ def test_editing_a_staged_setpoint_unstages_it(app, RE, namespace, commands):
 def test_leaving_batch_mode_discards_staged_and_moves_directly(
     app, RE, namespace, commands
 ):
-    group = QtMovableGroup(["motor"], RE, namespace=namespace)
+    group = QtMovableGroup(["motor"], _client(RE, namespace))
     try:
         group.set_batch(True)
         (motor,) = group.controls
@@ -440,7 +510,7 @@ def test_leaving_batch_mode_discards_staged_and_moves_directly(
 
 
 def test_tweaking_does_not_pass_focus_to_the_next_row(app, RE, namespace, commands):
-    group = QtMovableGroup(["motor", "count"], RE, namespace=namespace)
+    group = QtMovableGroup(["motor", "count"], _client(RE, namespace))
     try:
         group.show()
         group.activateWindow()
@@ -451,12 +521,15 @@ def test_tweaking_does_not_pass_focus_to_the_next_row(app, RE, namespace, comman
         app.processEvents()
         right.click()
         assert not _edit(count).hasFocus()
+        # Run the deferred tweak while the commands fixture is still active.
+        app.processEvents()
+        assert len(commands) == 1
     finally:
         group.close()
 
 
 def test_toggling_batch_mode_keeps_the_group_size(app, RE, namespace):
-    group = QtMovableGroup(["motor"], RE, namespace=namespace)
+    group = QtMovableGroup(["motor"], _client(RE, namespace))
     try:
         group.show()
         app.processEvents()
@@ -470,7 +543,7 @@ def test_toggling_batch_mode_keeps_the_group_size(app, RE, namespace):
 
 def test_slits_control_rejects_non_slits(app, RE, namespace):
     with pytest.raises(ValueError):
-        QtSlitsControl("motor", RE, namespace=namespace)
+        QtSlitsControl("motor", _client(RE, namespace))
 
 
 @pytest.mark.parametrize(
@@ -478,7 +551,7 @@ def test_slits_control_rejects_non_slits(app, RE, namespace):
     [(False, [(0, 0), (0, 1), (1, 1)]), (True, [(0, 0), (1, 0), (2, 0)])],
 )
 def test_slits_control_layout(app, RE, namespace, stacked, cells):
-    widget = QtSlitsControl("slits", RE, namespace=namespace, stacked=stacked)
+    widget = QtSlitsControl("slits", _client(RE, namespace), stacked=stacked)
     try:
         parent = widget.groups[0].parentWidget()
         assert parent is not None

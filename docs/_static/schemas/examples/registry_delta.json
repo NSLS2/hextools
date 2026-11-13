@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "base_revision": 42,
+  "revision": 43,
+  "changed": {
+    "panda": {
+      "name": "panda",
+      "classes": ["ophyd_async.fastcs.panda.HDFPanda", "ophyd_async.core.Device"],
+      "protocols": ["Flyable", "Preparable", "Stageable", "Collectable"],
+      "connected": true
+    }
+  },
+  "removed": ["filter2"]
+}

@@ -19,10 +19,53 @@ from ophyd_async.sim import PatternGenerator, SimPointDetector  # noqa: E402
 from qtpy.QtCore import QCoreApplication, QEvent  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
+import hextools.edxd  # noqa: E402
 import hextools.gui.__main__ as gui_main  # noqa: E402
+import hextools.motors  # noqa: E402
+import hextools.photon_delivery_system  # noqa: E402
+import hextools.photon_delivery_system.dclm  # noqa: E402
+import hextools.settings  # noqa: E402
+import hextools.tomography.alignment  # noqa: E402
+import hextools.tomography.flyscans  # noqa: E402
+import hextools.tomography.radiography  # noqa: E402
+import hextools.utils  # noqa: E402
+import hextools.xrd  # noqa: E402
+from hextools.catalog.generate import is_plan  # noqa: E402
 from hextools.gui.__main__ import QtDataAcquisitionWindow  # noqa: E402
+from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 from hextools.gui.slits_control import QtSlitsSelector  # noqa: E402
 from hextools.photon_delivery_system.slits import Slits  # noqa: E402
+
+_PLAN_MODULES = (
+    hextools.edxd,
+    hextools.motors,
+    hextools.photon_delivery_system,
+    hextools.photon_delivery_system.dclm,
+    hextools.settings,
+    hextools.tomography.alignment,
+    hextools.tomography.flyscans,
+    hextools.tomography.radiography,
+    hextools.utils,
+    hextools.xrd,
+)
+
+
+def _session(RE):
+    """The IPython namespace, holding ``RE`` and the plans the window offers."""
+    user_ns = InteractiveShell.instance().user_ns
+    user_ns["RE"] = RE
+    for module in _PLAN_MODULES:
+        user_ns.update(
+            (name, obj)
+            for name, obj in vars(module).items()
+            if not name.startswith("_") and is_plan(obj)
+        )
+    return user_ns
+
+
+def _window(RE, **kwargs) -> QtDataAcquisitionWindow:
+    user_ns = _session(RE)
+    return QtDataAcquisitionWindow(InProcessRunEngineClient(user_ns), user_ns, **kwargs)
 
 
 @pytest.fixture
@@ -40,8 +83,7 @@ def _hooks(RE):
 def _open_window(RE):
     if QApplication.instance() is None:
         QApplication([])
-    InteractiveShell.instance()
-    return QtDataAcquisitionWindow(re_client=RE)
+    return _window(RE)
 
 
 def _assert_torn_down(RE, det, before):
@@ -134,10 +176,9 @@ def test_interpreter_exit_tears_down_an_open_window(RE, det, monkeypatch):
 def test_closing_windows_that_share_a_run_engine(RE, det, first):
     if QApplication.instance() is None:
         QApplication([])
-    InteractiveShell.instance()
     before = _hooks(RE)
-    older = QtDataAcquisitionWindow(re_client=RE)
-    newer = QtDataAcquisitionWindow(re_client=RE)
+    older = _window(RE)
+    newer = _window(RE)
 
     for window in [older, newer] if first == "older" else [newer, older]:
         window._qt_window.close()
@@ -155,10 +196,9 @@ def test_closing_windows_that_share_a_run_engine(RE, det, first):
 def test_closing_the_window_can_end_the_ipython_session(RE, monkeypatch, end_ipython):
     if QApplication.instance() is None:
         QApplication([])
-    InteractiveShell.instance()
     ended = []
     monkeypatch.setattr(gui_main, "_end_ipython_session", lambda: ended.append(True))
-    window = QtDataAcquisitionWindow(re_client=RE, end_ipython_on_close=end_ipython)
+    window = _window(RE, end_ipython_on_close=end_ipython)
 
     window._qt_window.close()
 

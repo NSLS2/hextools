@@ -349,4 +349,4 @@ def move_filters(
     yield from bps.mv(*moves)
     yield from bps.mv(fe_shutter.interlock_ack, True)
     if fe_was_open:
-        yield from ensure_shutter_open(fe_shutter, allow_actuation=True)
+        yield from ensure_shutter_open(fe_shutter, allow_actuation=True, sleep_time=0)

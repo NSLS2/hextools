@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "revision": 42,
+  "devices": {
+    "a_slits": {
+      "aliases": ["slits_a"],
+      "name": "a_slits",
+      "classes": [
+        "hextools.photon_delivery_system.slits.Slits",
+        "ophyd_async.core.StandardReadable",
+        "ophyd_async.core.Device"
+      ],
+      "protocols": ["Readable", "Configurable", "Stageable", "HasHints"],
+      "connected": true,
+      "description": "A-hutch slits.",
+      "hinted_fields": ["a_slits-horizontal_gap", "a_slits-vertical_gap"],
+      "children": {
+        "horizontal_gap": {
+          "name": "a_slits-horizontal_gap",
+          "classes": [
+            "hextools.photon_delivery_system.slits.SlitGap",
+            "ophyd_async.core.StandardReadable",
+            "ophyd_async.core.Device"
+          ],
+          "protocols": ["Movable", "Readable", "Locatable", "Subscribable", "Stoppable"],
+          "read_format": "hinted",
+          "set_type": {"kind": "number", "units": "mm", "minimum": 0, "maximum": 20},
+          "datakey": {
+            "dtype": "number",
+            "shape": [],
+            "source": "soft://a_slits-horizontal_gap",
+            "units": "mm",
+            "precision": 3,
+            "limits": {"control": {"low": 0, "high": 20}}
+          }
+        },
+        "inboard": {
+          "name": "a_slits-inboard",
+          "classes": ["ophyd_async.epics.motor.Motor", "ophyd_async.core.Device"],
+          "protocols": ["Movable", "Readable", "Locatable", "Subscribable", "Stoppable"],
+          "read_format": "read",
+          "set_type": {"kind": "number", "units": "mm"},
+          "children": {
+            "user_readback": {
+              "name": "a_slits-inboard",
+              "classes": ["ophyd_async.core.SignalR", "ophyd_async.core.Signal"],
+              "protocols": ["Readable", "Subscribable"],
+              "signal": true,
+              "access": "r",
+              "datakey": {
+                "dtype": "number",
+                "shape": [],
+                "source": "ca://XF:27IDA-OP{Slt:A-Ax:I}Mtr.RBV",
+                "units": "mm",
+                "precision": 3
+              }
+            }
+          }
+        }
+      }
+    },
+    "panda": {
+      "name": "panda",
+      "classes": ["ophyd_async.fastcs.panda.HDFPanda", "ophyd_async.core.Device"],
+      "protocols": ["Flyable", "Preparable", "Stageable", "Collectable"],
+      "connected": false,
+      "children": {
+        "pcomp": {
+          "classes": ["ophyd_async.core.DeviceVector", "ophyd_async.core.Device"],
+          "protocols": [],
+          "index": "int",
+          "children": {
+            "1": {
+              "classes": ["ophyd_async.fastcs.panda.PcompBlock", "ophyd_async.core.Device"],
+              "protocols": []
+            }
+          }
+        }
+      }
+    },
+    "filter2": {
+      "name": "filter2",
+      "classes": [
+        "hextools.photon_delivery_system.filters.Filter",
+        "ophyd_async.core.StandardReadable",
+        "ophyd_async.core.Device"
+      ],
+      "protocols": ["Movable", "Readable", "Subscribable"],
+      "set_type": {
+        "kind": "enum",
+        "name": "hextools.photon_delivery_system.filters.Filter2Position",
+        "choices": [{"value": "Out"}, {"value": "1 mm Cu"}, {"value": "2 mm Cu"}]
+      }
+    }
+  }
+}

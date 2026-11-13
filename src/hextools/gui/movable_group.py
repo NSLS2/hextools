@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
-from bluesky import RunEngine
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -16,12 +15,17 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui._ipython import run_in_ipython, show_plan_error
+from hextools.catalog.model import TypeExpr
+from hextools.gui._client_signals import QtRunEngineState
 from hextools.gui.movable_control import (
     QtMovableControl,
-    check_plan_name,
-    move_command,
     set_enabled_keep_focus,
+)
+from hextools.gui.plan_errors import show_plan_error
+from hextools.gui.run_engine_clients import (
+    DeviceName,
+    RunEngineClient,
+    check_plan_name,
 )
 
 
@@ -30,25 +34,23 @@ class QtMovableGroup(QWidget):
 
     With *Batch* checked, editing a setpoint stages it, once focus leaves the field
     or Enter is pressed, instead of moving.
-    *Move* then runs one ``RE(move_plan(path1, value1, path2, value2, ...))``,
+    *Move* then runs one ``move_plan(path1, value1, path2, value2, ...)``,
     moving every staged movable together. Unchecking *Batch* or *Clear* discards
     the staged setpoints.
 
     Parameters
     ----------
     movables : Sequence[str] or Mapping[str, str]
-        Namespace paths of the movables, or row label to path.
-    re : RunEngine
-        The in-process RunEngine.
-    namespace : MutableMapping[str, object], optional
-        Namespace holding the movables. Defaults to the IPython ``user_ns``.
+        Device names of the movables, or row label to name.
+    re_client : RunEngineClient
+        Runs the moves, and describes and reads the movables.
     title : str, optional
         Header shown above the rows.
     precision : int, optional
         Decimal places shown for float readbacks.
     tweak : float, optional
         Initial tweak step for every row.
-    value_types : Mapping[str, type], optional
+    value_types : Mapping[str, TypeExpr], optional
         Value type of the rows that need one, by path; see
         :class:`QtMovableControl`.
     move_plan : str, optional
@@ -64,25 +66,18 @@ class QtMovableGroup(QWidget):
     def __init__(
         self,
         movables: Sequence[str] | Mapping[str, str],
-        re: RunEngine,
-        namespace: MutableMapping[str, Any] | None = None,
+        re_client: RunEngineClient,
         title: str | None = None,
         precision: int = 3,
         tweak: float = 1.0,
-        value_types: Mapping[str, type] | None = None,
+        value_types: Mapping[str, TypeExpr] | None = None,
         move_plan: str = "mv",
         tweak_plan: str | None = "mvr",
         batch: bool = False,
         parent=None,
     ):
         super().__init__(parent)
-        if namespace is None:
-            from IPython.core.getipython import get_ipython
-
-            ipython = get_ipython()
-            namespace = ipython.user_ns if ipython is not None else {}
-        self._re = re
-        self._namespace = namespace
+        self._re_client = re_client
         self._move_plan = check_plan_name(move_plan)
         self._pending = False
         self._staged: dict[QtMovableControl, Any] = {}
@@ -95,8 +90,7 @@ class QtMovableGroup(QWidget):
         self.controls = [
             QtMovableControl(
                 path,
-                re,
-                namespace=namespace,
+                re_client,
                 label=label,
                 precision=precision,
                 tweak=tweak,
@@ -145,10 +139,8 @@ class QtMovableGroup(QWidget):
         vbox.addLayout(bar)
         self.setLayout(vbox)
 
-        self._timer = QTimer(self)
-        self._timer.setInterval(100)
-        self._timer.timeout.connect(self._update_bar)
-        self._timer.start()
+        self._state = QtRunEngineState(re_client, self)
+        self._state.changed.connect(lambda *_: self._update_bar())
         self.set_batch(batch)
         self._update_bar()
 
@@ -183,7 +175,7 @@ class QtMovableGroup(QWidget):
 
     def _update_bar(self):
         batching = self._batch.isChecked()
-        ready = not self._pending and self._re.state == "idle"
+        ready = not self._pending and self._re_client.state == "idle"
         for widget in (self._summary, self._move_button, self._clear_button):
             widget.setVisible(batching)
         set_enabled_keep_focus(self._batch, not self._pending)
@@ -195,32 +187,38 @@ class QtMovableGroup(QWidget):
 
     def _on_move_clicked(self):
         moves = self.staged
-        if not moves or self._pending or self._re.state != "idle":
+        if not moves or self._pending or self._re_client.state != "idle":
             return
-        code = move_command(self._move_plan, moves)
         self._pending = True
         for control in self.controls:
             control.set_busy(True)
         self._update_bar()
-        # Defer so the click handler returns before IPython executes the cell.
-        QTimer.singleShot(0, lambda: self._execute(code))
+        # Defer so the click handler returns before the plan runs.
+        QTimer.singleShot(0, lambda: self._execute(moves))
 
-    def _execute(self, code: str):
+    def _execute(self, moves: list[tuple[str, Any]]):
+        args = [arg for path, value in moves for arg in (DeviceName(path), value)]
         try:
-            error = run_in_ipython(code)
+            # Another plan may have started since the click.
+            if self._re_client.state != "idle":
+                raise RuntimeError("RunEngine is busy!")
+            self._re_client.execute_plan(self._move_plan, *args)
+        except Exception as error:
+            # Keep the staged targets so the move can be retried.
+            show_plan_error(self, "Batch move failed", error)
+            return
         finally:
             self._pending = False
             for control in self.controls:
                 control.set_busy(False)
-            self._clear_staged()
-            # The moved-to setpoints are now the ones that need no move.
-            for control in self.controls:
-                control.capture_original()
-        if error is not None:
-            show_plan_error(self, "Batch move failed", error)
+            self._update_bar()
+        self._clear_staged()
+        # The moved-to setpoints are now the ones that need no move.
+        for control in self.controls:
+            control.capture_original()
 
     def closeEvent(self, event):
-        self._timer.stop()
+        self._state.stop()
         for control in self.controls:
             control.close()
         super().closeEvent(event)

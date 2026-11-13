@@ -7,21 +7,24 @@ import inspect
 import pytest
 
 pytest.importorskip("qtpy")
-pytest.importorskip("bluesky_widgets")
 
 from bluesky import RunEngine
-from IPython.core.interactiveshell import InteractiveShell
 from qtpy.QtWidgets import QApplication, QCheckBox, QLineEdit
 
 from hextools.edxd import edxd_custom_pos_list_grid, edxd_scan
 from hextools.gui.plan_widget import QtPlanWidget
+from hextools.gui.run_engine_clients import InProcessRunEngineClient
+
+
+def _plan_widget(plan) -> QtPlanWidget:
+    client = InProcessRunEngineClient({"RE": RunEngine({}), plan.__name__: plan})
+    return QtPlanWidget(client, plan.__name__)
 
 
 @pytest.mark.parametrize("plan", [edxd_scan, edxd_custom_pos_list_grid])
 def test_tiff_checkbox_follows_plan_default(plan):
     app = QApplication.instance() or QApplication([])
-    InteractiveShell.instance()
-    widget = QtPlanWidget(RunEngine({}), plan)
+    widget = _plan_widget(plan)
     try:
         default = inspect.signature(plan).parameters["save_as_tiff"].default
         assert default is True
@@ -40,8 +43,7 @@ def test_tiff_checkbox_follows_plan_default(plan):
 @pytest.mark.parametrize("plan", [edxd_scan, edxd_custom_pos_list_grid])
 def test_iteration_fields_offered_with_defaults(plan):
     app = QApplication.instance() or QApplication([])
-    InteractiveShell.instance()
-    widget = QtPlanWidget(RunEngine({}), plan)
+    widget = _plan_widget(plan)
     try:
         fields = {name: (kind, w) for name, kind, w, _ in widget._scalar_fields}
         iterations_kind, iterations = fields["num_iterations"]
