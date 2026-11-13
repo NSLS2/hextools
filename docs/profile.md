@@ -96,6 +96,15 @@ Configures the `hextools` logger to print to the console with level-colored
 output. Plans log a plain-language description of each step to this logger,
 and the GUI's Log and Debug views listen to it too.
 
+```python
+configure_library_logging()
+```
+
+Prints warnings from every other library (bluesky, ophyd-async, Tiled, ...) in
+the same format, with time, level and logger name. Levels for individual
+libraries are in `LIBRARY_LOG_LEVELS`: `ntnda_qt_viewer` shows only errors,
+because viewed PVs disconnect on purpose during plans.
+
 ## The RunEngine
 
 ```python

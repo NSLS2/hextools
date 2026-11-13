@@ -114,6 +114,8 @@ print_version_info(additional_packages=["hextools"])
 
 # Log hextools messages (including plan narration) to the console, color-coded by level.
 logger = configure_logger()
+# Other libraries' warnings in the same format; routine viewer disconnects hidden.
+configure_library_logging()
 
 # Setup the RunEngine and its metadata.
 RE: RunEngine = initialize_run_engine()
