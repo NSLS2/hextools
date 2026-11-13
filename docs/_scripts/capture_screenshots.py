@@ -245,7 +245,7 @@ grab_annotated(
 
 scan_browser = window.qt_widget.scan_browser
 if scan_browser is not None:
-    execution_tabs.setCurrentWidget(scan_browser)
+    tabs.setCurrentWidget(scan_browser)
     pump(0.5)
     search = visible(scan_browser, QPushButton, lambda w: w.text() == "Search")
     search.click()

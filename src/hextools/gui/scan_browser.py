@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import Any
 
 from bluesky import RunEngine
+from bluesky_widgets.models.run_engine_client import RunEngineClient
 from qtpy.QtCore import QDate, QPoint, Qt
+from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QAbstractItemView,
+    QAbstractScrollArea,
     QComboBox,
     QDateEdit,
     QHBoxLayout,
@@ -20,6 +23,7 @@ from qtpy.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -36,6 +40,12 @@ from hextools.gui.run_viewer import QtRunViewer, fill_metadata_tree
 #: Called with the uid of the run it was invoked on.
 ScanCallback = Callable[[str], Any]
 
+_EXIT_STATUS_COLORS = {
+    "success": QColor("#27ae60"),
+    "abort": QColor("#e67e22"),
+    "fail": QColor("#e74c3c"),
+}
+
 
 @dataclass
 class RunSummary:
@@ -44,6 +54,9 @@ class RunSummary:
     uid: str
     scan_id: int | None
     time: float
+    plan_name: str | None
+    #: ``None`` if the run has no stop document (still running or crashed).
+    exit_status: str | None
     specs: list[str]
     metadata: dict[str, Any]
 
@@ -81,6 +94,8 @@ def search_runs(
                 uid=uid,
                 scan_id=start.get("scan_id"),
                 time=start.get("time", 0.0),
+                plan_name=start.get("plan_name"),
+                exit_status=(metadata.get("stop") or {}).get("exit_status"),
                 specs=[s.name for s in getattr(run, "specs", [])],
                 metadata=metadata,
             )
@@ -98,10 +113,14 @@ class QtScanBrowser(QWidget):
     from its button or menu, or by double-clicking it.
     """
 
-    _COLUMNS = ["Time", "Scan ID", "UID"]
+    _COLUMNS = ["Time", "Scan ID", "Plan", "Status", "UID"]
 
     def __init__(
-        self, tiled_client: Any, specs: list[Spec], re: RunEngine, parent=None
+        self,
+        tiled_client: Any,
+        specs: list[Spec],
+        re: RunEngineClient | RunEngine,
+        parent=None,
     ):
         super().__init__(parent)
         self._client = tiled_client
@@ -115,7 +134,7 @@ class QtScanBrowser(QWidget):
         for spec in self._specs:
             self._spec_combo.addItem(spec.name)
         today = QDate.currentDate()
-        self._since = QDateEdit(today)
+        self._since = QDateEdit(today.addDays(-7))
         self._until = QDateEdit(today)
         for date_edit in (self._since, self._until):
             date_edit.setCalendarPopup(True)
@@ -129,6 +148,9 @@ class QtScanBrowser(QWidget):
         self._search_button = QPushButton("Search")
         self._search_button.clicked.connect(self.search)
         self._status = QLabel()
+        # Long or multi-line errors must not grow the window.
+        # Full text is in the tooltip.
+        self._status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
 
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Spec:"))
@@ -148,9 +170,16 @@ class QtScanBrowser(QWidget):
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setSizeAdjustPolicy(
+            QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored
+        )
+        self._table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored
+        )
         header = self._table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        for col in range(len(self._COLUMNS) - 1):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
         self._table.cellDoubleClicked.connect(self._on_double_click)
@@ -196,17 +225,15 @@ class QtScanBrowser(QWidget):
             return
         since = datetime.combine(since_date, time.min).timestamp()  # type: ignore
         until = datetime.combine(until_date + timedelta(days=1), time.min).timestamp()  # type: ignore
-        data_session = self._re.md.get("data_session")
 
         self._search_button.setEnabled(False)
         self._status.setText("Searching…")
+        self._status.setToolTip("")
         self._worker = create_worker(
-            search_runs,
-            self._client,
+            self._search_runs,
             spec,
             since,
             until,
-            data_session,
             self._detector.text(),
             _connect={
                 "returned": self._on_results,
@@ -214,6 +241,25 @@ class QtScanBrowser(QWidget):
                 "finished": self._on_search_finished,
             },
         )
+
+    def _fetch_metadata(self) -> Mapping[str, Any]:
+        if isinstance(self._re, RunEngineClient):
+            # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
+            response = self._re._client.re_metadata()  # noqa: SLF001  # type: ignore
+            if not response.get("success", False):
+                raise RuntimeError(
+                    "Could not read RE metadata: "
+                    f"{response.get('msg', 'unknown error')}"
+                )
+            return response.get("re_metadata") or {}
+        return self._re.md
+
+    def _search_runs(
+        self, spec: Spec, since: float, until: float, detector: str
+    ) -> list[RunSummary]:
+        # Runs in the worker so the queueserver metadata request doesn't block the GUI.
+        data_session = self._fetch_metadata().get("data_session")
+        return search_runs(self._client, spec, since, until, data_session, detector)
 
     def _on_results(self, runs: list[RunSummary]) -> None:
         self._runs = runs
@@ -224,15 +270,22 @@ class QtScanBrowser(QWidget):
             values = [
                 datetime.fromtimestamp(run.time).strftime("%Y-%m-%d %H:%M:%S"),
                 "" if run.scan_id is None else str(run.scan_id),
+                run.plan_name or "",
+                run.exit_status or "running",
                 run.uid,
             ]
             for col, value in enumerate(values):
                 self._table.setItem(row, col, QTableWidgetItem(value))
+            color = _EXIT_STATUS_COLORS.get(run.exit_status or "")
+            if color is not None:
+                self._table.item(row, 3).setForeground(color)  # type: ignore
         self._status.setText(f"{len(runs)} run(s) found.")
         self._on_selection_changed()
 
     def _on_search_error(self, error: Exception) -> None:
-        self._status.setText(f"Search failed: {error}")
+        message = f"Search failed: {error}"
+        self._status.setText(message.splitlines()[0])
+        self._status.setToolTip(message)
 
     def _on_search_finished(self) -> None:
         self._worker = None

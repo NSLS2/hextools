@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
 from tiled.structures.core import Spec
+
+logger = logging.getLogger(__name__)
 
 
 class RunLike(Protocol):
@@ -181,7 +184,7 @@ def validate_tomo_flyscan(run: RunLike, version: str | None = "1") -> None:
 # tomo_alignment_scan
 #
 # Start document:
-#   plan_name: "tomography_alignment_scan"
+#   plan_name: "tomo_alignment_scan"
 #   description: "Tomography alignment scan"
 #   standard scan metadata (motors: [<motor>], detectors: [<det>])
 #   flat_scan_uid: str               optional, user supplied. The alignment analysis
@@ -200,7 +203,7 @@ def validate_tomo_alignment_scan(run: RunLike, version: str | None = "1") -> Non
 
     Raise :class:`SpecValidationError` if it does not match.
     """
-    _require_plan_name(run, "tomography_alignment_scan")
+    _require_plan_name(run, "tomo_alignment_scan")
     _require_start_keys(run, "description")
     _require_optional_str(run, "flat_scan_uid")
     dets = _names(run, "detectors", count=1)
@@ -235,7 +238,7 @@ def validate_radiograph(run: RunLike, version: str | None = "1") -> None:
 
 # edxd_count, edxd_scan, edxd_grid_scan, edxd_custom_pos_list_grid
 # (edxd_scan opens one run per iteration; edxd_custom_pos_list_grid one run per
-# outer position)
+# outer position, per iteration)
 #
 # Start document:
 #   plan_name: "edxd_count" | "edxd_scan" | "edxd_grid_scan"
@@ -244,7 +247,7 @@ def validate_radiograph(run: RunLike, version: str | None = "1") -> None:
 #   standard count/scan/grid_scan/list_scan metadata (0, 1 or 2 motors)
 #   outer_position: float            edxd_custom_pos_list_grid only
 #   initial_scan_uid: str            edxd_custom_pos_list_grid only,
-#                                    from its second run on
+#                                    from its second run on, within an iteration
 # Streams:
 #   primary: one event per point
 #     <det>                     (num_elements, num_energy_bins) GeRM spectra,
@@ -326,6 +329,53 @@ def validate_xrd_calibration(run: RunLike, version: str | None = "1") -> None:
     _require_stream(run, "primary", *_names(run, "detectors"), *motors)
 
 
+# xrd_scan
+#
+# Start document:
+#   plan_name: "xrd_scan*"
+#   description: str                 default "Energy-geometry calibration"
+#   standard scan metadata (motors: [detector distance motor])
+# Streams:
+#   primary: one event per detector position (num_steps, spaced by gap)
+#     <det>                     (height, width) area detector image, external
+#     <motor>                   detector position readback
+XRD_SCAN_V1 = Spec("XrdScan", version="1")
+
+
+def validate_xrd_scan(run: RunLike, version: str | None = "1") -> None:
+    """Validate ``run`` against :data:`XRD_SCAN_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
+    _require_plan_name(run, "xrd_scan")
+    _require_start_keys(run, "description")
+    motors = _names(run, "motors", count=1)
+    _require_stream(run, "primary", *_names(run, "detectors"), *motors)
+
+
+# dark_reference
+#
+# Start document:
+#   plan_name: "dark_reference"
+#   images_to_average: int
+#   standard count metadata (detectors: [<det>], no motors)
+# Streams:
+#   primary: a single event, photon shutter closed
+#     <det>                     (height, width) dark image averaged over
+#                               images_to_average exposures, external TIFF
+XRD_DARK_REFERENCE_V1 = Spec("XrdDarkReference", version="1")
+
+
+def validate_xrd_dark_reference(run: RunLike, version: str | None = "1") -> None:
+    """Validate ``run`` against :data:`XRD_DARK_REFERENCE_V1`.
+
+    Raise :class:`SpecValidationError` if it does not match.
+    """
+    _require_plan_name(run, "dark_reference")
+    _require_start_keys(run, "images_to_average")
+    _require_stream(run, "primary", *_names(run, "detectors", count=1))
+
+
 # energy_auto_tune (run twice by change_energy(auto_tune=True): coarse, then fine)
 #
 # Start document:
@@ -362,6 +412,8 @@ _VALIDATORS: dict[str, Callable[[RunLike, str | None], None]] = {
         (EDXD_SCAN_V1, validate_edxd_scan),
         (EDXD_CALIBRATION_V1, validate_edxd_calibration),
         (XRD_CALIBRATION_V1, validate_xrd_calibration),
+        (XRD_SCAN_V1, validate_xrd_scan),
+        (XRD_DARK_REFERENCE_V1, validate_xrd_dark_reference),
         (ENERGY_AUTO_TUNE_V1, validate_energy_auto_tune),
     ]
 }
@@ -375,6 +427,8 @@ ALL_SPECS: list[Spec] = [
     EDXD_SCAN_V1,
     EDXD_CALIBRATION_V1,
     XRD_CALIBRATION_V1,
+    XRD_SCAN_V1,
+    XRD_DARK_REFERENCE_V1,
     ENERGY_AUTO_TUNE_V1,
 ]
 

@@ -1,5 +1,8 @@
+import asyncio
+
 import bluesky.plan_stubs as bps
 import pytest
+from bluesky.protocols import Subscribable
 from bluesky.run_engine import RunEngine
 from ophyd_async.core import callback_on_mock_put, init_devices, set_mock_value
 
@@ -33,8 +36,8 @@ async def test_slits_gap_and_center_readback(
     set_mock_value(getattr(slits, low).user_readback, -2.0)
     set_mock_value(getattr(slits, high).user_readback, 4.0)
 
-    assert await getattr(slits, gap).get_value() == pytest.approx(6.0)
-    assert await getattr(slits, center).get_value() == pytest.approx(1.0)
+    assert await getattr(slits, gap).readback.get_value() == pytest.approx(6.0)
+    assert await getattr(slits, center).readback.get_value() == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize("axis, low, high, gap, center", _AXES)
@@ -50,8 +53,8 @@ async def test_slits_set_gap_keeps_center(
     # Blades move symmetrically about the unchanged center.
     assert await low_motor.user_readback.get_value() == pytest.approx(-4.0)
     assert await high_motor.user_readback.get_value() == pytest.approx(6.0)
-    assert await getattr(slits, center).get_value() == pytest.approx(1.0)
-    assert await getattr(slits, gap).get_value() == pytest.approx(10.0)
+    assert await getattr(slits, center).readback.get_value() == pytest.approx(1.0)
+    assert await getattr(slits, gap).readback.get_value() == pytest.approx(10.0)
 
 
 @pytest.mark.parametrize("axis, low, high, gap, center", _AXES)
@@ -67,8 +70,8 @@ async def test_slits_set_center_keeps_gap(
     # Both blades shift by the same amount, preserving the gap.
     assert await low_motor.user_readback.get_value() == pytest.approx(3.0)
     assert await high_motor.user_readback.get_value() == pytest.approx(7.0)
-    assert await getattr(slits, gap).get_value() == pytest.approx(4.0)
-    assert await getattr(slits, center).get_value() == pytest.approx(5.0)
+    assert await getattr(slits, gap).readback.get_value() == pytest.approx(4.0)
+    assert await getattr(slits, center).readback.get_value() == pytest.approx(5.0)
 
 
 async def test_slits_set_all_gaps_and_centers_via_mv(RE: RunEngine):
@@ -92,13 +95,13 @@ async def test_slits_set_all_gaps_and_centers_via_mv(RE: RunEngine):
     assert await slits.bottom.user_readback.get_value() == pytest.approx(0.0)
     assert await slits.top.user_readback.get_value() == pytest.approx(4.0)
 
-    assert await slits.horizontal_gap.get_value() == pytest.approx(10.0)
-    assert await slits.horizontal_center.get_value() == pytest.approx(10.0)
-    assert await slits.vertical_gap.get_value() == pytest.approx(4.0)
-    assert await slits.vertical_center.get_value() == pytest.approx(2.0)
+    assert await slits.horizontal_gap.readback.get_value() == pytest.approx(10.0)
+    assert await slits.horizontal_center.readback.get_value() == pytest.approx(10.0)
+    assert await slits.vertical_gap.readback.get_value() == pytest.approx(4.0)
+    assert await slits.vertical_center.readback.get_value() == pytest.approx(2.0)
 
 
-async def test_slits_set_reports_blade_progress_to_watchers(slits: Slits):
+async def test_slits_set_reports_gap_and_center_progress_to_watchers(slits: Slits):
     for motor in (slits.inboard, slits.outboard, slits.bottom, slits.top):
         set_mock_value(motor.user_readback, 0.0)
     updates = []
@@ -108,11 +111,53 @@ async def test_slits_set_reports_blade_progress_to_watchers(slits: Slits):
     await status
 
     assert {
-        slits.inboard.name,
-        slits.outboard.name,
-        slits.bottom.name,
-        slits.top.name,
+        slits.horizontal_gap.name,
+        slits.horizontal_center.name,
+        slits.vertical_gap.name,
+        slits.vertical_center.name,
     } <= set(updates)
+
+
+@pytest.mark.parametrize("axis, low, high, gap, center", _AXES)
+async def test_slits_gap_and_center_report_their_own_progress(
+    slits: Slits, axis: str, low: str, high: str, gap: str, center: str
+):
+    for motor in _motors(slits):
+        set_mock_value(motor.user_readback, 0.0)
+    for name in (gap, center):
+        updates = []
+        device = getattr(slits, name)
+        status = device.set(2.0)
+        status.watch(lambda updates=updates, **kw: updates.append(kw))  # type: ignore
+        await status
+        assert updates
+        assert {u["name"] for u in updates} == {device.name}
+        assert updates[-1]["target"] == 2.0
+        assert updates[-1]["unit"] == "mm"
+
+
+async def test_slits_gap_and_center_read_under_their_own_names(slits: Slits):
+    reading = await slits.read()
+    for name in ("horizontal_gap", "horizontal_center", "vertical_gap"):
+        assert getattr(slits, name).name in reading
+
+
+@pytest.mark.parametrize("axis, low, high, gap, center", _AXES)
+async def test_slits_gap_and_center_are_subscribable(
+    slits: Slits, axis: str, low: str, high: str, gap: str, center: str
+):
+    set_mock_value(getattr(slits, low).user_readback, -2.0)
+    set_mock_value(getattr(slits, high).user_readback, 4.0)
+    for name, expected in ((gap, 6.0), (center, 1.0)):
+        device = getattr(slits, name)
+        assert isinstance(device, Subscribable)
+        readings = []
+        device.subscribe_reading(readings.append)
+        try:
+            await asyncio.sleep(0.01)
+            assert readings[-1][device.name]["value"] == pytest.approx(expected)
+        finally:
+            device.clear_sub(readings.append)
 
 
 def _re_slits(blades: tuple[float, float, float, float]) -> Slits:
@@ -174,8 +219,7 @@ def test_move_slits_needs_a_value(RE: RunEngine):
 async def test_slits_gap_and_center_work_with_locating_plan_stubs(
     RE: RunEngine, axis: str, low: str, high: str, gap: str, center: str
 ):
-    # bps.rd and bps.mvr locate() a movable; a derived signal is only locatable
-    # when its raw inputs are, so the gap/center must be built from the motors.
+    # bps.rd and bps.mvr locate() a movable, so the gap/center must be locatable.
     slits = _re_slits((-1.0, 3.0, -1.0, 3.0))
     readings = {}
 
@@ -187,5 +231,5 @@ async def test_slits_gap_and_center_work_with_locating_plan_stubs(
     RE(plan())
 
     assert readings == {"gap": pytest.approx(4.0), "center": pytest.approx(1.0)}
-    assert await getattr(slits, center).get_value() == pytest.approx(1.5)
-    assert await getattr(slits, gap).get_value() == pytest.approx(4.0)
+    assert await getattr(slits, center).readback.get_value() == pytest.approx(1.5)
+    assert await getattr(slits, gap).readback.get_value() == pytest.approx(4.0)

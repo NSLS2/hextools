@@ -9,45 +9,87 @@ import csv
 import logging
 import time
 from collections.abc import Callable
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
 
+import IPython
 from bluesky_tiled_plugins import CatalogOfBlueskyRuns
 from bluesky_tiled_plugins.clients.bluesky_run import BlueskyRunV3
+from IPython.terminal.prompts import Prompts
+from pygments.token import Token
 from tiled.client import from_uri
-from tiled.client.stream import LiveChildMetadataUpdated
+from tiled.client.stream import CallbackRegistry, LiveChildMetadataUpdated
+from traitlets.config import Config
 
+from hextools import exporters
 from hextools.exporters.edxd import export_edxd_run_to_h5
 from hextools.exporters.tomography import (
+    export_tomo_alignment_to_h5,
     export_tomo_dark_flat_to_h5,
     export_tomo_flyscan_to_h5,
 )
+from hextools.exporters.utils import confirm_required_start_fields
+from hextools.exporters.xrd import export_xrd_dark_reference, export_xrd_run_to_h5
 from hextools.log import configure_logger
 from hextools.specs import (
     EDXD_CALIBRATION_V1,
     EDXD_SCAN_V1,
+    TOMO_ALIGNMENT_SCAN_V1,
     TOMO_DARK_FLAT_V1,
     TOMO_FLYSCAN_V1,
+    XRD_CALIBRATION_V1,
+    XRD_DARK_REFERENCE_V1,
+    XRD_SCAN_V1,
 )
 
 logger = logging.getLogger("hextools.exporters.auto_exporter")
 
 EXPORTERS: dict[tuple[str, str | None], Callable[..., Any]] = {
+    (
+        TOMO_ALIGNMENT_SCAN_V1.name,
+        TOMO_ALIGNMENT_SCAN_V1.version,
+    ): export_tomo_alignment_to_h5,
     (TOMO_FLYSCAN_V1.name, TOMO_FLYSCAN_V1.version): export_tomo_flyscan_to_h5,
     (TOMO_DARK_FLAT_V1.name, TOMO_DARK_FLAT_V1.version): export_tomo_dark_flat_to_h5,
     (EDXD_SCAN_V1.name, EDXD_SCAN_V1.version): export_edxd_run_to_h5,
     (EDXD_CALIBRATION_V1.name, EDXD_CALIBRATION_V1.version): export_edxd_run_to_h5,
+    (
+        XRD_DARK_REFERENCE_V1.name,
+        XRD_DARK_REFERENCE_V1.version,
+    ): export_xrd_dark_reference,
+    (
+        XRD_SCAN_V1.name,
+        XRD_SCAN_V1.version,
+    ): export_xrd_run_to_h5,
+    (
+        XRD_CALIBRATION_V1.name,
+        XRD_CALIBRATION_V1.version,
+    ): export_xrd_run_to_h5,
 }
 
 # Run metadata updates carry the full start document, which can exceed the 1 MB default
 MAX_MESSAGE_BYTES = 10 * 1024 * 1024
 
-CSV_COLUMNS = ("scan_id", "plan_name", "uid", "status", "export_status")
+CSV_COLUMNS = ("time", "scan_id", "plan_name", "status", "uid", "export_status")
+PLAN_HISTORY_CSV = "plan_history.csv"
+
+
+def default_csv_path(run_start: dict[str, Any]) -> Path:
+    """Return the plan history CSV in the run's proposal directory."""
+    proposal, cycle, _ = confirm_required_start_fields(run_start)
+    return Path(f"/nsls2/data/hex/proposals/{cycle}/{proposal}") / PLAN_HISTORY_CSV
 
 
 def _record_run(csv_path: Path, run: BlueskyRunV3, succeeded: bool) -> None:
     uid = run.start["uid"]
+    start_time = run.start.get("time")
+    timestamp = (
+        datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M:%S")
+        if isinstance(start_time, int | float)
+        else ""
+    )
     try:
         write_header = not csv_path.exists() or csv_path.stat().st_size == 0
         with csv_path.open("a", newline="") as f:
@@ -56,10 +98,11 @@ def _record_run(csv_path: Path, run: BlueskyRunV3, succeeded: bool) -> None:
                 writer.writerow(CSV_COLUMNS)
             writer.writerow(
                 [
+                    timestamp,
                     run.start.get("scan_id"),
                     run.start.get("plan_name"),
-                    uid,
                     run.stop.get("exit_status"),
+                    uid,
                     "success" if succeeded else "failure",
                 ]
             )
@@ -72,8 +115,9 @@ def auto_export_run(
 ) -> None:
     """Run every exporter registered for ``run``'s specs, raising if any of them failed.
 
-    If ``csv_path`` is given, append the run's scan_id, plan_name, uid and export
-    status to it.
+    Append the run's start time, scan_id, plan_name, exit status, uid and export
+    status to ``csv_path``,
+    by default ``plan_history.csv`` in the run's proposal directory.
     """
     uid = run.start["uid"]
     specs = {(spec.name, spec.version) for spec in run.specs}
@@ -90,6 +134,11 @@ def auto_export_run(
             logger.exception(f"{exporter.__name__} failed for run {uid}")  # type: ignore
             failed.append(exporter.__name__)  # type: ignore
 
+    if csv_path is None:
+        try:
+            csv_path = default_csv_path(run.start)
+        except ValueError:
+            logger.exception(f"Can't find the plan history CSV for run {uid}")
     if csv_path is not None:
         _record_run(Path(csv_path), run, succeeded=not failed)
     if failed:
@@ -135,6 +184,9 @@ class RunEndSubscription:
             "Closing the Tiled subscription."
             "Waiting for any in-progress callback to finish"
         )
+        # Closing the socket makes the receive thread fire stream_closed after the
+        # executor is shut down, so swap in an empty registry first
+        self._subscription.stream_closed = CallbackRegistry(self._subscription.executor)
         self._subscription.disconnect()
         logger.info(
             f"Closed the Tiled subscription after handling {len(self._handled)} run(s)"
@@ -147,6 +199,11 @@ class RunEndSubscription:
         # after dropped connections
         self._subscription.start(start=None, max_size=MAX_MESSAGE_BYTES)
         logger.info("Tiled subscription stopped")
+
+    def run_in_thread(self) -> None:
+        """Handle run close events in a background thread; stopped on context exit."""
+        logger.info(f"Listening for closed runs on {self._catalog.uri} in a thread")
+        self._subscription.start_in_thread(start=None, max_size=MAX_MESSAGE_BYTES)
 
     def _on_metadata_updated(self, update: LiveChildMetadataUpdated) -> None:
         # TiledWriter adds the stop document to the run's metadata when the run closes
@@ -189,6 +246,17 @@ class RunEndSubscription:
         logger.warning(f"Tiled closed the stream for {sub}")
 
 
+class ExporterPrompt(Prompts):
+    """IPython prompt for the auto exporter session."""
+
+    def in_prompt_tokens(self, cli=None):
+        return [
+            (Token.Prompt, "HEX Exporter ["),
+            (Token.PromptNum, str(self.shell.execution_count)),
+            (Token.Prompt, "]: "),
+        ]
+
+
 def main() -> None:
     """Entry point for the auto exporter script."""
     parser = argparse.ArgumentParser(
@@ -203,7 +271,8 @@ def main() -> None:
     parser.add_argument(
         "--csv",
         default=None,
-        help="CSV file to append each closed run's export status to",
+        help="CSV file to append each closed run's export status to (default:"
+        f" {PLAN_HISTORY_CSV} in each run's proposal directory)",
     )
     parser.add_argument("--debug", action="store_true", help="enable debug logging")
     args = parser.parse_args()
@@ -214,12 +283,24 @@ def main() -> None:
     for segment in args.catalog.strip("/").split("/"):
         catalog = catalog[segment]
 
-    try:
-        callback = partial(auto_export_run, catalog=catalog, csv_path=args.csv)
-        with RunEndSubscription(catalog, callback) as subscription:
-            subscription.run()
-    except KeyboardInterrupt:
-        logger.info("Interrupted; closed the Tiled subscription and exiting")
+    callback = partial(auto_export_run, catalog=catalog, csv_path=args.csv)
+    ipython_config = Config()
+    ipython_config.TerminalInteractiveShell.prompts_class = ExporterPrompt
+    with RunEndSubscription(catalog, callback) as subscription:
+        subscription.run_in_thread()
+        IPython.start_ipython(
+            argv=[],
+            config=ipython_config,
+            user_ns={
+                **{name: getattr(exporters, name) for name in exporters.__all__},
+                "c": catalog,
+                "tiled_client": catalog,
+                "subscription": subscription,
+                "auto_export_run": callback,
+                "EXPORTERS": EXPORTERS,
+            },
+        )
+    logger.info("IPython session exited; closed the Tiled subscription and exiting")
 
 
 if __name__ == "__main__":

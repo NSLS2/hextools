@@ -8,7 +8,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("qtpy")
 
 from bluesky.plans import count  # noqa: E402
-from ophyd.sim import det  # noqa: E402  # type: ignore
+from ophyd_async.core import init_devices  # noqa: E402
+from ophyd_async.sim import PatternGenerator, SimPointDetector  # noqa: E402
 from qtpy.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from hextools.gui.plan_status import PlanMonitor, QtPlanHistory  # noqa: E402
@@ -24,17 +25,25 @@ def _history(RE, path):
     return monitor, QtPlanHistory(monitor, history_file=path)
 
 
-def _finish_plan(RE, monitor):
+@pytest.fixture
+def det(RE):
+    # init_devices names devices after the variables they are assigned to
+    with init_devices():
+        det = SimPointDetector(PatternGenerator())
+    return det
+
+
+def _finish_plan(RE, det, monitor):
     RE(count([det]))
     QApplication.processEvents()
 
 
-def test_history_is_saved_and_cleared(RE, tmp_path, monkeypatch):
+def test_history_is_saved_and_cleared(RE, det, tmp_path, monkeypatch):
     path = tmp_path / "cache" / "history.json"
     monitor, history = _history(RE, path)
     assert not history._clear_button.isEnabled()
 
-    _finish_plan(RE, monitor)
+    _finish_plan(RE, det, monitor)
     assert len(json.loads(path.read_text())) == 1
     assert history._clear_button.isEnabled()
 
@@ -55,10 +64,10 @@ def test_history_is_saved_and_cleared(RE, tmp_path, monkeypatch):
     monitor.detach()
 
 
-def test_history_is_loaded_on_startup(RE, tmp_path):
+def test_history_is_loaded_on_startup(RE, det, tmp_path):
     path = tmp_path / "history.json"
     monitor, _ = _history(RE, path)
-    _finish_plan(RE, monitor)
+    _finish_plan(RE, det, monitor)
     monitor.detach()
 
     monitor, history = _history(RE, path)

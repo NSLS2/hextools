@@ -21,7 +21,9 @@ from ophyd_async.core import (
 )
 from ophyd_async.epics.adcore import NDProcessFilterType
 from ophyd_async.epics.adkinetix import KinetixDetector
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.fastcs.panda import HDFPanda
+from ophyd_async.sim import SimMotor
 
 from hextools.detectors import (
     FRAME_PERIOD_MARGIN,
@@ -36,7 +38,7 @@ from hextools.photon_delivery_system.shutter import (
     ensure_shutter_open,
 )
 from hextools.specs import TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
-from hextools.utils import Steppable, ensure_available
+from hextools.utils import ensure_available
 
 from ..detectors.phantom import PhantomDetector
 from ..flyers import SingleAxisFlyableLogic, construct_fly_info_models
@@ -55,6 +57,7 @@ def tomo_dark_flat(
     num_flat_images: int = 50,
     x_offset: float = 0.0,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     sample_tower: SampleTower | None = None,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
@@ -76,6 +79,9 @@ def tomo_dark_flat(
         Default is 0.0.
     use_shutter : bool, optional
         Whether to use the shutter for the acquisition. Default is True.
+    restart_preview : bool, optional
+        Whether to put the detectors back into preview mode when the plan ends.
+        Default is True.
     sample_tower : SampleTower | None, optional
         The sample tower to use. If None, will attempt to ensure availability.
     fe_shutter : Shutter | None, optional
@@ -138,8 +144,8 @@ def tomo_dark_flat(
         # Before the preview restarts, so it runs at the original exposure.
         for det, acquire_time in zip(detectors, initial_acquire_times, strict=True):
             yield from bps.mv(det.driver.acquire_time, acquire_time)
-        for det in detectors:
-            if isinstance(det, KinetixDetector):
+        if restart_preview:
+            for det in detectors:
                 yield from enable_preview_mode(det)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
@@ -155,6 +161,7 @@ def tomo_flyscan(
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     sample_name: str | None = None,
     time_based: bool = True,
     panda: HDFPanda | None = None,
@@ -186,6 +193,9 @@ def tomo_flyscan(
         The stopping angle for the tomography fly scan.
     use_shutter : bool
         Whether to use the shutter during the scan.
+    restart_preview : bool, optional
+        Whether to put the detectors back into preview mode when the scan ends.
+        Default True.
     sample_name : str | None
         The name of the sample being scanned.
     time_based : bool
@@ -356,8 +366,8 @@ def tomo_flyscan(
         yield from ensure_shutter_closed(photon_shutter)
         yield from bps.abs_set(rot_motor.motor_stop, 1)
         yield from bps.mv(rot_motor.velocity, initial_velocity)
-        for det in detectors:
-            if isinstance(det, KinetixDetector):
+        if restart_preview:
+            for det in detectors:
                 yield from enable_preview_mode(det)
 
     return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
@@ -376,6 +386,7 @@ def tomo_nd_step_scan(
     num_repeats: int = 1,
     delay_between_points: float = 0.0,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     alternate_flyscan_dir: bool = False,
     dark_flat_offset: float = 0.0,
     dark_flat_exposure_time: float | None = None,
@@ -384,7 +395,7 @@ def tomo_nd_step_scan(
     dark_flat_frequency: int = 0,
     sample_name: str | None = None,
     time_based: bool = True,
-    snake_axes: bool | Sequence[Steppable] = False,
+    snake_axes: bool | Sequence[AsyncEpicsMotor | SimMotor] = False,
     num_retries: int = 0,
     sample_tower: SampleTower | None = None,
     panda: HDFPanda | None = None,
@@ -426,6 +437,10 @@ def tomo_nd_step_scan(
         Seconds to wait between consecutive flyscans.
     use_shutter : bool, optional
         Whether to use the shutters during the scan.
+    restart_preview : bool, optional
+        Whether to put the detectors back into preview mode when the whole
+        scan ends. The flyscans and darks/flats inside it never restart it.
+        Default True.
     alternate_flyscan_dir : bool, optional
         Whether to reverse the flyscan direction at every other grid point.
     sample_name : str | None, optional
@@ -443,7 +458,7 @@ def tomo_nd_step_scan(
         If greater than 0, also take a dark/flat after every this many grid points.
     time_based : bool, optional
         Whether the scan is time-based.
-    snake_axes : bool | Sequence[Steppable], optional
+    snake_axes : bool | Sequence[AsyncEpicsMotor | SimMotor], optional
         If True, snake every axis but the outermost; otherwise, the motors to snake.
     num_retries : int, optional
         How many times to retry a grid point's flyscan if it fails; 0 never retries.
@@ -506,6 +521,7 @@ def tomo_nd_step_scan(
                 num_flat_images=num_flat_images,
                 x_offset=dark_flat_offset,
                 use_shutter=use_shutter,
+                restart_preview=False,
                 sample_tower=sample_tower,
                 fe_shutter=fe_shutter,
                 photon_shutter=photon_shutter,
@@ -547,6 +563,7 @@ def tomo_nd_step_scan(
                         start=stop if reverse else start,
                         stop=start if reverse else stop,
                         use_shutter=use_shutter,
+                        restart_preview=False,
                         sample_name=sample_name,
                         time_based=time_based,
                         panda=panda,
@@ -583,7 +600,12 @@ def tomo_nd_step_scan(
         if take_dark_flats:
             yield from _dark_flat()
 
-    return (yield from _body())
+    def _cleanup():
+        if restart_preview:
+            for det in detectors:
+                yield from enable_preview_mode(det)
+
+    return (yield from bpp.finalize_wrapper(_body(), _cleanup()))
 
 
 def tomo_flyscan_loop(
@@ -603,6 +625,7 @@ def tomo_flyscan_loop(
     dark_flat_frequency: int = 0,
     dark_flat_exposure_time: float | None = None,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     sample_name: str | None = None,
     time_based: bool = True,
     panda: HDFPanda | None = None,
@@ -653,6 +676,9 @@ def tomo_flyscan_loop(
         same exposure time as the projections.
     use_shutter : bool, optional
         Whether to use the shutter during acquisitions. Default is True.
+    restart_preview : bool, optional
+        Whether to put the detectors back into preview mode when the loop
+        ends (not between tomograms). Default is True.
     sample_name : str | None, optional
         The name of the sample being scanned. Default is None.
     time_based : bool, optional
@@ -687,6 +713,7 @@ def tomo_flyscan_loop(
             num_flat_images=num_flat_images,
             dark_flat_frequency=dark_flat_frequency,
             use_shutter=use_shutter,
+            restart_preview=restart_preview,
             sample_name=sample_name,
             time_based=time_based,
             panda=panda,
@@ -700,7 +727,7 @@ def tomo_flyscan_loop(
 
 def tomo_1d_step_scan(
     detectors: list[KinetixDetector | PhantomDetector],
-    step_motor: Steppable,
+    step_motor: AsyncEpicsMotor | SimMotor,
     step_start: float,
     step_stop: float,
     num_tomograms: int,
@@ -712,6 +739,7 @@ def tomo_1d_step_scan(
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     sample_name: str | None = None,
     alternate_flyscan_dir: bool = False,
     num_retries: int = 3,
@@ -732,7 +760,7 @@ def tomo_1d_step_scan(
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
         The list of detectors to use during the scan.
-    step_motor : Steppable
+    step_motor : AsyncEpicsMotor | SimMotor
         The motor that will be moved in steps during the scan.
     step_start : float
         The starting position for the step motor.
@@ -757,6 +785,9 @@ def tomo_1d_step_scan(
         The stopping angle for the rotation motor.
     use_shutter : bool, optional
         Whether to use the shutter during the scan.
+    restart_preview : bool, optional
+        Whether to put the detectors back into preview mode when the scan
+        ends (not between tomograms). Default True.
     sample_name : str | None, optional
         The name of the sample being scanned.
     alternate_flyscan_dir : bool, optional
@@ -801,6 +832,7 @@ def tomo_1d_step_scan(
             start=start,
             stop=stop,
             use_shutter=use_shutter,
+            restart_preview=restart_preview,
             num_retries=num_retries,
             alternate_flyscan_dir=alternate_flyscan_dir,
             sample_name=sample_name,
@@ -820,11 +852,11 @@ def tomo_1d_step_scan(
 
 def tomo_2d_step_scan(
     detectors: list[KinetixDetector | PhantomDetector],
-    outer_motor: Steppable,
+    outer_motor: AsyncEpicsMotor | SimMotor,
     outer_start: float,
     outer_stop: float,
     outer_num: int,
-    inner_motor: Steppable,
+    inner_motor: AsyncEpicsMotor | SimMotor,
     inner_start: float,
     inner_stop: float,
     inner_num: int,
@@ -836,6 +868,7 @@ def tomo_2d_step_scan(
     start: float = 0,
     stop: float = 180,
     use_shutter: bool = True,
+    restart_preview: bool = True,
     alternate_flyscan_dir: bool = False,
     num_retries: int = 0,
     sample_name: str | None = None,
@@ -856,7 +889,7 @@ def tomo_2d_step_scan(
     ----------
     detectors : list[KinetixDetector | PhantomDetector]
         The list of detectors to use for the scan.
-    outer_motor : Steppable
+    outer_motor : AsyncEpicsMotor | SimMotor
         The motor controlling the outer axis of the 2-D grid.
     outer_start : float
         The starting position of the outer motor.
@@ -864,7 +897,7 @@ def tomo_2d_step_scan(
         The stopping position of the outer motor.
     outer_num : int
         The number of steps for the outer motor.
-    inner_motor : Steppable
+    inner_motor : AsyncEpicsMotor | SimMotor
         The motor controlling the inner axis of the 2-D grid.
     inner_start : float
         The starting position of the inner motor.
@@ -889,6 +922,9 @@ def tomo_2d_step_scan(
         The stopping angle for the tomography scan.
     use_shutter : bool, default True
         Whether to use the shutter during the scan.
+    restart_preview : bool, default True
+        Whether to put the detectors back into preview mode when the scan
+        ends (not between tomograms).
     alternate_flyscan_dir : bool, default False
         If True, alternate the direction of the flyscan for each iteration.
     sample_name : str | None, default None
@@ -936,6 +972,7 @@ def tomo_2d_step_scan(
             start=start,
             stop=stop,
             use_shutter=use_shutter,
+            restart_preview=restart_preview,
             alternate_flyscan_dir=alternate_flyscan_dir,
             sample_name=sample_name,
             time_based=time_based,

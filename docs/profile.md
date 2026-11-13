@@ -36,10 +36,11 @@ The import block pulls in three kinds of names:
   `from_uri` and `simple`, and `NSLS2PathProvider` (decides where detectors
   write files).
 - **Device classes** — upstream ophyd-async detectors (`KinetixDetector`,
-  `VimbaDetector`, `ContAcqDetector`, `HDFPanda`, `NDStatsIO`) and the HEX
+  `VimbaDetector`, `HDFPanda`, `NDStatsIO`) and the HEX
   devices from `hextools` (`Shutter`, `Slits`, `DCLM`, `SampleTower`,
   `OpticsTable`, `EDXDTable`, `CollimatorTable`, the microscope cameras,
-  `PhantomDetector`, `GeRMDetector`, `NSLS2StorageRing`, filters).
+  `PhantomDetector`, `PerkinElmerDetector`, `GeRMDetector`, `NSLS2StorageRing`,
+  filters).
 - **Plans** — everything a user should be able to run at the prompt:
   `bp` and `bps` (bluesky's built-in plans and stubs), `move_motor`,
   `move_slits`, `set_fe_aperture`, `set_filters`, `change_energy`,

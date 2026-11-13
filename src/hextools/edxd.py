@@ -8,6 +8,8 @@ from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky import preprocessors as bpp
 from bluesky.preprocessors import finalize_wrapper
+from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
+from ophyd_async.sim import SimMotor
 from tiled.structures.core import Spec
 
 from hextools.detectors.germ import GeRMDetector
@@ -15,7 +17,7 @@ from hextools.motors import CollimatorTable, EDXDTable, SampleTower
 from hextools.photon_delivery_system import Shutter, ensure_shutter_open
 from hextools.photon_delivery_system.shutter import ensure_shutter_closed
 from hextools.specs import EDXD_CALIBRATION_V1, EDXD_SCAN_V1
-from hextools.utils import Steppable, ensure_available
+from hextools.utils import ensure_available
 
 
 def _tiled_specs(spec: Spec) -> list[dict[str, str | None]]:
@@ -107,7 +109,7 @@ def edxd_count(
 
 
 def edxd_scan(
-    motor: Steppable,
+    motor: AsyncEpicsMotor | SimMotor,
     start: float,
     stop: float,
     num_points: int,
@@ -126,7 +128,7 @@ def edxd_scan(
 
     Parameters
     ----------
-    motor : Steppable,
+    motor : AsyncEpicsMotor | SimMotor,
         The motor to scan.
     start : float
         The starting position for the motor.
@@ -200,13 +202,15 @@ def edxd_scan(
 
 
 def edxd_custom_pos_list_grid(
-    outer_motor: Steppable,
+    outer_motor: AsyncEpicsMotor | SimMotor,
     outer_positions_list: list[float],
-    inner_motor: Steppable,
+    inner_motor: AsyncEpicsMotor | SimMotor,
     inner_start: list[float],
     inner_stop: list[float],
     inner_num_points: list[int],
     count_time: float,
+    num_iterations: int = 1,
+    time_between_iterations: float = 0.0,
     save_as_tiff: bool = True,
     use_shutter: bool = True,
     reset_positions: bool = True,
@@ -215,7 +219,21 @@ def edxd_custom_pos_list_grid(
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
 ):
-    """Run a custom-position EDXD grid, saving TIFF unless save_as_tiff=False."""
+    """Run a custom-position EDXD grid, saving TIFF unless save_as_tiff=False.
+
+    Each iteration runs the whole grid: one run per outer position, each linked
+    to that iteration's first run by ``initial_scan_uid``. As in
+    :func:`edxd_scan`, every iteration opens and closes the shutters and resets
+    the positions, so the wait between iterations is spent with the shutters
+    closed.
+
+    Parameters
+    ----------
+    num_iterations : int, default 1
+        The number of times to run the whole grid.
+    time_between_iterations : float, default 0.0
+        The time to wait between iterations.
+    """
     germ = ensure_available(GeRMDetector, germ=germ)
     fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
@@ -280,15 +298,21 @@ def edxd_custom_pos_list_grid(
             yield from ensure_shutter_closed(fe_shutter)
             yield from ensure_shutter_closed(photon_shutter)
 
-    return (yield from finalize_wrapper(_body(), _cleanup()))
+    return (
+        yield from bps.repeat(
+            lambda: finalize_wrapper(_body(), _cleanup()),
+            num=num_iterations,
+            delay=time_between_iterations,
+        )
+    )
 
 
 def edxd_grid_scan(
-    outer_motor: Steppable,
+    outer_motor: AsyncEpicsMotor | SimMotor,
     outer_start: float,
     outer_stop: float,
     outer_num_points: int,
-    inner_motor: Steppable,
+    inner_motor: AsyncEpicsMotor | SimMotor,
     inner_start: float,
     inner_stop: float,
     inner_num_points: int,
@@ -305,7 +329,7 @@ def edxd_grid_scan(
 
     Parameters
     ----------
-    outer_motor : Steppable
+    outer_motor : AsyncEpicsMotor | SimMotor
         The outer (slower) motor for the grid scan.
     outer_start : float
         The starting position for the outer motor.
@@ -313,7 +337,7 @@ def edxd_grid_scan(
         The stopping position for the outer motor.
     outer_num_points : int
         The number of points for the outer motor.
-    inner_motor : Steppable
+    inner_motor : AsyncEpicsMotor | SimMotor
         The inner (faster) motor for the grid scan.
     inner_start : float
         The starting position for the inner motor.
@@ -558,6 +582,7 @@ __all__ = [
     "edxd_calib_scan",
     "edxd_count",
     "edxd_scan",
+    "edxd_grid_scan",
     "edxd_2theta_tilt",
     "edxd_custom_pos_list_grid",
 ]

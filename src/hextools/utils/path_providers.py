@@ -8,7 +8,7 @@ from typing import Any
 from nslsii.ophyd_async.providers import TimestampFilenameProvider
 from ophyd_async.core import UUIDFilenameProvider, YMDPathProvider
 
-logger = logging.getLogger("hextools")
+logger = logging.getLogger(__name__)
 
 
 class StartDocAwareFilenameProvider(TimestampFilenameProvider):

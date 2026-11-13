@@ -697,6 +697,7 @@ def tomo_alignment_scan(
     num_projections: int = 37,
     init_angle: float = 0.0,
     stop_angle: float = 360.0,
+    use_shutter: bool = True,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
     rot_motor: RotationMotor | None = None,
@@ -738,8 +739,9 @@ def tomo_alignment_scan(
     )
     def _body():
 
-        yield from ensure_shutter_open(fe_shutter)
-        yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
+        if use_shutter:
+            yield from ensure_shutter_open(fe_shutter)
+            yield from ensure_shutter_open(photon_shutter, allow_actuation=True)
 
         # Set the rotation stage to the maximum velocity before starting the scan
         max_velocity = yield from bps.rd(rot_motor.max_velocity)
@@ -758,8 +760,13 @@ def tomo_alignment_scan(
 
         _md = {
             "description": "Tomography alignment scan",
-            "plan_name": "tomography_alignment_scan",
-            "tiled_specs": [TOMO_ALIGNMENT_SCAN_V1],
+            "plan_name": "tomo_alignment_scan",
+            "tiled_specs": [
+                {
+                    "name": TOMO_ALIGNMENT_SCAN_V1.name,
+                    "version": TOMO_ALIGNMENT_SCAN_V1.version,
+                }
+            ],
         }
 
         yield from bp.scan(
@@ -767,7 +774,8 @@ def tomo_alignment_scan(
         )
 
     def _cleanup():
-        yield from ensure_shutter_closed(photon_shutter)
+        if use_shutter:
+            yield from ensure_shutter_closed(photon_shutter)
         if isinstance(det, KinetixDetector):
             yield from enable_preview_mode(det)
         yield from bps.mv(rot_motor, initial_position)

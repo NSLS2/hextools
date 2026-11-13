@@ -9,6 +9,7 @@ from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.fastcs.panda import HDFPanda
 
 from hextools.detectors import FRAME_PERIOD_MARGIN, PhantomDetector
+from hextools.detectors.perkin_elmer import PerkinElmerDetector
 from hextools.detectors.utils import enable_preview_mode, set_proc_filter_type
 from hextools.photon_delivery_system import Shutter
 from hextools.photon_delivery_system.shutter import (
@@ -19,7 +20,7 @@ from hextools.utils import ensure_available
 
 
 def take_radiograph(
-    detectors: list[KinetixDetector | PhantomDetector | ContAcqDetector],
+    detectors: list[KinetixDetector | PhantomDetector | PerkinElmerDetector],
     exposure_time: float,
     num_images: int,
     num_iterations: int = 1,
@@ -82,8 +83,13 @@ def take_radiograph(
     bits = None
     pulse = None
     if external_trigger:
-        if any(isinstance(det, ContAcqDetector) for det in detectors):
-            raise ValueError("External triggering is not supported for ContAcqDetector")
+        if any(
+            isinstance(det, ContAcqDetector | PerkinElmerDetector) for det in detectors
+        ):
+            raise ValueError(
+                "External triggering is not supported for continuous acquisition "
+                "detectors"
+            )
         panda = ensure_available(HDFPanda, panda=panda)
         bits = panda.bits  # type: ignore  # discovered from the IOC
         pulse = panda.pulse[1]
