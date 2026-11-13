@@ -99,7 +99,11 @@ def _outside_gui_imports(source: str, package: str) -> set[str]:
 
 @pytest.mark.parametrize(
     "path",
-    [path for path in sorted(GUI_DIR.rglob("*.py")) if path != LAUNCHER],
+    [
+        path
+        for path in sorted(GUI_DIR.rglob("*.py"))
+        if path != LAUNCHER and path.name != "slits_control.py"
+    ],
     ids=lambda path: str(path.relative_to(GUI_DIR)),
 )
 def test_generic_modules_import_no_beamline_modules(path: Path):

@@ -76,9 +76,10 @@ from hextools.utils import (
 
 
 def _shutters(re, namespace):
+    from hextools.gui.reading_sources import NamespaceReadingSource
     from hextools.gui.shutter_status import QtShutterStatus
 
-    shutters = {}
+    shutter_names = []
     seen = set()
     for name, obj in sorted(namespace.items()):
         if (
@@ -86,15 +87,16 @@ def _shutters(re, namespace):
             and isinstance(obj, Shutter)
             and id(obj) not in seen
         ):
-            shutters[name] = obj
+            shutter_names.append(name)
             seen.add(id(obj))
 
-    def command(name: str, open_shutter: bool) -> str:
+    def command_builder(name: str, open_shutter: bool) -> str:
         plan = ensure_shutter_open if open_shutter else ensure_shutter_closed
         namespace.setdefault(plan.__name__, plan)
         return f"RE({plan.__name__}({name}, allow_actuation=True, sleep_time=0.0))"
 
-    return QtShutterStatus(re, shutters, command)
+    source = NamespaceReadingSource(namespace, re.loop)
+    return QtShutterStatus(re, source, shutter_names, command_builder)
 
 
 def _germ_viewer_options(mock: bool) -> dict[str, Any]:
