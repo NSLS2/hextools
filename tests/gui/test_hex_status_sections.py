@@ -9,10 +9,16 @@ from bluesky import RunEngine  # noqa: E402
 from ophyd_async.core import init_devices  # noqa: E402
 from qtpy.QtWidgets import QApplication, QComboBox  # noqa: E402
 
-from hextools.gui import movable_group  # noqa: E402
-from hextools.gui.hex_config import filter_rows, status_sections  # noqa: E402
+from hextools.catalog.generate import type_expr  # noqa: E402
+from hextools.catalog.model import DeviceRegistry  # noqa: E402
+from hextools.gui import _ipython  # noqa: E402
+from hextools.gui.hex_config import (  # noqa: E402
+    filter_rows,
+    slits_entries,
+    status_sections,
+)
 from hextools.gui.movable_group import QtMovableGroup  # noqa: E402
-from hextools.gui.reading_sources import NamespaceReadingSource  # noqa: E402
+from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 from hextools.gui.signal_status_group import QtBeamlineStatus  # noqa: E402
 from hextools.machine import NSLS2StorageRing  # noqa: E402
 from hextools.motors import SampleTower  # noqa: E402
@@ -53,9 +59,10 @@ def test_status_sections_cover_beamline_devices():
         "edxd_slits": edxd_slits,
         "sample_tower": sample_tower,
         "_hidden": sample_tower,
+        "RE": RE,
     }
-    source = NamespaceReadingSource(namespace, RE.loop)
-    widget = QtBeamlineStatus(status_sections(namespace, source), source)
+    client = InProcessRunEngineClient(namespace)
+    widget = QtBeamlineStatus(status_sections(client), client)
     try:
         sections = {
             group.title: [s.label_widget.text() for s in group._statuses]
@@ -77,7 +84,7 @@ def test_status_sections_cover_beamline_devices():
 
 
 def test_status_sections_skip_missing_devices():
-    assert status_sections({}, NamespaceReadingSource({}, RunEngine().loop)) == []
+    assert status_sections(InProcessRunEngineClient({"RE": RunEngine()})) == []
 
 
 def test_filter_rows_offer_only_filters_one_and_two():
@@ -85,8 +92,20 @@ def test_filter_rows_offer_only_filters_one_and_two():
     names = ["filter1_upstream", "filter1_downstream", "filter2", "filter3", "filter4"]
     with init_devices(mock=True):
         namespace = {n: Filter(f"{n}:", f"{n}:Sw", name=n) for n in names}
-    rows, _ = filter_rows(namespace)
+    rows, _ = filter_rows(DeviceRegistry.from_namespace(namespace))
     assert list(rows.values()) == names[:3]
+
+
+def test_aliases_resolve_to_the_name_the_registry_keeps():
+    RunEngine()
+    with init_devices(mock=True):
+        filter2 = Filter("F2:", "F2:Sw", name="filter2")
+        a_slits = Slits("A:", name="a_slits")
+    namespace = {"alias": filter2, "filter2": filter2, "a": a_slits, "a_slits": a_slits}
+    registry = DeviceRegistry.from_namespace(namespace)
+    rows, _ = filter_rows(registry)
+    assert list(rows.values()) == ["filter2"]
+    assert slits_entries(registry) == [("a_slits", "A Slits")]
 
 
 def test_filter_group_batches_material_settings_into_move_filters(monkeypatch):
@@ -95,20 +114,20 @@ def test_filter_group_batches_material_settings_into_move_filters(monkeypatch):
     with init_devices(mock=True):
         filter2 = Filter("F2:", "F2:Sw", name="filter2")
         filter1_upstream = Filter("F1U:", "F1U:Sw", name="filter1_upstream")
-    namespace = {"filter2": filter2, "filter1_upstream": filter1_upstream}
-    rows, value_types = filter_rows(namespace)
+    namespace = {"filter2": filter2, "filter1_upstream": filter1_upstream, "RE": RE}
+    client = InProcessRunEngineClient(namespace)
+    rows, value_types = filter_rows(client.device_registry)
     assert rows == {"Filter 1 Upstream": "filter1_upstream", "Filter 2": "filter2"}
     assert value_types == {
-        "filter1_upstream": Filter1UpstreamPosition,
-        "filter2": Filter2Position,
+        "filter1_upstream": type_expr(Filter1UpstreamPosition),
+        "filter2": type_expr(Filter2Position),
     }
 
     commands: list[str] = []
-    monkeypatch.setattr(movable_group, "run_in_ipython", commands.append)
+    monkeypatch.setattr(_ipython, "run_in_ipython", commands.append)
     group = QtMovableGroup(
         rows,
-        RE,
-        namespace,
+        client,
         value_types=value_types,
         move_plan="move_filters",
         tweak_plan=None,
@@ -124,7 +143,7 @@ def test_filter_group_batches_material_settings_into_move_filters(monkeypatch):
         ):
             combo = control.findChild(QComboBox)
             assert combo is not None
-            combo.activated.emit(combo.findData(member))
+            combo.activated.emit(combo.findData(member.value))
         group._on_move_clicked()
         app.processEvents()
         assert commands == [

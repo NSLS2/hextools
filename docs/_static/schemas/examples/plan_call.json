@@ -1,0 +1,12 @@
+{
+  "plan": "tomo_flyscan",
+  "args": [
+    {
+      "$record": "hextools.tomography.FlyscanSetup",
+      "rotation": {"$device": "sample_tower.rotation"},
+      "detectors": [{"$device": "kinetix1"}, {"$device": "kinetix3"}],
+      "exposure": 0.02
+    }
+  ],
+  "kwargs": {"num_projections": 900}
+}

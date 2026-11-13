@@ -3,29 +3,8 @@
 from __future__ import annotations
 
 import sys
-from typing import Any
 
-from bluesky.utils import RunEngineInterrupted
-from qtpy.QtWidgets import QMessageBox, QWidget
-
-from hextools.log import _unwrap_failed_status
-
-PAUSED_MESSAGE = (
-    "The plan is paused. Press Resume to continue it, "
-    "or Stop, Abort, or Halt to end it."
-)
-
-
-def show_plan_error(parent: QWidget, title: str, error: BaseException) -> None:
-    """Report an error from :func:`run_in_ipython`.
-
-    The error is shown as a warning if the plan just paused.
-    """
-    if isinstance(error, RunEngineInterrupted):
-        QMessageBox.warning(parent, "Plan paused", PAUSED_MESSAGE)
-    else:
-        cause = _unwrap_failed_status(error)
-        QMessageBox.critical(parent, title, f"{type(cause).__name__}: {cause}")
+from IPython.core.interactiveshell import InteractiveShell
 
 
 def run_in_ipython(code: str) -> BaseException | None:
@@ -55,7 +34,7 @@ def run_in_ipython(code: str) -> BaseException | None:
     return result.error_in_exec or result.error_before_exec
 
 
-def _add_to_prompt_history(ipython: Any, code: str) -> None:
+def _add_to_prompt_history(ipython: InteractiveShell, code: str) -> None:
     """Make ``code`` reachable with the up arrow at the waiting IPython prompt."""
     pt_app = getattr(ipython, "pt_app", None)
     if pt_app is None:

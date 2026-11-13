@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable, Mapping
-from typing import Any, cast
+from collections.abc import Iterable, Iterator, Mapping
+from typing import cast
 
-from ophyd_async.core import SignalR, walk_devices
 from qtpy.QtCore import QSize, Qt
 from qtpy.QtWidgets import (
     QGridLayout,
@@ -18,27 +17,12 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui.reading_sources import ReadingSource
+from hextools.catalog.model import DeviceNode, DeviceRegistry
+from hextools.gui.run_engine_clients import RunEngineClient
 from hextools.gui.signal_status import QtSignalStatus
 
 # Sections with more fields than this split them over two columns.
 _MAX_ROWS_PER_FIELD_COLUMN = 4
-
-
-def hinted_fields(device: Any) -> dict[str, str]:
-    """Map each hinted field of ``device`` to its attribute path, in definition order.
-
-    A signal maps its own name to ``""``.
-    """
-    if isinstance(device, SignalR):
-        return {device.name: ""}
-    fields = set(getattr(device, "hints", {}).get("fields", []))
-    # Hints are not reliably ordered, so follow the device tree instead.
-    return {
-        child.name: path
-        for path, child in walk_devices(device).items()
-        if isinstance(child, SignalR) and child.name in fields
-    }
 
 
 def field_label(device_name: str, field: str) -> str:
@@ -48,6 +32,36 @@ def field_label(device_name: str, field: str) -> str:
         if stripped:
             return stripped
     return field
+
+
+def _descendants(path: str, node: DeviceNode) -> Iterator[tuple[str, DeviceNode]]:
+    for key, child in node.children.items():
+        child_path = node.child_path(path, key)
+        yield child_path, child
+        yield from _descendants(child_path, child)
+
+
+def hinted_fields(registry: DeviceRegistry, path: str) -> tuple[str, dict[str, str]]:
+    """Return the device's own name, and its hinted fields mapped to their paths.
+
+    Fields are in definition order; a signal maps its own name to ``path``.
+
+    Raises
+    ------
+    KeyError
+        If there is no device or signal at ``path``.
+    """
+    node = registry.node(path)
+    name = node.name or path
+    if node.signal:
+        return name, {name: path}
+    hinted = set(node.hinted_fields)
+    fields = {
+        child.name: child_path
+        for child_path, child in _descendants(path, node)
+        if child.signal and child.name is not None and child.name in hinted
+    }
+    return name, fields
 
 
 class QtStatusGroup(QWidget):
@@ -60,10 +74,10 @@ class QtStatusGroup(QWidget):
     title : str
         Section header.
     fields : Mapping[str, str]
-        Row label to the name, in ``source``, of the signal or device shown on
-        that row, in order.
-    source : ReadingSource
-        Where the names are looked up and their readings come from.
+        Row label to the name, in the client's device registry, of the signal or
+        device shown on that row, in order.
+    re_client : RunEngineClient
+        Where the readings come from.
     precision : int, optional
         Decimal places shown for float values.
     """
@@ -72,7 +86,7 @@ class QtStatusGroup(QWidget):
         self,
         title: str,
         fields: Mapping[str, str],
-        source: ReadingSource,
+        re_client: RunEngineClient,
         precision: int = 3,
         parent=None,
     ):
@@ -89,7 +103,7 @@ class QtStatusGroup(QWidget):
         grid.setVerticalSpacing(0)
         self._statuses: list[QtSignalStatus] = []
         for i, (label, name) in enumerate(fields.items()):
-            status = QtSignalStatus(name, source, label=label, precision=precision)
+            status = QtSignalStatus(re_client, name, label=label, precision=precision)
             status.label_widget.setObjectName("statusFieldLabel")
             status.label_widget.setAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -130,9 +144,9 @@ class QtDeviceStatus(QtStatusGroup):
     Parameters
     ----------
     name : str
-        The device, as named in ``source``.
-    source : ReadingSource
-        Where the device and its fields are looked up and read from.
+        The device, as named in the client's device registry.
+    re_client : RunEngineClient
+        Where the device's hinted fields are described and read from.
     display_name : str, optional
         Section header. Defaults to the device's ``name``.
     precision : int, optional
@@ -142,20 +156,19 @@ class QtDeviceStatus(QtStatusGroup):
     def __init__(
         self,
         name: str,
-        source: ReadingSource,
+        re_client: RunEngineClient,
         display_name: str | None = None,
         precision: int = 3,
         parent=None,
     ):
-        device = source.lookup(name)
+        device_name, hinted = hinted_fields(re_client.device_registry, name)
         fields = {
-            field_label(device.name, field): f"{name}.{path}" if path else name
-            for field, path in hinted_fields(device).items()
+            field_label(device_name, field): path for field, path in hinted.items()
         }
         super().__init__(
-            display_name if display_name is not None else device.name,
+            display_name if display_name is not None else device_name,
             fields,
-            source,
+            re_client,
             precision=precision,
             parent=parent,
         )
@@ -170,10 +183,10 @@ class QtBeamlineStatus(QWidget):
     Parameters
     ----------
     devices : Iterable[str | QtStatusGroup] or Mapping[str, str]
-        Device names in ``source``, or ready-made status sections. A mapping
-        gives each device section a display name.
-    source : ReadingSource
-        Where the devices are looked up and read from.
+        Device names in the client's device registry, or ready-made status
+        sections. A mapping gives each device section a display name.
+    re_client : RunEngineClient
+        Where the devices are described and read from.
     columns : int, optional
         Number of section columns.
     precision : int, optional
@@ -185,7 +198,7 @@ class QtBeamlineStatus(QWidget):
     def __init__(
         self,
         devices: Iterable[str | QtStatusGroup] | Mapping[str, str],
-        source: ReadingSource,
+        re_client: RunEngineClient,
         columns: int = 4,
         precision: int = 3,
         title: str | None = "Beamline Status",
@@ -207,7 +220,7 @@ class QtBeamlineStatus(QWidget):
                 device
                 if isinstance(device, QtStatusGroup)
                 else QtDeviceStatus(
-                    device, source, display_name=display_name, precision=precision
+                    device, re_client, display_name=display_name, precision=precision
                 )
             )
             col = heights.index(min(heights))

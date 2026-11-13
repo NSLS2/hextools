@@ -4,7 +4,6 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("qtpy")
-pytest.importorskip("bluesky_widgets")
 
 import bluesky.plans as bp  # noqa: E402
 import matplotlib  # noqa: E402
@@ -19,6 +18,7 @@ from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from hextools.gui._ipython import run_in_ipython  # noqa: E402, PLC2701
 from hextools.gui.re_execution_controls import QtReExecutionControls  # noqa: E402
+from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 
 
 def _slow_step(detectors, step, pos_cache):
@@ -49,8 +49,8 @@ def _use_qtagg(monkeypatch: pytest.MonkeyPatch) -> None:
 # thread; resuming from a worker thread raised and the plan stayed paused.
 # PR 94 review: Resume must act on the engine the controls hold, even when the
 # shell's RE is a different one.
-@pytest.mark.parametrize("given", ["shell", "re", "namespace"])
-def test_resume_button_resumes_a_paused_plan(given, monkeypatch):
+@pytest.mark.parametrize("shell_re", ["same", "other"])
+def test_resume_button_resumes_a_paused_plan(shell_re, monkeypatch):
     # As in the GUI: with a Qt matplotlib backend, RE() keeps Qt events flowing.
     _use_qtagg(monkeypatch)
     app = QApplication.instance() or QApplication([])
@@ -58,19 +58,16 @@ def test_resume_button_resumes_a_paused_plan(given, monkeypatch):
     RE = RunEngine({})
     det, motor = _sim_devices()
     shell.user_ns.update(
-        RE=RE if given == "shell" else RunEngine({}),
+        RE=RE if shell_re == "same" else RunEngine({}),
         test_RE=RE,
         bp=bp,
         det=det,
         motor=motor,
         _slow_step=_slow_step,
     )
-    if given == "shell":
-        controls = QtReExecutionControls(local=True, namespace=shell.user_ns)
-    elif given == "re":
-        controls = QtReExecutionControls(local=True, re=RE)
-    else:
-        controls = QtReExecutionControls(local=True, namespace={"RE": RE})
+    controls = QtReExecutionControls(
+        InProcessRunEngineClient({**shell.user_ns, "RE": RE})
+    )
     seen = []
 
     def resume():
@@ -87,7 +84,7 @@ def test_resume_button_resumes_a_paused_plan(given, monkeypatch):
     QTimer.singleShot(800, resume)
     QTimer.singleShot(5000, app.quit)
     app.exec()
-    controls._timer.stop()  # type: ignore
+    controls.close()
 
     assert seen == ["paused"]
     assert RE.state == "idle", f"plan did not resume: state={RE.state}"
@@ -103,7 +100,7 @@ def test_double_click_on_resume_resumes_once(monkeypatch):
     RE = RunEngine({})
     det, motor = _sim_devices()
     shell.user_ns.update(RE=RE, bp=bp, det=det, motor=motor, _slow_step=_slow_step)
-    controls = QtReExecutionControls(local=True, namespace=shell.user_ns)
+    controls = QtReExecutionControls(InProcessRunEngineClient(shell.user_ns))
     resumes = []
     real_resume = RE.resume
 
@@ -113,9 +110,10 @@ def test_double_click_on_resume_resumes_once(monkeypatch):
 
     RE.resume = counting_resume  # type: ignore
     enabled_after_click = []
+    enabled_before_click = []
 
     def double_click():
-        controls._poll_local_state()
+        enabled_before_click.append(controls._pb_plan_resume.isEnabled())
         controls._pb_plan_resume_clicked()
         enabled_after_click.append(controls._pb_plan_resume.isEnabled())
         controls._pb_plan_resume_clicked()
@@ -130,8 +128,9 @@ def test_double_click_on_resume_resumes_once(monkeypatch):
     QTimer.singleShot(800, double_click)
     QTimer.singleShot(5000, app.quit)
     app.exec()
-    controls._timer.stop()  # type: ignore
+    controls.close()
 
     assert resumes == ["paused"], f"resume() called {len(resumes)} times: {resumes}"
+    assert enabled_before_click == [True]
     assert enabled_after_click == [False]
     assert RE.state == "idle"

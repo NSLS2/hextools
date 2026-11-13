@@ -7,7 +7,8 @@ import pytest
 from ophyd_async.core import set_mock_value
 
 import hextools
-from hextools.gui.device_sources import NamespaceDeviceSource
+from hextools.catalog.generate import qualified_name
+from hextools.catalog.model import DeviceRegistry
 from hextools.motors import AsyncEpicsMotor, SampleSmall
 
 
@@ -44,11 +45,13 @@ async def test_sample_small_motor_profile_binding_and_mock_move(axis):
     assert motor.name == f"sample-small-{axis}"
     assert motor.parent is stage
 
-    source = NamespaceDeviceSource({variable: stage})
+    registry = DeviceRegistry.from_namespace({variable: stage}, describe=False)
     path = f"{variable}.{axis}"
-    assert path in source.list_devices((AsyncEpicsMotor,))
-    assert source.is_valid_device(path, (AsyncEpicsMotor,))
-    assert source.list_devices((SampleSmall,)) == [variable]
+    motor_type = {"kind": "device", "classes": [qualified_name(AsyncEpicsMotor)]}
+    stage_type = {"kind": "device", "classes": [qualified_name(SampleSmall)]}
+    assert path in registry.find(motor_type)
+    assert registry.node(path).satisfies(motor_type)
+    assert registry.find(stage_type) == [variable]
 
     await stage.connect(mock=True)
     set_mock_value(motor.velocity, 100)

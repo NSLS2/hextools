@@ -11,7 +11,7 @@ from ophyd_async.core import StandardReadableFormat as Format  # noqa: E402
 from ophyd_async.sim import SimMotor  # noqa: E402
 from qtpy.QtWidgets import QApplication, QGroupBox  # noqa: E402
 
-from hextools.gui.reading_sources import NamespaceReadingSource  # noqa: E402
+from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 from hextools.gui.signal_status_group import (  # noqa: E402
     QtBeamlineStatus,
     QtDeviceStatus,
@@ -46,14 +46,23 @@ def stage(RE):
 
 @pytest.fixture
 def source(RE, stage):
-    return NamespaceReadingSource({"stage": stage}, RE.loop)
+    return InProcessRunEngineClient({"RE": RE, "stage": stage})
 
 
-def test_hinted_fields_map_to_attribute_paths(stage):
-    fields = hinted_fields(stage)
+def test_hinted_fields_map_to_registry_paths(stage, source):
+    device_name, fields = hinted_fields(source.device_registry, "stage")
+    assert device_name == "sample-stage"
     assert set(fields) == set(stage.hints["fields"])
-    assert fields["sample-stage-temperature"] == "temperature"
-    assert fields["sample-stage-x"] == "x.user_readback"
+    assert fields["sample-stage-temperature"] == "stage.temperature"
+    assert fields["sample-stage-x"] == "stage.x.user_readback"
+    assert hinted_fields(source.device_registry, "stage.temperature") == (
+        "sample-stage-temperature",
+        {"sample-stage-temperature": "stage.temperature"},
+    )
+
+
+def test_units_are_fetched(source):
+    assert source.fetch_units("stage.temperature").result(timeout=5) == "degC"
 
 
 @pytest.mark.parametrize(
@@ -106,7 +115,7 @@ def test_beamline_status_packs_sections_into_one_box(RE):
         stage2 = _Stage(name="stage2")
     namespace = {"stage0": stage0, "stage1": stage1, "stage2": stage2}
     widget = QtBeamlineStatus(
-        list(namespace), NamespaceReadingSource(namespace, RE.loop), columns=2
+        list(namespace), InProcessRunEngineClient({**namespace, "RE": RE}), columns=2
     )
     try:
         assert [s.title for s in widget._groups] == [
@@ -127,7 +136,7 @@ def test_long_sections_split_fields_over_two_columns(RE):
     group = QtStatusGroup(
         "Many",
         {name: name for name in signals},
-        NamespaceReadingSource(signals, RE.loop),
+        InProcessRunEngineClient({**signals, "RE": RE}),
     )
     try:
         assert group.rows == 4

@@ -30,6 +30,7 @@ profile
 :caption: Developer guide
 
 developer
+plan_device_schema
 ```
 
 ## Indices and tables

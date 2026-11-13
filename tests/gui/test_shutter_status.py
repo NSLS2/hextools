@@ -5,7 +5,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 pytest.importorskip("qtpy")
-pytest.importorskip("bluesky_widgets")
 
 from bluesky import RunEngine
 from bluesky import plan_stubs as bps
@@ -14,16 +13,16 @@ from ophyd_async.core import init_devices
 from qtpy.QtWidgets import QApplication
 
 from hextools.gui.hex_config import shutter_controls
-from hextools.gui.reading_sources import NamespaceReadingSource
+from hextools.gui.run_engine_clients import InProcessRunEngineClient
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui.signal_status import QtSignalStatus
 from hextools.photon_delivery_system import Shutter
 
 
 def _shutter_status(re: RunEngine, namespace: dict) -> QtShutterStatus:
-    shutters, command = shutter_controls(namespace)
-    source = NamespaceReadingSource(namespace, re.loop)
-    return QtShutterStatus(re, source, shutters, command)
+    client = InProcessRunEngineClient({**namespace, "RE": re})
+    shutters, plan = shutter_controls(client.device_registry)
+    return QtShutterStatus(client, shutters, plan)
 
 
 @pytest.mark.parametrize(
@@ -47,7 +46,7 @@ def test_shutter_buttons_exclude_duplicate_and_counterpart_submissions(
         widget._toggle(widget._indicators[1])
         return error
 
-    monkeypatch.setattr("hextools.gui.shutter_status.run_in_ipython", execute)
+    monkeypatch.setattr("hextools.gui._ipython.run_in_ipython", execute)
     monkeypatch.setattr("hextools.gui.shutter_status.show_plan_error", lambda *a: None)
     try:
         widget._toggle(widget._indicators[0])
@@ -71,7 +70,7 @@ def test_busy_or_paused_engine_blocks_shutters_until_abort(monkeypatch, queued):
     widget = _shutter_status(re, {"fe": fe, "photon": photon})
     calls = []
     monkeypatch.setattr(
-        "hextools.gui.shutter_status.run_in_ipython", lambda code: calls.append(code)
+        "hextools.gui._ipython.run_in_ipython", lambda code: calls.append(code)
     )
     try:
         indicators = widget._indicators

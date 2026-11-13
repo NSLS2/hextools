@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import Any
 
-from bluesky import RunEngine
-from bluesky_widgets.models.run_engine_client import RunEngineClient
 from qtpy.QtCore import QDate, QPoint, Qt
 from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
@@ -35,6 +33,7 @@ from tiled.queries import Key, SpecQuery
 from tiled.structures.core import Spec
 
 from hextools.gui._threading import create_worker
+from hextools.gui.run_engine_clients import RunEngineClient
 from hextools.gui.run_viewer import QtRunViewer, fill_metadata_tree
 
 #: Called with the uid of the run it was invoked on.
@@ -119,13 +118,13 @@ class QtScanBrowser(QWidget):
         self,
         tiled_client: Any,
         specs: list[Spec],
-        re: RunEngineClient | RunEngine,
+        re_client: RunEngineClient,
         parent=None,
     ):
         super().__init__(parent)
         self._client = tiled_client
         self._specs = list(specs)
-        self._re = re
+        self._re_client = re_client
         self._callbacks: dict[str, list[tuple[str, ScanCallback]]] = {}
         self._runs: list[RunSummary] = []
         self._worker = None
@@ -242,23 +241,11 @@ class QtScanBrowser(QWidget):
             },
         )
 
-    def _fetch_metadata(self) -> Mapping[str, Any]:
-        if isinstance(self._re, RunEngineClient):
-            # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
-            response = self._re._client.re_metadata()  # noqa: SLF001  # type: ignore
-            if not response.get("success", False):
-                raise RuntimeError(
-                    "Could not read RE metadata: "
-                    f"{response.get('msg', 'unknown error')}"
-                )
-            return response.get("re_metadata") or {}
-        return self._re.md
-
     def _search_runs(
         self, spec: Spec, since: float, until: float, detector: str
     ) -> list[RunSummary]:
         # Runs in the worker so the queueserver metadata request doesn't block the GUI.
-        data_session = self._fetch_metadata().get("data_session")
+        data_session = self._re_client.metadata().get("data_session")
         return search_runs(self._client, spec, since, until, data_session, detector)
 
     def _on_results(self, runs: list[RunSummary]) -> None:

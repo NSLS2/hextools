@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-import enum
-import inspect
-import keyword
-import typing
-from collections.abc import Callable, MutableMapping, Sequence
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from bluesky import RunEngine
-from bluesky.protocols import Movable, Subscribable
-from ophyd_async.core import Signal
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QComboBox,
@@ -23,47 +16,27 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui._ipython import run_in_ipython, show_plan_error
-from hextools.gui.device_sources import NamespaceDeviceSource
-from hextools.gui.reading_sources import NamespaceReadingSource, ReadingSource
+from hextools.catalog.model import TypeExpr
+from hextools.gui._client_signals import QtRunEngineState
+from hextools.gui.plan_errors import show_plan_error
+from hextools.gui.run_engine_clients import (
+    DeviceName,
+    RunEngineClient,
+    check_plan_name,
+)
 from hextools.gui.signal_status import QtSignalStatus
 
 _INVALID_STYLE = "border: 1px solid #c62828;"
 _STAGED_STYLE = "border: 1px solid #e0a800;"
+_SCALAR_KINDS: dict[str, type] = {
+    "boolean": bool,
+    "integer": int,
+    "number": float,
+    "string": str,
+}
 
 #: Called with ``(control, value)`` to stage a setpoint, or ``value=None`` to unstage.
 StageHandler = Callable[["QtMovableControl", Any], None]
-
-
-def set_type(obj: Movable[Any]) -> type | None:
-    """Return the value type ``obj.set`` takes, or None if it can't be determined."""
-    if isinstance(obj, Signal) and obj.datatype is not None:
-        return obj.datatype
-    set_method = inspect.unwrap(type(obj).set)
-    try:
-        hints = typing.get_type_hints(set_method)
-        params = [p for p in inspect.signature(set_method).parameters if p != "self"]
-    except Exception:
-        hints, params = {}, []
-    hint = hints.get(params[0]) if params else None
-    if isinstance(hint, type):
-        return hint
-    # Generic movables, e.g. StandardMovable[float], declare it on a base class.
-    for cls in type(obj).__mro__:
-        for base in getattr(cls, "__orig_bases__", ()):
-            origin, args = typing.get_origin(base), typing.get_args(base)
-            if hasattr(origin, "set") and args and isinstance(args[0], type):
-                return args[0]
-    return None
-
-
-def _serialize(value: Any) -> str:
-    """Python source for ``value`` to put in the ``mv`` command."""
-    if isinstance(value, enum.Enum):
-        value = value.value
-    if isinstance(value, bool | int | float | str):
-        return repr(value)
-    raise TypeError(f"Cannot serialize {type(value).__name__} for a move command")
 
 
 def set_enabled_keep_focus(widget: QWidget, enabled: bool):
@@ -73,92 +46,72 @@ def set_enabled_keep_focus(widget: QWidget, enabled: bool):
     widget.setEnabled(enabled)
 
 
-def move_command(plan_name: str, moves: Sequence[tuple[str, Any]]) -> str:
-    """``RE(plan_name(path1, value1, path2, value2, ...))`` for validated paths."""
-    args = ", ".join(f"{path}, {_serialize(value)}" for path, value in moves)
-    return f"RE({plan_name}({args}))"
-
-
-def check_plan_name(name: str) -> str:
-    """Return ``name`` if it is a (dotted) Python name, so it is safe in a command.
-
-    Raises
-    ------
-    ValueError
-        If ``name`` is anything else.
-    """
-    parts = name.split(".")
-    if not all(p.isidentifier() and not keyword.iskeyword(p) for p in parts):
-        raise ValueError(f"{name!r} is not a plan name")
-    return name
+def _enum_choices(expr: TypeExpr | None) -> list[tuple[str, Any]] | None:
+    """``(text, value)`` of each choice of an ``enum`` type, or None for others."""
+    if expr is None or expr.get("kind") != "enum":
+        return None
+    return [(str(c.get("label", c["value"])), c["value"]) for c in expr["choices"]]
 
 
 class QtMovableControl(QWidget):
     """``label  readback  [setpoint]  [<] [tweak] [>]`` for a movable.
 
-    Entering a setpoint runs ``RE(move_plan(path, value))`` in the IPython shell,
-    and the tweak buttons run ``RE(tweak_plan(path, -tweak))`` /
-    ``RE(tweak_plan(path, tweak))``. Tweaks are offered only for int and float
+    Entering a setpoint runs ``move_plan(path, value)`` through the RunEngine
+    client, and the tweak buttons run ``tweak_plan(path, -tweak)`` /
+    ``tweak_plan(path, tweak)``. Tweaks are offered only for int and float
     movables with a ``tweak_plan``; enum and bool movables get a dropdown
     setpoint. The setpoint starts at the first readback value.
 
     Parameters
     ----------
     path : str
-        Namespace path of the movable, e.g. ``"sample_tower.y"``.
-    re : RunEngine
-        The in-process RunEngine.
-    namespace : MutableMapping[str, object], optional
-        Namespace holding the movable and the plans. Defaults to the IPython
-        ``user_ns``.
+        Name of the movable in the client's device registry, e.g.
+        ``"sample_tower.y"``.
+    re_client : RunEngineClient
+        Runs the moves, describes the movable, and reads its readback.
     label : str, optional
         Row label. Defaults to ``path``.
     readback : str, optional
-        Name, in ``source``, of what the readback shows. Defaults to ``path``
-        if the movable is subscribable.
-    value_type : type, optional
-        The type ``set`` takes, e.g. an enum for a dropdown. Inferred from the
-        movable if not given, which fails for most ophyd v1 devices.
+        Name of what the readback shows. Defaults to ``path`` if the movable is
+        subscribable.
+    value_type : TypeExpr, optional
+        The type ``set`` takes, e.g. an ``enum`` type for a dropdown. Defaults
+        to the registry's ``set_type`` of the movable, which most ophyd v1
+        devices lack.
     precision : int, optional
         Decimal places shown for a float readback.
     tweak : float, optional
         Initial tweak step.
     move_plan : str, optional
-        Namespace name of a plan called as ``move_plan(device, value, device,
-        value, ...)`` that returns once the move is complete.
+        Name of a plan called as ``move_plan(device, value, device, value, ...)``
+        that returns once the move is complete.
     tweak_plan : str or None, optional
-        Namespace name of the relative-move plan, with the same signature.
-        None disables tweaking.
+        Name of the relative-move plan, with the same signature. None disables
+        tweaking.
     """
 
     def __init__(
         self,
         path: str,
-        re: RunEngine,
-        namespace: MutableMapping[str, Any] | None = None,
+        re_client: RunEngineClient,
         label: str | None = None,
         readback: str | None = None,
         precision: int = 3,
         tweak: float = 1.0,
-        value_type: type | None = None,
+        value_type: TypeExpr | None = None,
         move_plan: str = "mv",
         tweak_plan: str | None = "mvr",
         parent=None,
     ):
         super().__init__(parent)
-        if namespace is None:
-            from IPython.core.getipython import get_ipython
-
-            ipython = get_ipython()
-            namespace = ipython.user_ns if ipython is not None else {}
-        source = NamespaceDeviceSource(namespace)
-        # Validating the path keeps arbitrary code out of the generated command.
-        if not source.is_valid_device(path, (Movable,)):
-            raise ValueError(f"No movable at {path!r} in the namespace")
-        obj = source.resolve_device(path)
+        try:
+            node = re_client.device_registry.node(path)
+        except KeyError:
+            node = None
+        if node is None or "Movable" not in node.protocols:
+            raise ValueError(f"No movable called {path!r}")
         self._path = path
-        self._re = re
-        self._namespace = namespace
+        self._re_client = re_client
         self._move_plan = check_plan_name(move_plan)
         self._tweak_plan = check_plan_name(tweak_plan) if tweak_plan else None
         self._pending = False
@@ -166,21 +119,26 @@ class QtMovableControl(QWidget):
         self._stage: StageHandler | None = None
         self._original: Any = None
         self._precision = precision
-        self._type = value_type if value_type is not None else set_type(obj)
-        if not _is_supported(self._type):
+        expr = value_type if value_type is not None else node.set_type
+        self._enum_choices = _enum_choices(expr)
+        self._type = _SCALAR_KINDS.get(expr.get("kind", "")) if expr else None
+        if self._type is None and self._enum_choices is None:
+            kind = expr.get("kind") if expr else "an unknown type"
             raise TypeError(
-                f"{path!r} takes {getattr(self._type, '__name__', 'an unknown type')}; "
+                f"{path!r} takes {kind}; "
                 "only bool, int, float, str, and enum setpoints are supported"
             )
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        if readback is None and isinstance(obj, Subscribable):
+        if readback is None and "Subscribable" in node.protocols:
             readback = path
-        reading_source: ReadingSource = NamespaceReadingSource(namespace, re.loop)
         self._readback = (
             QtSignalStatus(
-                readback, reading_source, label=label or path, precision=precision
+                re_client,
+                readback,
+                label=label or path,
+                precision=precision,
             )
             if readback is not None
             else None
@@ -212,10 +170,8 @@ class QtMovableControl(QWidget):
                 self._tweak_widgets.append(widget)
         self.setLayout(row)
 
-        self._timer = QTimer(self)
-        self._timer.setInterval(100)
-        self._timer.timeout.connect(self._update_enabled)
-        self._timer.start()
+        self._state = QtRunEngineState(re_client, self)
+        self._state.changed.connect(lambda *_: self._update_enabled())
         self._update_enabled()
 
     @property
@@ -293,7 +249,7 @@ class QtMovableControl(QWidget):
             if text is not None:
                 setpoint.setText(text)
         if self._stage is not None and self._original is None:
-            self.capture_original()
+            self._original = value
 
     def _format(self, value: Any) -> str | None:
         """Setpoint text for a readback ``value``, or None if it doesn't fit."""
@@ -346,11 +302,7 @@ class QtMovableControl(QWidget):
         """``(text, value)`` options for a dropdown setpoint, or None for free text."""
         if self._type is bool:
             return [("True", True), ("False", False)]
-        if isinstance(self._type, type) and issubclass(self._type, enum.Enum):
-            return [
-                (m.value if isinstance(m.value, str) else m.name, m) for m in self._type
-            ]
-        return None
+        return self._enum_choices
 
     def _parse(self, text: str) -> Any:
         if self._type in (int, float):
@@ -385,40 +337,38 @@ class QtMovableControl(QWidget):
         self._run(self._move_plan, value)
 
     def _run(self, plan_name: str, value: Any):
-        if self._pending or self._busy or self._re.state != "idle":
+        if self._pending or self._busy or self._re_client.state != "idle":
             return
-        code = move_command(plan_name, [(self._path, value)])
         self._pending = True
         self._update_enabled()
-        # Defer so the click handler returns before IPython executes the cell.
-        QTimer.singleShot(0, lambda: self._execute(code))
+        # Defer so the click handler returns before the plan runs.
+        QTimer.singleShot(0, lambda: self._execute(plan_name, value))
 
-    def _execute(self, code: str):
+    def _execute(self, plan_name: str, value: Any):
         try:
-            error = run_in_ipython(code)
+            # Another plan may have started since the click.
+            if self._re_client.state != "idle":
+                raise RuntimeError("RunEngine is busy!")
+            self._re_client.execute_plan(plan_name, DeviceName(self._path), value)
+        except Exception as error:
+            show_plan_error(self, f"Moving {self._path} failed", error)
         finally:
             self._pending = False
             self._update_enabled()
-        if error is not None:
-            show_plan_error(self, f"Moving {self._path} failed", error)
 
     def _update_enabled(self):
-        enabled = not self._pending and not self._busy and self._re.state == "idle"
+        enabled = (
+            not self._pending and not self._busy and self._re_client.state == "idle"
+        )
         for widget in self._controls:
             batching = self._stage is not None and widget in self._tweak_widgets
             set_enabled_keep_focus(widget, enabled and not batching)
 
     def closeEvent(self, event):
-        self._timer.stop()
+        self._state.stop()
         if self._readback is not None:
             self._readback.close()
         super().closeEvent(event)
-
-
-def _is_supported(datatype: type | None) -> bool:
-    return datatype in (bool, int, float, str) or (
-        isinstance(datatype, type) and issubclass(datatype, enum.Enum)
-    )
 
 
 def _format_number(value: float, datatype: type | None) -> str:

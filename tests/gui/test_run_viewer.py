@@ -14,6 +14,7 @@ from qtpy.QtWidgets import QApplication, QTreeWidgetItem  # noqa: E402
 from tiled.structures.core import Spec  # noqa: E402
 
 from hextools.gui import run_viewer  # noqa: E402
+from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 from hextools.gui.run_viewer import (  # noqa: E402
     DatasetInfo,
     QtRunViewer,
@@ -282,7 +283,11 @@ def test_scan_browser_opens_a_run_in_the_viewer():
     if QApplication.instance() is None:
         QApplication([])
     client = FakeClient({"abc": _tomo_run()})
-    browser = QtScanBrowser(client, [Spec("TomoFlyscan")], RunEngine({}))
+    browser = QtScanBrowser(
+        client,
+        [Spec("TomoFlyscan")],
+        InProcessRunEngineClient({"RE": RunEngine({})}),
+    )
     viewer = browser.open_viewer("abc")
     assert viewer.parent() is browser
     assert viewer.isWindow()
