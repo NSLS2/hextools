@@ -31,17 +31,22 @@ _RECORD_RE = re.compile(
 class QtAutoExporterView(QWidget):
     """Start/stop the auto exporter and show everything it logs.
 
-    The exporter runs in its own process, so a crash or traceback in an export
-    job can't take down the GUI or the RunEngine. If it exits unexpectedly it is
-    restarted after ``restart_delay`` seconds.
+    The exporter (``python -m <module>``) runs in its own process, so a crash or
+    traceback in an export job can't take down the GUI or the RunEngine. If it
+    exits unexpectedly it is restarted after ``restart_delay`` seconds.
     """
 
     _MAX_LINES = 20000
 
     def __init__(
-        self, autostart: bool = True, restart_delay: float = 30.0, parent=None
+        self,
+        module: str,
+        autostart: bool = True,
+        restart_delay: float = 30.0,
+        parent=None,
     ):
         super().__init__(parent)
+        self._module = module
         self._stopping = False
         self._buffer = ""
 
@@ -101,7 +106,7 @@ class QtAutoExporterView(QWidget):
         if self._process.state() != QProcess.ProcessState.NotRunning:
             return
         self._stopping = False
-        args = ["-m", "hextools.exporters.auto_exporter"]
+        args = ["-m", self._module]
         if self._debug.isChecked():
             args.append("--debug")
         self._append_note(f"Starting auto exporter: {sys.executable} {' '.join(args)}")

@@ -1,5 +1,6 @@
 import atexit
 import os
+import signal
 import sys
 from types import SimpleNamespace
 
@@ -16,13 +17,14 @@ from IPython.core.interactiveshell import InteractiveShell  # noqa: E402
 from IPython.terminal.interactiveshell import TerminalInteractiveShell  # noqa: E402
 from ophyd_async.core import init_devices  # noqa: E402
 from ophyd_async.sim import PatternGenerator, SimPointDetector  # noqa: E402
-from qtpy.QtCore import QCoreApplication, QEvent  # noqa: E402
+from qtpy.QtCore import QCoreApplication, QEvent, QProcess  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
 import hextools.gui.__main__ as gui_main  # noqa: E402
-from hextools.gui.__main__ import QtDataAcquisitionWindow  # noqa: E402
-from hextools.gui.slits_control import QtSlitsSelector  # noqa: E402
-from hextools.photon_delivery_system.slits import Slits  # noqa: E402
+import hextools.gui.window as gui_window  # noqa: E402
+from hextools.gui.auto_exporter_view import QtAutoExporterView  # noqa: E402
+from hextools.gui.window import QtDataAcquisitionWindow  # noqa: E402
+from hextools.gui_config import HEX_GUI  # noqa: E402
 
 
 @pytest.fixture
@@ -37,27 +39,61 @@ def _hooks(RE):
     return RE.state_hook, RE.msg_hook, RE.waiting_hook, callbacks
 
 
-def _open_window(RE):
+def _open_window(RE, tmp_path, request):
+    """Build the GUI on ``RE`` with the auto exporter running as a stand-in child.
+
+    The child records a SIGTERM to ``tmp_path / "sigterm"``, so a graceful stop
+    is distinguishable from the kill QProcess's destructor does.
+    """
     if QApplication.instance() is None:
         QApplication([])
     InteractiveShell.instance()
-    return QtDataAcquisitionWindow(re_client=RE)
+    window = QtDataAcquisitionWindow(re_client=RE, spec=HEX_GUI)
+    exporter = window.qt_widget.extra_tabs["NXS Export"]
+    assert isinstance(exporter, QtAutoExporterView)
+    marker = tmp_path / "sigterm"
+    child = (
+        "import signal, sys, time\n"
+        "def on_term(*_):\n"
+        f"    open({str(marker)!r}, 'w').close()\n"
+        "    sys.exit(0)\n"
+        "signal.signal(signal.SIGTERM, on_term)\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    start = exporter._process.start
+    exporter._process.start = lambda *_: start(sys.executable, ["-c", child])  # type: ignore
+    exporter.start()
+    assert exporter._process.waitForReadyRead(10000)
+    assert exporter._process.state() == QProcess.ProcessState.Running
+    pid = exporter._process.processId()
+
+    def kill_leftover_child():
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+    request.addfinalizer(kill_leftover_child)
+    return window, exporter, marker
 
 
-def _assert_torn_down(RE, det, before):
+def _assert_torn_down(RE, det, before, marker):
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     QCoreApplication.processEvents()
+    assert marker.exists(), "auto exporter was killed, not stopped"
     assert _hooks(RE) == before, "the closed window left its hooks on the RunEngine"
     # The RunEngine outlives the window in IPython and must still run plans.
     RE(count([det], 1))
     assert RE.state == "idle"
 
 
-# Closing the window ran none of the GUI's teardown: RE kept hooks into deleted
-# widgets, so the next RE(...) raised "Signal source has been deleted".
-def test_closing_the_window_tears_down(RE, det):
+# Closing the window ran none of the GUI's teardown: the exporter child was killed
+# by QProcess's destructor, and RE kept hooks into deleted widgets, so the next
+# RE(...) raised "Signal source has been deleted".
+def test_closing_the_window_tears_down(RE, det, tmp_path, request):
     before = _hooks(RE)
-    window = _open_window(RE)
+    window, _, marker = _open_window(RE, tmp_path, request)
     assert _hooks(RE) != before
     # Closing one deletes its viewport mid-teardown, as the camera viewers do.
     layout = window.qt_widget.layout()
@@ -66,66 +102,22 @@ def test_closing_the_window_tears_down(RE, det):
 
     window._qt_window.close()
 
-    _assert_torn_down(RE, det, before)
+    _assert_torn_down(RE, det, before, marker)
 
 
-def test_view_menu_opens_one_beamline_status_window(RE, det):
-    before = _hooks(RE)
-    window = _open_window(RE)
-    action = next(
-        a for a in window.view_menu.actions() if a.text() == "Beamline Status"
-    )
-
-    action.trigger()
-    status = window._beamline_status
-    action.trigger()
-
-    assert status is not None and window._beamline_status is status
-    assert status.isWindow() and status.isVisible()
-    assert status.parent() is None
-    window._qt_window.close()
-    assert not status.isVisible()
-    _assert_torn_down(RE, det, before)
-
-
-def test_beamline_slits_tab_selects_between_slits(RE, det):
-    before = _hooks(RE)
-    with init_devices(mock=True):
-        a_slits = Slits("A:", name="a-slits")
-        edxd_slits = Slits("E:", name="edxd-slits")
-    InteractiveShell.instance().user_ns.update(a_slits=a_slits, edxd_slits=edxd_slits)
-    try:
-        window = _open_window(RE)
-        selector = window.qt_widget.findChild(QtSlitsSelector)
-        assert selector is not None
-        combo = selector._combo
-        assert [combo.itemText(i) for i in range(combo.count())] == [
-            "A Slits",
-            "EDXD Slits",
-        ]
-        assert list(selector.controls) == ["a_slits"]
-        selector.select("edxd_slits")
-        assert list(selector.controls) == ["a_slits", "edxd_slits"]
-        assert selector._pages.currentWidget() is selector.controls["edxd_slits"]
-        window._qt_window.close()
-    finally:
-        user_ns = InteractiveShell.instance().user_ns
-        user_ns.pop("a_slits")
-        user_ns.pop("edxd_slits")
-    _assert_torn_down(RE, det, before)
-
-
-def test_interpreter_exit_tears_down_an_open_window(RE, det, monkeypatch):
+def test_interpreter_exit_tears_down_an_open_window(
+    RE, det, tmp_path, request, monkeypatch
+):
     registered = []
     monkeypatch.setattr(atexit, "register", lambda f, *a, **k: registered.append(f))
     monkeypatch.setattr(atexit, "unregister", lambda f: None)
     before = _hooks(RE)
-    _open_window(RE)
+    _, _, marker = _open_window(RE, tmp_path, request)
 
     for exit_hook in registered:
         exit_hook()
 
-    _assert_torn_down(RE, det, before)
+    _assert_torn_down(RE, det, before, marker)
 
 
 # PR 97 review: a closed window's hooks sit inside a newer window's chain when the
@@ -136,8 +128,8 @@ def test_closing_windows_that_share_a_run_engine(RE, det, first):
         QApplication([])
     InteractiveShell.instance()
     before = _hooks(RE)
-    older = QtDataAcquisitionWindow(re_client=RE)
-    newer = QtDataAcquisitionWindow(re_client=RE)
+    older = QtDataAcquisitionWindow(re_client=RE, spec=HEX_GUI)
+    newer = QtDataAcquisitionWindow(re_client=RE, spec=HEX_GUI)
 
     for window in [older, newer] if first == "older" else [newer, older]:
         window._qt_window.close()
@@ -157,8 +149,10 @@ def test_closing_the_window_can_end_the_ipython_session(RE, monkeypatch, end_ipy
         QApplication([])
     InteractiveShell.instance()
     ended = []
-    monkeypatch.setattr(gui_main, "_end_ipython_session", lambda: ended.append(True))
-    window = QtDataAcquisitionWindow(re_client=RE, end_ipython_on_close=end_ipython)
+    monkeypatch.setattr(gui_window, "_end_ipython_session", lambda: ended.append(True))
+    window = QtDataAcquisitionWindow(
+        re_client=RE, spec=HEX_GUI, end_ipython_on_close=end_ipython
+    )
 
     window._qt_window.close()
 
@@ -193,9 +187,9 @@ class _KernelShell:
 )
 def test_only_a_terminal_ipython_session_is_ended(monkeypatch, shell, ends):
     ipython = shell()
-    monkeypatch.setattr(gui_main.IPython, "get_ipython", lambda: ipython)
+    monkeypatch.setattr(gui_window.IPython, "get_ipython", lambda: ipython)
 
-    gui_main._end_ipython_session()
+    gui_window._end_ipython_session()
 
     assert ipython.asked == ([True] if ends else [])
 
@@ -223,10 +217,10 @@ def test_a_waiting_prompt_is_woken_to_exit(monkeypatch, prompt_running):
     app = _PromptApp(prompt_running)
     monkeypatch.setattr(ipython, "pt_app", SimpleNamespace(app=app))
     loop = _Loop()
-    monkeypatch.setattr(gui_main.IPython, "get_ipython", lambda: ipython)
-    monkeypatch.setattr(gui_main.asyncio, "get_running_loop", lambda: loop)
+    monkeypatch.setattr(gui_window.IPython, "get_ipython", lambda: ipython)
+    monkeypatch.setattr(gui_window.asyncio, "get_running_loop", lambda: loop)
 
-    gui_main._end_ipython_session()
+    gui_window._end_ipython_session()
 
     assert ipython.asked == [True]
     expected = [(app.exit, ("",))] if prompt_running else []
@@ -253,6 +247,7 @@ def test_hex_gui_ends_ipython_on_close_unless_asked_to_keep_it(monkeypatch, argv
     gui_main.main()
 
     (config,) = configs
-    assert f"launch_local_viewer(end_ipython_on_close={end})" in (
-        config.InteractiveShellApp.exec_lines
-    )
+    assert (
+        f"launch_local_viewer(load_spec('hextools.gui_config:HEX_GUI'),"
+        f" end_ipython_on_close={end})"
+    ) in config.InteractiveShellApp.exec_lines

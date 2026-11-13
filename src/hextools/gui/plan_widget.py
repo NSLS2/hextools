@@ -64,8 +64,11 @@ from qtpy.QtWidgets import (
 
 from hextools.gui._ipython import run_in_ipython, show_plan_error
 from hextools.gui.device_selector_widget import DynamicDeviceSelector
-from hextools.gui.device_sources import NamespaceDeviceSource, QueueServerDeviceSource
-from hextools.log import _unwrap_failed_status
+from hextools.gui.device_sources import (
+    NamespaceDeviceSource,
+    QueueServerDeviceSource,
+)
+from hextools.gui.errors import unwrap_failed_status as _unwrap_failed_status
 
 _NO_SELECTION = "\u2014"  # em dash placeholder for an unset single device
 

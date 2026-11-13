@@ -38,12 +38,7 @@ from qtpy.QtWidgets import (
 )
 
 from hextools.gui._threading import FunctionWorker
-from hextools.utils import (
-    get_proposal_info,
-    is_running_in_ci,
-    list_proposals,
-    switch_proposal,
-)
+from hextools.gui.spec import ProposalBackend
 
 RunEngineMetadata = MutableMapping[str, Any]
 
@@ -174,13 +169,17 @@ class QtReMetadataMonitor(QWidget):
 
 
 class QtProposalInfo(QtReMetadataMonitor):
-    """Widget to display proposal information from the RunEngine metadata."""
+    """Widget to display proposal information from the RunEngine metadata.
+
+    With a ``proposals`` backend it also offers Change Proposal.
+    """
 
     def __init__(
         self,
         re: RunEngineClient | RunEngine,
         parent: QWidget | None = None,
         *,
+        proposals: ProposalBackend | None = None,
         poll_period: float = 1.0,
     ):
 
@@ -197,15 +196,20 @@ class QtProposalInfo(QtReMetadataMonitor):
             parent=parent,
             title="Proposal Info",
         )
+        self._proposals = proposals
         self._switch_worker = None
         self._change_button = QPushButton("Change Proposal…")
         self._change_button.clicked.connect(self.change_proposal)
+        self._change_button.setVisible(proposals is not None)
         self._group_layout.addStretch(1)
         self._group_layout.addWidget(self._change_button)
 
     def _switch(self, proposal: int, username: str, password: str):
+        backend = self._proposals
+        if backend is None:
+            raise RuntimeError("No proposal system is configured for this GUI.")
         if isinstance(self._re, RunEngine):
-            return switch_proposal(proposal, username, password, md=self._re.md)
+            return backend.switch_proposal(proposal, username, password, md=self._re.md)
         client = self._re._client  # noqa: SLF001
         # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
         response = client.re_metadata()  # type: ignore
@@ -214,10 +218,8 @@ class QtProposalInfo(QtReMetadataMonitor):
                 response.get("msg") or "Couldn't read the RunEngine metadata."
             )
         md = dict(response.get("re_metadata") or {})
-        updated = switch_proposal(proposal, username, password, md=md)
-        if is_running_in_ci():
-            # Outside mock mode RE.md is Redis-backed, so the switch already reached
-            # the worker.
+        updated = backend.switch_proposal(proposal, username, password, md=md)
+        if not backend.md_is_shared():
             keys = ("data_session", "username", "start_datetime", "proposal")
             changes = {k: updated[k] for k in keys if k in updated}
             client.script_upload(f"RE.md.update({changes!r})")
@@ -225,9 +227,9 @@ class QtProposalInfo(QtReMetadataMonitor):
 
     def change_proposal(self):
         """Open the dialog to pick a proposal and sign in, then switch to it."""
-        if self._switch_worker is not None:
+        if self._switch_worker is not None or self._proposals is None:
             return
-        dialog = QtChangeProposalDialog(self)
+        dialog = QtChangeProposalDialog(self._proposals, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         proposal, username, password = dialog.values()
@@ -257,8 +259,9 @@ class QtProposalInfo(QtReMetadataMonitor):
 class QtChangeProposalDialog(QDialog):
     """Pick a beamline proposal, see its details, and sign in to switch to it."""
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, proposals: ProposalBackend, parent: QWidget | None = None):
         super().__init__(parent)
+        self._backend = proposals
         self.setWindowTitle("Change Proposal")
         self.setMinimumWidth(420)
         self._list_worker = None
@@ -325,7 +328,7 @@ class QtChangeProposalDialog(QDialog):
         vbox.addWidget(sign_in_box)
         vbox.addWidget(self._buttons)
 
-        self._list_worker = FunctionWorker(list_proposals)
+        self._list_worker = FunctionWorker(self._backend.list_proposals)
         self._list_worker.returned.connect(self._on_proposals_listed)
         self._list_worker.errored.connect(self._on_proposals_errored)
         self._list_worker.start()
@@ -372,7 +375,7 @@ class QtChangeProposalDialog(QDialog):
         if not text.isdigit():
             return
         self._title.setText("Loading\u2026")
-        worker = FunctionWorker(get_proposal_info, text)
+        worker = FunctionWorker(self._backend.get_proposal_info, text)
         worker.returned.connect(lambda info, number=text: self._on_info(number, info))
         worker.errored.connect(
             lambda error, number=text: self._on_info_error(number, error)

@@ -11,12 +11,13 @@ from typing import Any, TextIO
 from bluesky import RunEngine
 from bluesky.utils import (
     FailedPause,
-    FailedStatus,
     Msg,
     PlanHalt,
     RequestAbort,
     RequestStop,
 )
+
+from hextools.gui.errors import unwrap_failed_status as _unwrap_failed_status
 
 # Name of the logger hextools logs to; child loggers (``hextools.*``) propagate to it.
 _LOGGER_NAME = "hextools"
@@ -101,16 +102,6 @@ def configure_logger(
     # Our handler prints the records; don't print them again through the root logger.
     logger.propagate = False
     return logger
-
-
-def _unwrap_failed_status(error: BaseException) -> BaseException:
-    """Return the error behind a ``FailedStatus``, or ``error`` itself otherwise.
-
-    The RE raises ``FailedStatus(status) from <original error>`` when a status fails.
-    """
-    while isinstance(error, FailedStatus) and error.__cause__ is not None:
-        error = error.__cause__
-    return error
 
 
 def log_plan_exceptions(

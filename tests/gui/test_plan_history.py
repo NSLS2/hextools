@@ -13,15 +13,12 @@ from ophyd_async.sim import PatternGenerator, SimPointDetector  # noqa: E402
 from qtpy.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from hextools.gui.plan_status import PlanMonitor, QtPlanHistory  # noqa: E402
-from hextools.utils.nl_msg_hook import MsgHookNarrator  # noqa: E402
 
 
 def _history(RE, path):
     if QApplication.instance() is None:
         QApplication([])
-    monitor = PlanMonitor(
-        RE, narrator=MsgHookNarrator(emit=lambda _: None), namespace={"count": count}
-    )
+    monitor = PlanMonitor(RE, namespace={"count": count})
     return monitor, QtPlanHistory(monitor, history_file=path)
 
 
