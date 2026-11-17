@@ -110,9 +110,17 @@ def export_tomo_flyscan_to_h5(
 
 def export_tomo_dark_flat_to_h5(
     tomo_dark_flat_scan: BlueskyRunV3 | str | int,
-    tiled_client: CatalogOfBlueskyRuns | None,
+    tiled_client: CatalogOfBlueskyRuns | None = None,
 ):
-    """Export a tomography dark/flat scan to an HDF5 file."""
+    """Export a tomography dark/flat scan to an HDF5 file.
+
+    Parameters
+    ----------
+    tomo_dark_flat_scan : BlueskyRunV3 | str | int
+        The run to export, or its uid/scan id to look up in ``tiled_client``.
+    tiled_client : CatalogOfBlueskyRuns | None, optional
+        The catalog to look up the run in. If None, will pull from global namespace.
+    """
     if isinstance(tomo_dark_flat_scan, (str, int)):
         tiled_client = ensure_available(CatalogOfBlueskyRuns, c=tiled_client)
         run = tiled_client[tomo_dark_flat_scan]
