@@ -114,8 +114,8 @@ def tomo_dark_flat(
 
     @bpp.reset_positions_decorator([sample_tower.x1])
     @bpp.run_decorator(md=_md)
-    @bpp.stage_decorator([*detectors])
     def _body():
+        yield from bps.stage(*detectors)
         yield from ensure_shutter_closed(photon_shutter)
 
         for dset in ("dark", "flat"):
@@ -136,7 +136,17 @@ def tomo_dark_flat(
                     group=f"prepare-{dset}",
                 )
             yield from bps.wait(group=f"prepare-{dset}")
+
+            if dset == "flat":
+                # Unstage/restage to clear prepare context, ensuring a new HDF
+                # file is created even if frame counts are identical.
+                # See: https://github.com/bluesky/ophyd-async/issues/1514
+                yield from bps.unstage(*detectors)
+                yield from bps.stage(*detectors)
+
             yield from bps.trigger_and_read(list(detectors), name=dset)
+
+        yield from bps.unstage(*detectors)
 
     def _cleanup():
         if use_shutter:
