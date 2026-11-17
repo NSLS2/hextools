@@ -125,6 +125,11 @@ RE.md["beamline_id"] = "27-ID-1"
 log_plan_exceptions(RE, logger)
 log_state_changes(RE, logger)
 
+# Also write the logs and a summary of every document to /var/log/bluesky, from where
+# they reach Loki (Grafana data source loki-bluesky). Not in CI or mock sessions.
+if not is_running_in_ci():
+    configure_json_logging(RE, ipython=get_ipython())
+
 # Uncomment if running in the terminal to get progress bars.
 # RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
 
