@@ -118,7 +118,7 @@ def tomo_dark_flat(
         yield from ensure_shutter_closed(photon_shutter)
 
         for dset in ("dark", "flat"):
-            yield from bps.stage(*detectors)
+            yield from bps.stage_all(*detectors)
 
             if dset == "flat":
                 yield from bps.mvr(sample_tower.x1, x_offset)
@@ -138,7 +138,7 @@ def tomo_dark_flat(
                 )
             yield from bps.wait(group=f"prepare-{dset}")
             yield from bps.trigger_and_read(list(detectors), name=dset)
-            yield from bps.unstage(*detectors)
+            yield from bps.unstage_all(*detectors)
 
     def _cleanup():
         if use_shutter:
