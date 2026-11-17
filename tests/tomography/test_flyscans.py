@@ -329,6 +329,65 @@ def test_tomo_dark_flat_fails_if_fe_shutter_closed(
     assert not get_mock_put(ktx.driver.acquire).called
 
 
+async def test_tomo_dark_flat_equal_counts_separate_files(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[[int], KinetixDetector],
+    open_fe_shutter: tuple[Shutter, Shutter],
+    sample_tower: SampleTower,
+):
+    """Regression test: equal dark/flat frame counts create separate HDF files.
+
+    When frame counts are identical (50/50, 100/100), ophyd-async's prepare
+    cache would reuse the HDF writer, merging datasets. This test verifies that
+    stage/unstage between dark and flat clears the cache, creating two files
+    referenced by stream resources with the same start document UID.
+    """
+    fe_shutter, photon_shutter = open_fe_shutter
+    ktx = kinetix_det_factory(1)
+    num_dark = num_flat = 50  # Equal counts—the regression case
+    exposure_time, x_offset = 0.05, 2.5
+    set_mock_value(sample_tower.x1.user_readback, 1.0)
+    await sample_tower.x1.user_setpoint.set(1.0)
+    await ktx.driver.acquire_time.set(0.3)
+    docs, cache = _doc_cache()
+
+    RE(
+        _no_sleeps(
+            tomo_dark_flat(
+                [ktx],
+                exposure_time,
+                num_dark_images=num_dark,
+                num_flat_images=num_flat,
+                x_offset=x_offset,
+                sample_tower=sample_tower,
+                fe_shutter=fe_shutter,
+                photon_shutter=photon_shutter,
+            )
+        ),
+        cache,  # type: ignore
+    )
+
+    assert len(docs["start"]) == 1
+    start_uid = docs["start"][0]["uid"]
+
+    # Two descriptors: one for dark, one for flat (same start UID)
+    assert len(docs["descriptor"]) == 2
+    assert [d["name"] for d in docs["descriptor"]] == ["dark", "flat"]
+    for descriptor in docs["descriptor"]:
+        assert descriptor["run_start"] == start_uid
+
+    # Two stream resources with distinct URIs, same start UID
+    assert len(docs["stream_resource"]) == 2
+    uris = [sr["uri"] for sr in docs["stream_resource"]]
+    assert len(set(uris)) == 2  # Two distinct file paths
+    for sr in docs["stream_resource"]:
+        assert sr["run_start"] == start_uid
+
+    # Two events, one per stream
+    assert len(docs["event"]) == 2
+    assert docs["stop"][0]["exit_status"] == "success"
+
+
 # ==================================================================================
 # tomo_flyscan
 # ==================================================================================
