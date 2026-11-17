@@ -114,11 +114,12 @@ def tomo_dark_flat(
 
     @bpp.reset_positions_decorator([sample_tower.x1])
     @bpp.run_decorator(md=_md)
-    @bpp.stage_decorator([*detectors])
     def _body():
         yield from ensure_shutter_closed(photon_shutter)
 
         for dset in ("dark", "flat"):
+            yield from bps.stage_all(*detectors)
+
             if dset == "flat":
                 yield from bps.mvr(sample_tower.x1, x_offset)
                 if use_shutter:
@@ -137,6 +138,7 @@ def tomo_dark_flat(
                 )
             yield from bps.wait(group=f"prepare-{dset}")
             yield from bps.trigger_and_read(list(detectors), name=dset)
+            yield from bps.unstage_all(*detectors)
 
     def _cleanup():
         if use_shutter:
