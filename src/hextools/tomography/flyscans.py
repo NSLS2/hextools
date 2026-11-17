@@ -730,8 +730,8 @@ def tomo_flyscan_loop(
 def tomo_1d_step_scan(
     detectors: list[KinetixDetector | PhantomDetector],
     step_motor: AsyncEpicsMotor | SimMotor,
-    step_start: float,
-    step_stop: float,
+    motor_start: float,
+    motor_stop: float,
     num_tomograms: int,
     num_projections: int,
     exposure_time: float,
@@ -764,9 +764,9 @@ def tomo_1d_step_scan(
         The list of detectors to use during the scan.
     step_motor : AsyncEpicsMotor | SimMotor
         The motor that will be moved in steps during the scan.
-    step_start : float
+    motor_start : float
         The starting position for the step motor.
-    step_stop : float
+    motor_stop : float
         The stopping position for the step motor.
     num_tomograms : int
         The number of tomograms to acquire along the step axis.
@@ -823,8 +823,8 @@ def tomo_1d_step_scan(
         yield from tomo_nd_step_scan(
             detectors,
             step_motor,
-            step_start,
-            step_stop,
+            motor_start,
+            motor_stop,
             num_tomograms,
             num_projections=num_projections,
             exposure_time=exposure_time,
