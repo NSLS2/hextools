@@ -1675,8 +1675,8 @@ async def test_tomo_1d_step_scan(
         tomo_1d_step_scan(
             ["det"],  # type: ignore
             outer,
-            step_start=-1,
-            step_stop=1,
+            motor_start=-1,
+            motor_stop=1,
             num_tomograms=5,
             num_projections=100,
             exposure_time=0.2,
@@ -1721,8 +1721,8 @@ def test_tomo_1d_step_scan_retries_by_default(
         tomo_1d_step_scan(
             ["det"],  # type: ignore
             outer,
-            step_start=0,
-            step_stop=1,
+            motor_start=0,
+            motor_stop=1,
             num_tomograms=1,
             num_projections=10,
             exposure_time=0.1,
