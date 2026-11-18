@@ -133,6 +133,11 @@ PV Access). Use **Start** and **Stop** to acquire outside of a plan, and the
 **Settings** menu to adjust the viewer. The indicator next to the PV prefix
 shows whether the viewer is receiving images.
 
+**Pop Out** (at the right of the detector tabs) opens the selected view in its
+own window, which keeps updating whichever tab you switch to, e.g. to watch
+the tomography or XRD detector while adjusting slits on the Beamline tab.
+Close the window to return the view to its tab.
+
 ## Running a plan
 
 ![A plan form](_static/screenshots/gui_plan_form.png)
