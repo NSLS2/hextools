@@ -27,7 +27,6 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -41,6 +40,7 @@ from hextools.gui._client_signals import (
     QtPlanHistoryChanges,
     QtRunEngineState,
 )
+from hextools.gui._elided_label import ElidedLabel
 from hextools.gui.log_watcher import level_color
 from hextools.gui.plan_errors import show_plan_error
 from hextools.gui.run_engine_clients import HistoryItem, PlanInfo, RunEngineClient
@@ -123,18 +123,13 @@ class QtPlanStatus(QWidget):
 
     def __init__(self, re_client: RunEngineClient, parent=None):
         super().__init__(parent)
-        self._plan = QLabel(_NO_PLAN)
-        self._inner_plan = QLabel(_NO_PLAN)
-        self._scan_id = QLabel(_NO_PLAN)
-        self._scan_id.setWordWrap(True)
-        self._inner_scan_id = QLabel(_NO_PLAN)
-        self._last = QLabel(_NO_PLAN)
-        self._last.setWordWrap(True)
-        self._last.setMinimumWidth(260)
-        # Wrap to the available width rather than widening the window.
-        self._last.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
-        )
+        # Single lines that never resize the header; long values show on hover.
+        self._plan = ElidedLabel(_NO_PLAN)
+        self._inner_plan = ElidedLabel(_NO_PLAN)
+        self._scan_id = ElidedLabel(_NO_PLAN)
+        self._inner_scan_id = ElidedLabel(_NO_PLAN)
+        self._last = ElidedLabel(_NO_PLAN, max_lines=2)
+        self._last.setMinimumWidth(240)
         self._outer_name = ""
         self._start_time: float | None = None
 
@@ -145,21 +140,32 @@ class QtPlanStatus(QWidget):
         state_row.addWidget(self._indicator)
         state_row.addWidget(self._state, stretch=1)
 
+        # Inner plan and scan ID share the outer ones' rows, so nesting adds none.
+        self._inner_plan_caption = QLabel("Inner plan:")
+        self._inner_scan_id_caption = QLabel("Inner scan ID:")
+        plan_row = QHBoxLayout()
+        plan_row.setContentsMargins(0, 0, 0, 0)
+        plan_row.addWidget(self._plan, stretch=1)
+        plan_row.addWidget(self._inner_plan_caption)
+        plan_row.addWidget(self._inner_plan, stretch=1)
+        scan_id_row = QHBoxLayout()
+        scan_id_row.setContentsMargins(0, 0, 0, 0)
+        scan_id_row.addWidget(self._scan_id, stretch=1)
+        scan_id_row.addWidget(self._inner_scan_id_caption)
+        scan_id_row.addWidget(self._inner_scan_id, stretch=1)
+
         form = QFormLayout()
         form.setContentsMargins(8, 6, 8, 6)
         form.addRow("RunEngine:", state_row)
-        form.addRow("Plan:", self._plan)
-        form.addRow("Inner plan:", self._inner_plan)
-        form.addRow("Scan ID:", self._scan_id)
-        form.addRow("Inner scan ID:", self._inner_scan_id)
-        form.addRow(QLabel("Last step:"))
-        form.addRow(self._last)
-        self._form = form
+        form.addRow("Plan:", plan_row)
+        form.addRow("Scan ID:", scan_id_row)
+        form.addRow("Last step:", self._last)
         self._set_inner_visible(False)
 
         group_box = QGroupBox("Plan Status")
         group_box.setLayout(form)
         vbox = QVBoxLayout()
+        vbox.setContentsMargins(0, 0, 0, 0)
         vbox.addWidget(group_box)
         self.setLayout(vbox)
 
@@ -173,8 +179,13 @@ class QtPlanStatus(QWidget):
         self._logs.record.connect(self._on_record)
 
     def _set_inner_visible(self, visible: bool):
-        self._form.setRowVisible(self._inner_plan, visible)
-        self._form.setRowVisible(self._inner_scan_id, visible)
+        for widget in (
+            self._inner_plan_caption,
+            self._inner_plan,
+            self._inner_scan_id_caption,
+            self._inner_scan_id,
+        ):
+            widget.setVisible(visible)
 
     @Slot(object)
     def _on_plan_changed(self, plan: PlanInfo | None):

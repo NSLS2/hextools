@@ -160,6 +160,7 @@ class QtWeatherWidget(QWidget):
         group_box.setLayout(form)
 
         vbox = QVBoxLayout()
+        vbox.setContentsMargins(0, 0, 0, 0)
         vbox.addWidget(group_box)
         self.setLayout(vbox)
 

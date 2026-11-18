@@ -25,16 +25,19 @@ from qtpy.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
+from hextools.gui._elided_label import ElidedLabel
 from hextools.gui._threading import FunctionWorker
 from hextools.gui.run_engine_clients import RunEngineClient
 from hextools.utils import (
@@ -64,6 +67,9 @@ class QtReMetadataMonitor(QWidget):
         Interval between metadata requests, in seconds. Default: 1.0.
     title : str, optional
         Group box title. Default: ``"RE Metadata"``.
+    columns : int, optional
+        Keys shown side by side in each row; the last key spans the rest of its
+        row, cut short with "…" if it doesn't fit. Default: 1.
     """
 
     signal_metadata_updated = Signal(object)
@@ -76,6 +82,7 @@ class QtReMetadataMonitor(QWidget):
         *,
         poll_period: float = 1.0,
         title: str = "RE Metadata",
+        columns: int = 1,
     ):
         super().__init__(parent)
         self._re_client = re_client
@@ -84,23 +91,36 @@ class QtReMetadataMonitor(QWidget):
         self._worker = None
 
         self._labels: dict[str, QLabel] = {}
-        form = QFormLayout()
-        form.setContentsMargins(8, 6, 8, 6)
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(6)
+        grid = QGridLayout()
+        grid.setContentsMargins(8, 6, 8, 6)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(6)
         for i, key in enumerate(self._keys):
-            label = QLabel(_PLACEHOLDER)
+            row, column = divmod(i, columns)
+            last = i == len(self._keys) - 1
+            label = (
+                ElidedLabel(_PLACEHOLDER)
+                if last and columns > 1
+                else QLabel(_PLACEHOLDER)
+            )
             label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             self._labels[key] = label
-            form.addRow(f"{self._key_labels[i]}:", label)
+            # Each key takes a label and a value column, then a gap column.
+            span = 3 * (columns - column) - 2 if last else 1
+            grid.addWidget(QLabel(f"{self._key_labels[i]}:"), row, 3 * column)
+            grid.addWidget(label, row, 3 * column + 1, 1, span)
+        for column in range(columns):
+            grid.setColumnStretch(3 * column + 1, 1)
+            if column < columns - 1:
+                grid.setColumnMinimumWidth(3 * column + 2, 12)
 
         group_box = QGroupBox(title)
         self._group_layout = QVBoxLayout(group_box)
         self._group_layout.setContentsMargins(0, 0, 0, 0)
-        self._group_layout.addLayout(form)
-        self._form = form
+        self._group_layout.addLayout(grid)
 
         vbox = QVBoxLayout()
+        vbox.setContentsMargins(0, 0, 0, 0)
         vbox.addWidget(group_box)
         self.setLayout(vbox)
 
@@ -165,16 +185,19 @@ class QtProposalInfo(QtReMetadataMonitor):
         super().__init__(
             re_client,
             {
-                "Proposal ID": "data_session",
+                "ID": "data_session",
                 "Cycle": "cycle",
-                "Proposal Title": "proposal/title",
-                "Proposal Type": "proposal/type",
+                "Type": "proposal/type",
                 "PI Name": "proposal/pi_name",
+                "Title": "proposal/title",
             },
             poll_period=poll_period,
             parent=parent,
             title="Proposal Info",
+            columns=2,
         )
+        # Spare width goes to the title, which is cut short to fit.
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._switch_worker = None
         self._change_button = QPushButton("Change Proposal…")
         self._change_button.clicked.connect(self.change_proposal)

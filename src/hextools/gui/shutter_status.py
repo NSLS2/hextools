@@ -8,7 +8,9 @@ from typing import Any
 from bluesky.protocols import Reading
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
+    QBoxLayout,
     QGroupBox,
+    QHBoxLayout,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -26,12 +28,12 @@ ShutterPlanBuilder = Callable[[str, bool], tuple[str, dict[str, Any]]]
 _OPEN_COLORS = ("#7bb08a", "#4a7a58")
 _CLOSED_COLORS = ("#c47d7d", "#8f4b4b")
 _UNKNOWN_COLORS = ("#a5a5a5", "#707070")
-_BUTTON_SIZE = 80
+_BUTTON_SIZE = 60
 _INVALID_SEVERITY = 3
 
 
 class _ShutterIndicator(QtSignalStatus):
-    """``label: [button]`` row whose square button reflects, and toggles, a shutter.
+    """The shutter's name above a square button that reflects, and toggles, it.
 
     An INVALID alarm shows the shutter as unknown (grey).
     """
@@ -43,9 +45,13 @@ class _ShutterIndicator(QtSignalStatus):
         self.var_name = name
         self.is_open: bool | None = None
         self._blocked_reason: str | None = None
-        self.label_widget.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        layout = self.layout()
+        if isinstance(layout, QBoxLayout):
+            layout.setDirection(QBoxLayout.Direction.TopToBottom)
+            layout.setStretchFactor(self.button, 0)
+            layout.setAlignment(self.button, Qt.AlignmentFlag.AlignHCenter)
+        self.label_widget.setText(self.label_widget.text().removesuffix(":"))
+        self.label_widget.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self._render()
 
     @property
@@ -136,22 +142,27 @@ class QtShutterStatus(QWidget):
         self._pending = False
 
         self._indicators: list[_ShutterIndicator] = []
-        rows = QVBoxLayout()
-        rows.setContentsMargins(8, 6, 8, 6)
+        row = QHBoxLayout()
+        row.setContentsMargins(8, 6, 8, 6)
+        row.setSpacing(12)
+        row.addStretch(1)
         for name in shutters:
             indicator = _ShutterIndicator(re_client, name)
             indicator.button.clicked.connect(lambda *_, i=indicator: self._toggle(i))
-            rows.addWidget(indicator)
+            row.addWidget(indicator, alignment=Qt.AlignmentFlag.AlignVCenter)
             self._indicators.append(indicator)
+        row.addStretch(1)
+        # Equal columns, so each button sits as far from its edge as the others.
         width = max(
             (i.label_widget.sizeHint().width() for i in self._indicators), default=0
         )
         for indicator in self._indicators:
-            indicator.label_widget.setFixedWidth(width)
+            indicator.label_widget.setMinimumWidth(width)
 
         group_box = QGroupBox("Shutters")
-        group_box.setLayout(rows)
+        group_box.setLayout(row)
         vbox = QVBoxLayout()
+        vbox.setContentsMargins(0, 0, 0, 0)
         vbox.addWidget(group_box)
         self.setLayout(vbox)
         self._state = QtRunEngineState(re_client, self)
