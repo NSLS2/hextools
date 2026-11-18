@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "revision": 7,
+  "plans": {
+    "move_slits": {
+      "name": "move_slits",
+      "module": "hextools.photon_delivery_system.slits",
+      "description": "Move slit gaps and centers, gaps first.",
+      "parameters": [
+        {
+          "name": "slits",
+          "kind": "positional_or_keyword",
+          "type": {
+            "kind": "device",
+            "classes": ["hextools.photon_delivery_system.slits.Slits"]
+          },
+          "required": true,
+          "description": "The slits to move."
+        },
+        {
+          "name": "horizontal_gap",
+          "kind": "keyword_only",
+          "type": {
+            "kind": "optional",
+            "of": {"kind": "number", "units": "mm", "minimum": 0}
+          },
+          "required": false,
+          "default": null
+        },
+        {
+          "name": "relative",
+          "kind": "keyword_only",
+          "type": {"kind": "boolean"},
+          "required": false,
+          "default": false
+        }
+      ],
+      "ui": {"group": "Beamline", "order": 2}
+    },
+    "change_beam_mode": {
+      "name": "change_beam_mode",
+      "module": "hextools.photon_delivery_system.dclm",
+      "parameters": [
+        {
+          "name": "mode",
+          "kind": "positional_or_keyword",
+          "type": {
+            "kind": "enum",
+            "name": "hextools.photon_delivery_system.dclm.BeamMode",
+            "choices": [
+              {"value": "mono", "label": "Monochromatic"},
+              {"value": "pink", "label": "Pink"}
+            ]
+          },
+          "required": true
+        }
+      ]
+    },
+    "tomo_flyscan": {
+      "name": "tomo_flyscan",
+      "module": "hextools.tomography.flyscans",
+      "description": "Continuous-rotation tomography scan.",
+      "parameters": [
+        {
+          "name": "setup",
+          "kind": "positional_or_keyword",
+          "type": {
+            "kind": "record",
+            "name": "hextools.tomography.FlyscanSetup",
+            "description": "Detectors and stage for a flyscan.",
+            "fields": [
+              {
+                "name": "rotation",
+                "type": {"kind": "device", "protocols": ["Movable", "Locatable"]},
+                "required": true
+              },
+              {
+                "name": "detectors",
+                "type": {
+                  "kind": "sequence",
+                  "min_items": 1,
+                  "items": {
+                    "kind": "device",
+                    "protocols": ["Readable", "Triggerable"],
+                    "classes": [
+                      "ophyd_async.epics.adkinetix.KinetixDetector",
+                      "hextools.detectors.phantom.PhantomDetector"
+                    ]
+                  }
+                },
+                "required": true
+              },
+              {
+                "name": "exposure",
+                "type": {"kind": "number", "units": "s", "exclusive_minimum": 0},
+                "required": false,
+                "default": 0.01
+              }
+            ]
+          },
+          "required": true
+        },
+        {
+          "name": "num_projections",
+          "kind": "positional_or_keyword",
+          "type": {"kind": "integer", "minimum": 1},
+          "required": false,
+          "default": 1800
+        }
+      ],
+      "ui": {"group": "Tomography"}
+    }
+  }
+}

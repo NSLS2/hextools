@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, MutableMapping
-from typing import Any
+from collections.abc import Mapping
 
-from bluesky import RunEngine
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QComboBox,
@@ -17,9 +15,10 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from hextools.gui.device_sources import NamespaceDeviceSource
 from hextools.gui.movable_group import QtMovableGroup
-from hextools.photon_delivery_system.slits import Slits
+from hextools.gui.run_engine_clients import RunEngineClient
+
+SLITS_CLASS = "hextools.photon_delivery_system.slits.Slits"
 
 # Gaps and centers drive the same blades, so each is its own batch group, as in
 # move_slits, which moves gaps before centers.
@@ -56,11 +55,9 @@ class QtSlitsControl(QWidget):
     Parameters
     ----------
     path : str
-        Namespace path of the slits, e.g. ``"a_slits"``.
-    re : RunEngine
-        The in-process RunEngine.
-    namespace : MutableMapping[str, object], optional
-        Namespace holding the slits. Defaults to the IPython ``user_ns``.
+        Device name of the slits, e.g. ``"a_slits"``.
+    re_client : RunEngineClient
+        Runs the moves, and describes and reads the slits.
     title : str, optional
         Group box title. Defaults to ``path``.
     precision : int, optional
@@ -74,8 +71,7 @@ class QtSlitsControl(QWidget):
     def __init__(
         self,
         path: str,
-        re: RunEngine,
-        namespace: MutableMapping[str, Any] | None = None,
+        re_client: RunEngineClient,
         title: str | None = None,
         precision: int = 3,
         tweak: float = 0.1,
@@ -83,13 +79,12 @@ class QtSlitsControl(QWidget):
         parent=None,
     ):
         super().__init__(parent)
-        if namespace is None:
-            from IPython.core.getipython import get_ipython
-
-            ipython = get_ipython()
-            namespace = ipython.user_ns if ipython is not None else {}
-        if not NamespaceDeviceSource(namespace).is_valid_device(path, (Slits,)):
-            raise ValueError(f"No slits at {path!r} in the namespace")
+        try:
+            classes = re_client.device_registry.node(path).classes
+        except KeyError:
+            classes = ()
+        if SLITS_CLASS not in classes:
+            raise ValueError(f"No slits called {path!r}")
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(24)
@@ -101,8 +96,7 @@ class QtSlitsControl(QWidget):
         ):
             group = QtMovableGroup(
                 {label: f"{path}.{attr}" for attr, label in motions},
-                re,
-                namespace=namespace,
+                re_client,
                 title=group_title,
                 precision=precision,
                 tweak=tweak,
@@ -138,11 +132,9 @@ class QtSlitsSelector(QWidget):
     Parameters
     ----------
     slits : Mapping[str, str]
-        Namespace path of each set of slits to its display title, in order.
-    re : RunEngine
-        The in-process RunEngine.
-    namespace : MutableMapping[str, object], optional
-        Namespace holding the slits. Defaults to the IPython ``user_ns``.
+        Device name of each set of slits to its display title, in order.
+    re_client : RunEngineClient
+        Runs the moves, and describes and reads the slits.
     stacked : bool, optional
         Passed to each :class:`QtSlitsControl`.
     """
@@ -150,14 +142,12 @@ class QtSlitsSelector(QWidget):
     def __init__(
         self,
         slits: Mapping[str, str],
-        re: RunEngine,
-        namespace: MutableMapping[str, Any] | None = None,
+        re_client: RunEngineClient,
         stacked: bool = True,
         parent=None,
     ):
         super().__init__(parent)
-        self._re = re
-        self._namespace = namespace
+        self._re_client = re_client
         self._stacked = stacked
         self.controls: dict[str, QtSlitsControl] = {}
 
@@ -188,8 +178,7 @@ class QtSlitsSelector(QWidget):
         if control is None:
             control = QtSlitsControl(
                 path,
-                self._re,
-                namespace=self._namespace,
+                self._re_client,
                 title=self._combo.itemText(index),
                 stacked=self._stacked,
             )

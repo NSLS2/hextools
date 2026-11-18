@@ -6,7 +6,6 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("qtpy")
-pytest.importorskip("bluesky_widgets")
 ntnda = pytest.importorskip("ntnda_qt_viewer")
 
 from qtpy.QtWidgets import QApplication  # noqa: E402

@@ -732,5 +732,5 @@ class MsgHookNarrator:
             self._send(line)
 
 
-#: Ready-to-use natural-language ``msg_hook`` instance: ``RE.msg_hook = nl_msg_hook``.
+# A ready to use narrator instance
 nl_msg_hook = MsgHookNarrator()

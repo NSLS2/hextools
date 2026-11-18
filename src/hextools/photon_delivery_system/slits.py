@@ -87,7 +87,7 @@ class FrontEndSlit(StandardReadable, AsyncMovable[SlitAperture]):
 
     async def stop(self, success: bool = False):
         """Stop Y, so pausing or aborting the RunEngine stops a move."""
-        await self.y.stop()
+        await self.y.stop(success=success)
 
 
 def set_fe_aperture(aperture: SlitAperture, fe_slit1: FrontEndSlit | None = None):
@@ -102,6 +102,8 @@ def set_fe_aperture(aperture: SlitAperture, fe_slit1: FrontEndSlit | None = None
         The slit. If None, taken from the session namespace.
     """
     fe_slit1 = ensure_available(FrontEndSlit, fe_slit1=fe_slit1)
+    # Resuming after a pause rewinds here, so the slit is moved again.
+    yield from bps.checkpoint()
     yield from bps.mv(fe_slit1, SlitAperture(aperture))
 
 
@@ -215,7 +217,7 @@ class _BladePairAxis(
 
     async def stop(self, success: bool = False):
         """Stop both blades, so pausing or aborting the RunEngine stops a move."""
-        await asyncio.gather(*(blade.stop() for blade in self._blades))
+        await asyncio.gather(*(blade.stop(success=success) for blade in self._blades))
 
 
 class SlitGap(_BladePairAxis):
@@ -272,6 +274,7 @@ class Slits(
             self.vertical_gap = SlitGap(self.bottom, self.top)
             self.vertical_center = SlitCenter(self.bottom, self.top)
 
+        self._stopped = False
         super().__init__(name=name)
 
     @WatchableAsyncStatus.wrap
@@ -298,9 +301,13 @@ class Slits(
             )
 
         # Set gaps first to preserve centers, then set centers to preserve gaps.
+        self._stopped = False
         gaps = [self.horizontal_gap.set(h_gap), self.vertical_gap.set(v_gap)]
         async for update in forward_watcher_updates(gaps, self.name, combine=False):
             yield update
+        if self._stopped:
+            # Stopped during the gaps, e.g. by a pause; don't go on to the centers.
+            return
 
         centers = [
             self.horizontal_center.set(h_center),
@@ -311,11 +318,12 @@ class Slits(
 
     async def stop(self, success: bool = False):
         """Stop all four blades, so pausing or aborting the RunEngine stops a move."""
+        self._stopped = True
         await asyncio.gather(
-            self.inboard.stop(),
-            self.outboard.stop(),
-            self.bottom.stop(),
-            self.top.stop(),
+            self.inboard.stop(success=success),
+            self.outboard.stop(success=success),
+            self.bottom.stop(success=success),
+            self.top.stop(success=success),
         )
 
 
@@ -369,4 +377,6 @@ def move_slits(
             x for signal, value in stage if value is not None for x in (signal, value)
         ]
         if args:
+            # Resuming after a pause rewinds here, so this stage is moved again.
+            yield from bps.checkpoint()
             yield from move(*args)

@@ -201,7 +201,7 @@ def xrd_scan_nd(
     num_iterations: int = 1,
     sleep_time: float = 0.0,
     use_shutter: bool = True,
-    snake_axes: bool | list = False,
+    snake_axes: bool | list[bool] = False,
     fe_shutter: Shutter | None = None,
     photon_shutter: Shutter | None = None,
     description: str = "N-Dimensional XRD scan",
@@ -227,7 +227,7 @@ def xrd_scan_nd(
         The time to sleep between iterations, by default 0.0.
     use_shutter : bool, optional
         Whether to use the shutters, by default True.
-    snake_axes : bool | list, optional
+    snake_axes : bool | list[bool], optional
         Whether to snake the scan axes, by default False.
     fe_shutter : Shutter | None, optional
         The front-end shutter to use, by default None.

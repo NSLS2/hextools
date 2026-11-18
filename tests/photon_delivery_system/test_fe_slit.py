@@ -82,3 +82,22 @@ async def test_stop_stops_y_while_moving(RE: RunEngine):
     await fe_slit1.stop(success=False)
 
     get_mock_put(fe_slit1.y.motor_stop).assert_called_once()
+
+
+async def test_stop_passes_success_to_y(RE: RunEngine, monkeypatch):
+    fe_slit1 = _re_slit()
+    calls: list[bool] = []
+
+    async def stop(motor, success: bool = False):
+        calls.append(success)
+
+    monkeypatch.setattr(type(fe_slit1.y), "stop", stop)
+    await fe_slit1.stop(success=True)
+    assert calls == [True]
+
+
+def test_set_fe_aperture_checkpoints_before_moving(RE: RunEngine):
+    commands: list[str] = []
+    RE.msg_hook = lambda msg: commands.append(msg.command)  # type: ignore[assignment]
+    RE(set_fe_aperture(SlitAperture.FULLY_CLOSED, fe_slit1=_re_slit()))
+    assert commands.index("checkpoint") < commands.index("set")

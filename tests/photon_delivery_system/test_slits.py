@@ -4,9 +4,19 @@ import bluesky.plan_stubs as bps
 import pytest
 from bluesky.protocols import Subscribable
 from bluesky.run_engine import RunEngine
-from ophyd_async.core import callback_on_mock_put, init_devices, set_mock_value
+from ophyd_async.core import (
+    WatchableAsyncStatus,
+    callback_on_mock_put,
+    init_devices,
+    set_mock_value,
+)
 
-from hextools.photon_delivery_system.slits import Slits, move_slits
+from hextools.photon_delivery_system.slits import (
+    SlitCenter,
+    SlitGap,
+    Slits,
+    move_slits,
+)
 
 
 @pytest.fixture
@@ -213,6 +223,57 @@ def test_move_slits_needs_a_value(RE: RunEngine):
     slits = _re_slits((0.0, 0.0, 0.0, 0.0))
     with pytest.raises(ValueError, match="at least one"):
         RE(move_slits(slits))
+
+
+def test_move_slits_checkpoints_before_each_stage(RE: RunEngine):
+    slits = _re_slits((-1.0, 1.0, 0.0, 0.0))
+    commands: list[str] = []
+    RE.msg_hook = lambda msg: commands.append(msg.command)  # type: ignore[assignment]
+
+    RE(move_slits(slits, horizontal_gap=4.0, horizontal_center=5.0))
+
+    moves = [c for c in commands if c in ("checkpoint", "set")]
+    assert moves == ["checkpoint", "set", "checkpoint", "set"]
+
+
+async def test_stopping_slits_with_success_stops_blades_and_skips_centers(
+    RE: RunEngine, monkeypatch
+):
+    slits = _re_slits((-1.0, 1.0, -1.0, 1.0))
+    moving = asyncio.Event()
+    stopped = asyncio.Event()
+    stops: list[bool] = []
+    centers: list[float] = []
+
+    @WatchableAsyncStatus.wrap
+    async def slow_gap(axis, value):
+        moving.set()
+        await stopped.wait()
+        if False:
+            yield
+
+    @WatchableAsyncStatus.wrap
+    async def record_center(axis, value):
+        centers.append(value)
+        if False:
+            yield
+
+    async def stop_motor(motor, success: bool = False):
+        stops.append(success)
+        stopped.set()
+
+    monkeypatch.setattr(SlitGap, "set", slow_gap)
+    monkeypatch.setattr(SlitCenter, "set", record_center)
+    monkeypatch.setattr(type(slits.inboard), "stop", stop_motor)
+
+    status = slits.set(((4.0, 0.0), (4.0, 0.0)))
+    await moving.wait()
+    await slits.stop(success=True)
+    await asyncio.wait_for(status, timeout=1)
+
+    assert status.success
+    assert stops == [True] * 4
+    assert centers == []
 
 
 @pytest.mark.parametrize("axis, low, high, gap, center", _AXES)

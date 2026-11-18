@@ -58,12 +58,18 @@ from hextools.motors import (
     move_motor,  # noqa: F401 - operator namespace
 )
 from hextools.photon_delivery_system import *
+from hextools.settings import (
+    apply_device_settings,  # noqa: F401 - operator namespace
+    store_device_settings,  # noqa: F401 - operator namespace
+    store_device_settings_snapshot,  # noqa: F401 - operator namespace
+)
 from hextools.suspenders import SuspendFloorUnlessOpsMode
 from hextools.tomography import *
 from hextools.utils import (
     StartDocAwareFilenameProvider,
     initialize_run_engine,
     is_running_in_ci,
+    nl_msg_hook,
     reset_scan_id,  # noqa: F401 - operator namespace
     show_docs,  # noqa: F401 - operator namespace
 )
@@ -121,12 +127,14 @@ RE.md["facility"] = "NSLS-II"
 RE.md["group"] = "HEX"
 RE.md["beamline_id"] = "27-ID-1"
 
-# Log any exception raised during a plan as an error, and every RunEngine state change.
+# Log state changes, plan exceptions, and narrate the plan's Msg stream in
+# natural language. Used for feedback in the GUI.
+RE.msg_hook = nl_msg_hook  # type: ignore TODO: Fix type hint upstream
 log_plan_exceptions(RE, logger)
 log_state_changes(RE, logger)
 
 # Uncomment if running in the terminal to get progress bars.
-# RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
+# RE.waiting_hook = ProgressBarManager()  # type: ignore TODO: Fix type hint upstream
 
 # Display active proposal information in the console.
 print_proposal_info(RE.md)

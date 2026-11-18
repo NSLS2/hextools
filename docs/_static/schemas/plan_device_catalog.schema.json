@@ -1,0 +1,490 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hextools.nsls2.bnl.gov/schemas/plan_device_catalog.schema.json",
+  "title": "HEX plan and device catalog",
+  "description": "What a GUI client needs to know about the plans it may run and the devices it may pass them. See docs/plan_device_schema.md.",
+  "oneOf": [
+    {"$ref": "#/$defs/PlanCatalog"},
+    {"$ref": "#/$defs/DeviceRegistry"},
+    {"$ref": "#/$defs/RegistryDelta"},
+    {"$ref": "#/$defs/PlanCall"}
+  ],
+  "$defs": {
+    "Revision": {
+      "description": "Increases whenever the catalog or registry changes.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "QualifiedName": {
+      "description": "Importable dotted name of a Python object, e.g. 'hextools.motors.SampleTower'.",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+    },
+    "Identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "DevicePath": {
+      "description": "A device's path: a top-level name, then attribute steps and DeviceVector/DeviceMap indexes, e.g. \"a_slits.blades[1]\" or \"panda.pcomp['x']\".",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*|\\[[0-9]+\\]|\\['[A-Za-z0-9_]+'\\])*$"
+    },
+    "Protocol": {
+      "description": "Name of a bluesky protocol the object satisfies, e.g. Readable, Movable, Locatable, Triggerable, Stageable, Stoppable, Pausable, Flyable, Collectable, Configurable, Subscribable, Preparable, Checkable, WritesStreamAssets. Facilities may add their own.",
+      "type": "string",
+      "minLength": 1
+    },
+    "UiHints": {
+      "description": "Presentation hints; clients may ignore any of them.",
+      "type": "object",
+      "properties": {
+        "label": {"type": "string"},
+        "group": {"type": "string"},
+        "order": {"type": "integer"},
+        "widget": {
+          "description": "Preferred editor, e.g. 'slider', 'spinbox', 'textarea', 'file'.",
+          "type": "string"
+        },
+        "hidden": {"type": "boolean", "default": false},
+        "advanced": {"type": "boolean", "default": false}
+      },
+      "additionalProperties": true
+    },
+
+    "TypeExpr": {
+      "description": "A parameter, field or setpoint type, as a tree.",
+      "oneOf": [
+        {"$ref": "#/$defs/NumberType"},
+        {"$ref": "#/$defs/IntegerType"},
+        {"$ref": "#/$defs/BooleanType"},
+        {"$ref": "#/$defs/StringType"},
+        {"$ref": "#/$defs/LiteralType"},
+        {"$ref": "#/$defs/EnumType"},
+        {"$ref": "#/$defs/DeviceType"},
+        {"$ref": "#/$defs/PlanType"},
+        {"$ref": "#/$defs/SequenceType"},
+        {"$ref": "#/$defs/TupleType"},
+        {"$ref": "#/$defs/MappingType"},
+        {"$ref": "#/$defs/UnionType"},
+        {"$ref": "#/$defs/OptionalType"},
+        {"$ref": "#/$defs/RecordType"},
+        {"$ref": "#/$defs/AnyType"}
+      ]
+    },
+    "NumberType": {
+      "type": "object",
+      "properties": {
+        "kind": {"const": "number"},
+        "format": {"enum": ["float"], "default": "float"},
+        "units": {"type": "string"},
+        "minimum": {"type": "number"},
+        "maximum": {"type": "number"},
+        "exclusive_minimum": {"type": "number"},
+        "exclusive_maximum": {"type": "number"},
+        "step": {"type": "number", "exclusiveMinimum": 0},
+        "precision": {"type": "integer", "minimum": 0}
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "IntegerType": {
+      "type": "object",
+      "properties": {
+        "kind": {"const": "integer"},
+        "units": {"type": "string"},
+        "minimum": {"type": "integer"},
+        "maximum": {"type": "integer"},
+        "step": {"type": "integer", "minimum": 1}
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "BooleanType": {
+      "type": "object",
+      "properties": {"kind": {"const": "boolean"}},
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "StringType": {
+      "type": "object",
+      "properties": {
+        "kind": {"const": "string"},
+        "min_length": {"type": "integer", "minimum": 0},
+        "max_length": {"type": "integer", "minimum": 0},
+        "pattern": {"description": "ECMA-262 regular expression the whole value must match.", "type": "string"}
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "LiteralType": {
+      "description": "One of a few fixed values, as typing.Literal.",
+      "type": "object",
+      "properties": {
+        "kind": {"const": "literal"},
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": ["string", "number", "boolean", "null"]}
+        }
+      },
+      "required": ["kind", "values"],
+      "additionalProperties": false
+    },
+    "EnumType": {
+      "type": "object",
+      "properties": {
+        "kind": {"const": "enum"},
+        "name": {"$ref": "#/$defs/QualifiedName"},
+        "choices": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "description": "What is passed to the plan.",
+                "type": ["string", "number", "boolean"]
+              },
+              "label": {"description": "Shown to the user; defaults to the value.", "type": "string"},
+              "description": {"type": "string"}
+            },
+            "required": ["value"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["kind", "name", "choices"],
+      "additionalProperties": false
+    },
+    "DeviceType": {
+      "description": "A device that satisfies every listed protocol and, if classes are listed, is an instance of at least one of them.",
+      "type": "object",
+      "properties": {
+        "kind": {"const": "device"},
+        "protocols": {"type": "array", "items": {"$ref": "#/$defs/Protocol"}, "uniqueItems": true},
+        "classes": {"type": "array", "items": {"$ref": "#/$defs/QualifiedName"}, "uniqueItems": true},
+        "signals": {
+          "description": "True to also accept bare signals; by default only devices are offered.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "PlanType": {
+      "description": "A plan from the catalog, passed by name.",
+      "type": "object",
+      "properties": {
+        "kind": {"const": "plan"},
+        "names": {
+          "description": "Allowed plan names; all plans if omitted.",
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "SequenceType": {
+      "type": "object",
+      "properties": {
+        "kind": {"const": "sequence"},
+        "items": {"$ref": "#/$defs/TypeExpr"},
+        "min_items": {"type": "integer", "minimum": 0},
+        "max_items": {"type": "integer", "minimum": 0},
+        "unique": {"type": "boolean", "default": false}
+      },
+      "required": ["kind", "items"],
+      "additionalProperties": false
+    },
+    "TupleType": {
+      "description": "Fixed-length, positionally typed, as tuple[int, float].",
+      "type": "object",
+      "properties": {
+        "kind": {"const": "tuple"},
+        "items": {"type": "array", "items": {"$ref": "#/$defs/TypeExpr"}}
+      },
+      "required": ["kind", "items"],
+      "additionalProperties": false
+    },
+    "MappingType": {
+      "description": "String keys to values, as dict[str, T].",
+      "type": "object",
+      "properties": {
+        "kind": {"const": "mapping"},
+        "values": {"$ref": "#/$defs/TypeExpr"}
+      },
+      "required": ["kind", "values"],
+      "additionalProperties": false
+    },
+    "UnionType": {
+      "type": "object",
+      "properties": {
+        "kind": {"const": "union"},
+        "options": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/TypeExpr"}}
+      },
+      "required": ["kind", "options"],
+      "additionalProperties": false
+    },
+    "OptionalType": {
+      "description": "The type, or null.",
+      "type": "object",
+      "properties": {
+        "kind": {"const": "optional"},
+        "of": {"$ref": "#/$defs/TypeExpr"}
+      },
+      "required": ["kind", "of"],
+      "additionalProperties": false
+    },
+    "RecordType": {
+      "description": "A dataclass (or similar), built from keyword arguments.",
+      "type": "object",
+      "properties": {
+        "kind": {"const": "record"},
+        "name": {"$ref": "#/$defs/QualifiedName"},
+        "description": {"type": "string"},
+        "fields": {"type": "array", "items": {"$ref": "#/$defs/Field"}}
+      },
+      "required": ["kind", "name", "fields"],
+      "additionalProperties": false
+    },
+    "AnyType": {
+      "description": "Anything; a GUI cannot build it, so plans with a required 'any' parameter are not GUI-supported.",
+      "type": "object",
+      "properties": {
+        "kind": {"const": "any"},
+        "python": {"description": "The Python annotation, for display only.", "type": "string"}
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+
+    "Field": {
+      "description": "A record field; like a parameter, but always passed by keyword.",
+      "type": "object",
+      "properties": {
+        "name": {"$ref": "#/$defs/Identifier"},
+        "type": {"$ref": "#/$defs/TypeExpr"},
+        "required": {"type": "boolean"},
+        "default": {"$ref": "#/$defs/Value"},
+        "description": {"type": "string"},
+        "ui": {"$ref": "#/$defs/UiHints"}
+      },
+      "required": ["name", "type", "required"],
+      "additionalProperties": false
+    },
+
+    "Value": {
+      "description": "A parameter or field value. Plain JSON, except that device, plan and record values are tagged objects. Plain objects (mapping values) may not have keys starting with '$'.",
+      "oneOf": [
+        {"type": ["null", "boolean", "number", "string"]},
+        {"type": "array", "items": {"$ref": "#/$defs/Value"}},
+        {"$ref": "#/$defs/DeviceRef"},
+        {"$ref": "#/$defs/PlanRef"},
+        {"$ref": "#/$defs/RecordValue"},
+        {
+          "type": "object",
+          "propertyNames": {"pattern": "^[^$]"},
+          "additionalProperties": {"$ref": "#/$defs/Value"}
+        }
+      ]
+    },
+    "DeviceRef": {
+      "type": "object",
+      "properties": {"$device": {"$ref": "#/$defs/DevicePath"}},
+      "required": ["$device"],
+      "additionalProperties": false
+    },
+    "PlanRef": {
+      "type": "object",
+      "properties": {"$plan": {"type": "string"}},
+      "required": ["$plan"],
+      "additionalProperties": false
+    },
+    "RecordValue": {
+      "description": "'$record' names the record type; the other keys are its fields.",
+      "type": "object",
+      "properties": {"$record": {"$ref": "#/$defs/QualifiedName"}},
+      "required": ["$record"],
+      "propertyNames": {"pattern": "^(\\$record|[A-Za-z_][A-Za-z0-9_]*)$"},
+      "additionalProperties": {"$ref": "#/$defs/Value"}
+    },
+
+    "Parameter": {
+      "type": "object",
+      "properties": {
+        "name": {"$ref": "#/$defs/Identifier"},
+        "kind": {
+          "enum": [
+            "positional_only",
+            "positional_or_keyword",
+            "var_positional",
+            "keyword_only",
+            "var_keyword"
+          ]
+        },
+        "type": {"$ref": "#/$defs/TypeExpr"},
+        "required": {"type": "boolean"},
+        "default": {"$ref": "#/$defs/Value"},
+        "description": {"type": "string"},
+        "ui": {"$ref": "#/$defs/UiHints"}
+      },
+      "required": ["name", "kind", "type", "required"],
+      "additionalProperties": false
+    },
+    "Plan": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "module": {"$ref": "#/$defs/QualifiedName"},
+        "description": {"type": "string"},
+        "parameters": {"type": "array", "items": {"$ref": "#/$defs/Parameter"}},
+        "gui_supported": {
+          "description": "False if a required parameter cannot be entered in a form (e.g. its type is 'any').",
+          "type": "boolean",
+          "default": true
+        },
+        "ui": {"$ref": "#/$defs/UiHints"}
+      },
+      "required": ["name", "parameters"],
+      "additionalProperties": false
+    },
+    "PlanCatalog": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "revision": {"$ref": "#/$defs/Revision"},
+        "plans": {
+          "description": "Plan name to plan.",
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/Plan"}
+        }
+      },
+      "required": ["schema_version", "revision", "plans"],
+      "additionalProperties": false
+    },
+    "PlanCall": {
+      "description": "A request to run a plan from the catalog.",
+      "type": "object",
+      "properties": {
+        "plan": {"type": "string"},
+        "args": {"type": "array", "items": {"$ref": "#/$defs/Value"}},
+        "kwargs": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/Identifier"},
+          "additionalProperties": {"$ref": "#/$defs/Value"}
+        }
+      },
+      "required": ["plan"],
+      "additionalProperties": false
+    },
+
+    "DataKey": {
+      "description": "The node's own event-model DataKey, as describe() returns it (dtype, shape, source, units, precision, limits, choices, ...).",
+      "type": "object",
+      "properties": {
+        "dtype": {"enum": ["string", "number", "array", "boolean", "integer"]},
+        "shape": {"type": "array", "items": {"type": ["integer", "null"]}},
+        "source": {"type": "string"},
+        "units": {"type": "string"},
+        "precision": {"type": "integer"},
+        "choices": {"type": "array", "items": {"type": "string"}},
+        "limits": {"type": "object"}
+      },
+      "required": ["dtype", "shape", "source"],
+      "additionalProperties": true
+    },
+    "DeviceNode": {
+      "$ref": "#/$defs/DeviceNodeBase",
+      "unevaluatedProperties": false
+    },
+    "DeviceNodeBase": {
+      "type": "object",
+      "properties": {
+        "classes": {
+          "description": "Fully qualified classes, most derived first (the MRO, without object).",
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/QualifiedName"}
+        },
+        "protocols": {"type": "array", "items": {"$ref": "#/$defs/Protocol"}, "uniqueItems": true},
+        "signal": {"description": "True for a signal rather than a device.", "type": "boolean", "default": false},
+        "name": {"description": "The object's own name (its data-key prefix).", "type": "string"},
+        "description": {"type": "string"},
+        "connected": {"type": "boolean"},
+        "access": {"description": "For signals.", "enum": ["r", "rw", "w", "x"]},
+        "read_format": {
+          "description": "How the parent device reads it.",
+          "enum": ["hinted", "read", "config", "none"]
+        },
+        "hinted_fields": {
+          "description": "Data keys of the hinted fields, in definition order.",
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "set_type": {
+          "description": "What set() accepts, for Movable nodes.",
+          "$ref": "#/$defs/TypeExpr"
+        },
+        "datakey": {"$ref": "#/$defs/DataKey"},
+        "index": {
+          "description": "Set on DeviceVector ('int') and DeviceMap ('str') nodes: children are addressed as [1] or ['x'] instead of .name.",
+          "enum": ["int", "str"]
+        },
+        "children": {
+          "description": "Child name (or index, as a string) to child node.",
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/DeviceNode"}
+        },
+        "ui": {"$ref": "#/$defs/UiHints"}
+      },
+      "required": ["classes", "protocols"]
+    },
+    "TopLevelDevice": {
+      "allOf": [
+        {"$ref": "#/$defs/DeviceNodeBase"},
+        {
+          "type": "object",
+          "properties": {
+            "aliases": {
+              "description": "Other top-level names for the same object; values always use the registry key.",
+              "type": "array",
+              "items": {"$ref": "#/$defs/Identifier"}
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "DeviceRegistry": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "revision": {"$ref": "#/$defs/Revision"},
+        "devices": {
+          "description": "Top-level device name to device.",
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/Identifier"},
+          "additionalProperties": {"$ref": "#/$defs/TopLevelDevice"}
+        }
+      },
+      "required": ["schema_version", "revision", "devices"],
+      "additionalProperties": false
+    },
+    "RegistryDelta": {
+      "description": "Changes since 'base_revision'; apply in order. 'changed' replaces whole top-level entries.",
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "base_revision": {"$ref": "#/$defs/Revision"},
+        "revision": {"$ref": "#/$defs/Revision"},
+        "added": {"type": "object", "additionalProperties": {"$ref": "#/$defs/TopLevelDevice"}},
+        "changed": {"type": "object", "additionalProperties": {"$ref": "#/$defs/TopLevelDevice"}},
+        "removed": {"type": "array", "items": {"$ref": "#/$defs/Identifier"}}
+      },
+      "required": ["schema_version", "base_revision", "revision"],
+      "additionalProperties": false
+    }
+  }
+}
