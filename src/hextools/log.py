@@ -6,8 +6,7 @@ import copy
 import logging
 import sys
 from collections.abc import Generator
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO
+from typing import Any, TextIO
 
 from bluesky import RunEngine
 from bluesky.utils import (
@@ -18,10 +17,6 @@ from bluesky.utils import (
     RequestAbort,
     RequestStop,
 )
-from nslsii import configure_bluesky_json_logging
-
-if TYPE_CHECKING:
-    from IPython.core.interactiveshell import InteractiveShell
 
 # Name of the logger hextools logs to; child loggers (``hextools.*``) propagate to it.
 _LOGGER_NAME = "hextools"
@@ -108,43 +103,6 @@ def configure_logger(
     return logger
 
 
-def configure_json_logging(
-    re: RunEngine,
-    ipython: InteractiveShell | None = None,
-) -> list[Path]:
-    """Write log records and a summary of every document as JSON lines for Loki.
-
-    Wraps ``nslsii.configure_bluesky_json_logging``, adding the hextools logger to the
-    bluesky, ophyd, ophyd_async and nslsii loggers it already writes. Records at INFO
-    and above go to ``<user>-<pid>.log.jsonl``, and a summary of every document ``re``
-    emits to ``<user>-<pid>.documents.jsonl``, in ``$BLUESKY_JSON_LOG_DIR`` (default
-    ``/var/log/bluesky``). The facility's Grafana Alloy agent sends those files to the
-    ``n2sn-bluesky`` Loki tenant, where they can be read in Grafana with the
-    ``loki-bluesky`` data source.
-
-    Only files are written, so a slow or unreachable Loki cannot stall the RunEngine.
-    A file that cannot be opened (for example, the directory does not exist) is
-    skipped with a warning.
-
-    Call it once per process: each call adds another set of handlers.
-
-    Parameters
-    ----------
-    re : RunEngine
-        RunEngine whose documents are summarized.
-    ipython : InteractiveShell, optional
-        IPython shell whose own logger is also written.
-
-    Returns
-    -------
-    list of Path
-        The files being written.
-    """
-    return configure_bluesky_json_logging(
-        ipython=ipython, RE=re, extra_loggers=[_LOGGER_NAME]
-    )
-
-
 def _unwrap_failed_status(error: BaseException) -> BaseException:
     """Return the error behind a ``FailedStatus``, or ``error`` itself otherwise.
 
@@ -219,7 +177,6 @@ def log_state_changes(
 
 
 __all__ = [
-    "configure_json_logging",
     "configure_logger",
     "log_plan_exceptions",
     "log_state_changes",

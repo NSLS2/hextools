@@ -1,13 +1,9 @@
 import io
-import json
 import logging
-from pathlib import Path
 
 import pytest
 from bluesky import RunEngine
 from bluesky import plan_stubs as bps
-from bluesky import plans as bp
-from bluesky.run_engine import RunEngineResult
 from bluesky.utils import (
     FailedStatus,
     Msg,
@@ -15,13 +11,11 @@ from bluesky.utils import (
     RequestStop,
     RunEngineInterrupted,
 )
-from ophyd_async.sim import SimMotor
 
 from hextools.log import (
     _LEVEL_COLORS,
     _LOGGER_NAME,
     _ColorFormatter,
-    configure_json_logging,
     configure_logger,
     log_plan_exceptions,
     log_state_changes,
@@ -293,91 +287,3 @@ def test_log_state_changes_logs_transitions_and_chains_existing_hook(
     )
     assert len(messages) == len(states)
     assert "paused" in states and states[-1] == "idle"
-
-
-_JSON_LOGGERS = ("bluesky", "ophyd", "ophyd_async", "nslsii", "nslsii.documents")
-
-
-@pytest.fixture
-def json_log_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Point the JSON logs at ``tmp_path``, then close and remove their handlers."""
-    monkeypatch.setenv("BLUESKY_JSON_LOG_DIR", str(tmp_path))
-    names = (*_JSON_LOGGERS, _LOGGER_NAME)
-    saved = {
-        name: (logging.getLogger(name).level, logging.getLogger(name).propagate)
-        for name in names
-    }
-    yield tmp_path
-    for name in names:
-        logger = logging.getLogger(name)
-        for handler in list(logger.handlers):
-            if str(getattr(handler, "baseFilename", "")).startswith(str(tmp_path)):
-                logger.removeHandler(handler)
-                handler.close()
-        logger.setLevel(saved[name][0])
-        logger.propagate = saved[name][1]
-    configure_logger()
-
-
-def _json_lines(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines()]
-
-
-def test_configure_json_logging_writes_hextools_and_bluesky_records(
-    RE: RunEngine, json_log_dir: Path
-):
-    logger = configure_logger(stream=io.StringIO())
-    paths = configure_json_logging(RE)
-    log_file, documents_file = paths
-    assert log_file.parent == json_log_dir and log_file.name.endswith(".log.jsonl")
-    assert documents_file.name.endswith(".documents.jsonl")
-
-    def plan():
-        yield from bps.open_run()
-        logger.info("narrating inside the run")
-        logger.debug("too detailed for the file")
-        yield from bps.close_run()
-
-    runs = RE(plan())
-    assert isinstance(runs, RunEngineResult)
-    uid = runs.run_start_uids[0]
-    logging.getLogger("bluesky").warning("a bluesky warning")
-
-    records = _json_lines(log_file)
-    hextools_records = [r for r in records if r["logger"] == _LOGGER_NAME]
-    assert [r["message"] for r in hextools_records] == ["narrating inside the run"]
-    assert hextools_records[0]["level"] == "INFO"
-    assert uid in hextools_records[0]["run_uids"]
-    assert any(
-        r["logger"] == "bluesky" and r["message"] == "a bluesky warning"
-        for r in records
-    )
-
-
-def test_configure_json_logging_summarizes_every_document(
-    RE: RunEngine, json_log_dir: Path
-):
-    _, documents_file = configure_json_logging(RE)
-    runs = RE(bp.count([SimMotor(name="m")], num=2))
-    assert isinstance(runs, RunEngineResult)
-    uid = runs.run_start_uids[0]
-
-    documents = _json_lines(documents_file)
-    names = [d["document"] for d in documents]
-    assert names[0] == "start" and names[-1] == "stop"
-    assert "descriptor" in names
-    assert names.count("event") + names.count("event_page") >= 1
-    assert documents[0]["uid"] == uid
-    assert documents[-1]["run_start"] == uid
-    assert documents[-1]["exit_status"] == "success"
-
-
-def test_configure_json_logging_keeps_the_console_handler(
-    RE: RunEngine, json_log_dir: Path
-):
-    stream = io.StringIO()
-    logger = configure_logger(stream=stream)
-    configure_json_logging(RE)
-    logger.info("both places")
-    assert "both places" in stream.getvalue()
-    assert logger.propagate is False
