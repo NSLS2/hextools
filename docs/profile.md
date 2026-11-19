@@ -127,6 +127,18 @@ to running.") as
 info, except a pause, which is a warning, and a panic, which is an error.
 
 ```python
+if not is_running_in_ci():
+    configure_bluesky_json_logging(ipython=get_ipython(), RE=RE)
+```
+
+nslsii writes the bluesky, ophyd, ophyd-async, nslsii and IPython log records and a
+short summary of every document the RunEngine emits as JSON lines in
+`/var/log/bluesky` (set `BLUESKY_JSON_LOG_DIR` to change it). The facility's
+Grafana Alloy agent sends the files to Loki; read them in Grafana Explore with
+the `loki-bluesky` data source. hextools' own messages (plan narration and
+warnings) stay on the console. Mock sessions and CI skip this.
+
+```python
 RE.waiting_hook = ProgressBarManager()
 ```
 

@@ -20,6 +20,7 @@ from bluesky.utils import ProgressBarManager  # noqa: F401 - operator namespace
 from bluesky_tiled_plugins import BufferingWrapper, TiledWriter
 from IPython.core.getipython import get_ipython
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
+from nslsii import configure_bluesky_json_logging
 from nslsii.ophyd_async.providers import NSLS2PathProvider
 from nslsii.utils import ProposalIDPrompt, print_proposal_info, print_version_info
 from ophyd_async.core import init_devices, print_connection_status
@@ -124,6 +125,11 @@ RE.md["beamline_id"] = "27-ID-1"
 # Log any exception raised during a plan as an error, and every RunEngine state change.
 log_plan_exceptions(RE, logger)
 log_state_changes(RE, logger)
+
+# Write bluesky, ophyd, ophyd-async, nslsii and IPython logs and a summary of every
+# document to /var/log/bluesky, from where they reach Loki (Grafana loki-bluesky).
+if not is_running_in_ci():
+    configure_bluesky_json_logging(ipython=get_ipython(), RE=RE)
 
 # Uncomment if running in the terminal to get progress bars.
 # RE.waiting_hook = ProgressBarManager()  # type: ignore[assignment]
