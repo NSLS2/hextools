@@ -1,4 +1,5 @@
 import os
+from functools import partial
 
 import pytest
 
@@ -20,7 +21,8 @@ def test_fe_slit1_form_is_one_aperture_dropdown_and_no_device_picker():
     app = QApplication.instance() or QApplication([])
     namespace = {
         "RE": RunEngine({}, call_returns_result=True),
-        "set_fe_aperture": set_fe_aperture,
+        # As the profile binds it, with the slit filled in.
+        "set_fe_aperture": partial(set_fe_aperture, object()),
     }
     widget = QtPlanWidget(InProcessRunEngineClient(namespace), "set_fe_aperture")
     try:

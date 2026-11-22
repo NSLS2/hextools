@@ -157,10 +157,6 @@ class QtPlanWidget(QWidget):
         Parent widget.
     title : str, optional
         Group box title. Default: derived from the plan name.
-    close_on_run : bool, optional
-        For a form in its own window: hide it on **Run Plan** and close it once
-        the plan ends, unless the plan failed, when it shows again with the
-        error so the values can be fixed. Default: False.
 
     Raises
     ------
@@ -175,12 +171,10 @@ class QtPlanWidget(QWidget):
         parent=None,
         *,
         title: str | None = None,
-        close_on_run: bool = False,
     ):
         super().__init__(parent)
         self._re_client = re_client
         self._plan_name = plan_name
-        self._close_on_run = close_on_run
         try:
             self._plan = re_client.plan_catalog[plan_name]
         except KeyError:
@@ -564,8 +558,6 @@ class QtPlanWidget(QWidget):
             )
         kwargs = {**self._extra_kwargs, **kwargs}
         self._set_status("Running\u2026")
-        if self._close_on_run:
-            self.hide()
         # Defer so the click handler returns before the plan runs.
         QTimer.singleShot(0, lambda: self._execute(kwargs))
 
@@ -577,14 +569,9 @@ class QtPlanWidget(QWidget):
             show_plan_error(self, "Plan execution failed", error)
         except PlanError as error:
             self._set_status(f"Plan failed: {error}", error=True)
-            if self._close_on_run:
-                self.show()
             show_plan_error(self, "Plan execution failed", error)
-            return
         else:
             self._set_status("Plan complete.")
-        if self._close_on_run:
-            self.close()
 
     def _set_status(self, message: str, *, error: bool = False):
         self._status_label.setText(message)

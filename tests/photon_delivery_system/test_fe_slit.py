@@ -60,7 +60,7 @@ async def test_set_fe_aperture_moves_y(RE: RunEngine, aperture: SlitAperture):
     fe_slit1 = _re_slit()
 
     # The GUI submits the dropdown's string value.
-    RE(set_fe_aperture(cast(SlitAperture, aperture.value), fe_slit1=fe_slit1))
+    RE(set_fe_aperture(fe_slit1, cast(SlitAperture, aperture.value)))
 
     assert await fe_slit1.y.user_readback.get_value() == pytest.approx(
         fe_slit1._settings[aperture]
@@ -70,7 +70,7 @@ async def test_set_fe_aperture_moves_y(RE: RunEngine, aperture: SlitAperture):
 
 def test_set_fe_aperture_refuses_unknown_aperture(RE: RunEngine):
     with pytest.raises(ValueError):
-        RE(set_fe_aperture(cast(SlitAperture, "2 x 2 mm"), fe_slit1=_re_slit()))
+        RE(set_fe_aperture(_re_slit(), cast(SlitAperture, "2 x 2 mm")))
 
 
 async def test_stop_stops_y_while_moving(RE: RunEngine):
@@ -99,5 +99,5 @@ async def test_stop_passes_success_to_y(RE: RunEngine, monkeypatch):
 def test_set_fe_aperture_checkpoints_before_moving(RE: RunEngine):
     commands: list[str] = []
     RE.msg_hook = lambda msg: commands.append(msg.command)  # type: ignore[assignment]
-    RE(set_fe_aperture(SlitAperture.FULLY_CLOSED, fe_slit1=_re_slit()))
+    RE(set_fe_aperture(_re_slit(), SlitAperture.FULLY_CLOSED))
     assert commands.index("checkpoint") < commands.index("set")

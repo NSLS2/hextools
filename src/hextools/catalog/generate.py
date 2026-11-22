@@ -731,12 +731,12 @@ def _summary(doc: str | None) -> str | None:
 
 
 def _docstring_descriptions(obj: Any, section: str) -> dict[str, str]:
-    """Map names to descriptions in a numpydoc Parameters or Attributes section."""
+    """Map names to descriptions in a docstring's Parameters or Attributes section."""
     doc = inspect.getdoc(obj)
     if not doc:
         return {}
     try:
-        parsed = docstring_parser.parse(doc, docstring_parser.DocstringStyle.NUMPYDOC)
+        parsed = docstring_parser.parse(doc, docstring_parser.DocstringStyle.AUTO)
     except docstring_parser.ParseError:
         return {}
     return {

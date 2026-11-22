@@ -977,6 +977,8 @@ DEVICES = {
     "fe_shutter": "FE",
     "photon_shutter": "PH",
 }
+# The step scans also take the sample tower, for their darks/flats.
+STEP_DEVICES = {**DEVICES, "sample_tower": "TOWER"}
 
 
 # --- tomo_flyscan_loop --------------------------------------------------------------
@@ -999,7 +1001,7 @@ def test_tomo_flyscan_loop_forwards_flyscan_arguments(
             use_shutter=False,
             sample_name="rock",
             time_based=False,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )
 
@@ -1054,7 +1056,7 @@ def test_tomo_flyscan_loop_dark_flat_schedule(
             num_iterations=num_iterations,
             dark_flat_offset=dark_flat_offset,
             dark_flat_frequency=dark_flat_frequency,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )
     assert recorder.sequence == sequence
@@ -1111,7 +1113,7 @@ def test_tomo_flyscan_loop_wraps_flyscan_failures(RE: RunEngine, recorder: Recor
                 num_projections=10,
                 exposure_time=0.1,
                 num_iterations=3,
-                **DEVICES,  # type: ignore
+                **STEP_DEVICES,  # type: ignore
             )
         )
 
@@ -1134,7 +1136,7 @@ def test_tomo_flyscan_loop_delay_between_tomograms(
                 exposure_time=0.1,
                 num_iterations=num_iterations,
                 delay_between_tomograms=delay,
-                **DEVICES,  # type: ignore
+                **STEP_DEVICES,  # type: ignore
             ),
             # count the sleeps without waiting them out
             lambda msg: (
@@ -1162,7 +1164,9 @@ def test_tomo_flyscan_loop_delay_between_tomograms(
     ],
 )
 def test_tomo_nd_step_scan_rejects_malformed_axes(args: tuple):
-    plan = tomo_nd_step_scan(["det"], *args, num_projections=10, exposure_time=0.1)  # type: ignore
+    plan = tomo_nd_step_scan(
+        ["det"], *args, num_projections=10, exposure_time=0.1, **STEP_DEVICES
+    )  # type: ignore
     with pytest.raises(ValueError, match="motor, start, stop, num"):
         next(plan)
 
@@ -1180,7 +1184,7 @@ def test_tomo_nd_step_scan_without_axes_repeats_in_place(
             num_projections=10,
             exposure_time=0.1,
             num_repeats=3,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )
 
@@ -1205,7 +1209,7 @@ def test_tomo_nd_step_scan_repeats_the_whole_grid(
             num_projections=10,
             exposure_time=0.1,
             num_repeats=2,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
@@ -1225,6 +1229,7 @@ def test_tomo_nd_step_scan_rejects_snaking_outer_axis(
         num_projections=10,
         exposure_time=0.1,
         snake_axes=[outer],
+        **STEP_DEVICES,  # type: ignore
     )  # fmt: skip
     with pytest.raises(ValueError, match="outermost axis cannot be snaked"):
         next(plan)
@@ -1267,7 +1272,7 @@ async def test_tomo_nd_step_scan_grid(
             num_projections=10,
             exposure_time=0.1,
             snake_axes=snake,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
@@ -1307,7 +1312,7 @@ async def test_tomo_nd_step_scan_only_moves_changed_axes(
             inner, 10, 20, 3,
             num_projections=10,
             exposure_time=0.1,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
@@ -1343,7 +1348,7 @@ def test_tomo_nd_step_scan_alternates_flyscan_direction(
             start=0,
             stop=180,
             alternate_flyscan_dir=alternate,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
@@ -1369,7 +1374,7 @@ def test_tomo_nd_step_scan_forwards_flyscan_arguments(
             use_shutter=False,
             sample_name="rock",
             time_based=False,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
@@ -1422,7 +1427,7 @@ def test_tomo_nd_step_scan_dark_flat_schedule(
             dark_flat_exposure_time=0.4,
             num_dark_images=3,
             num_flat_images=4,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
@@ -1448,7 +1453,7 @@ def test_step_scans_restart_preview_once_at_the_end(
             exposure_time=0.1,
             dark_flat_offset=1.0,
             restart_preview=restart_preview,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )
 
@@ -1472,7 +1477,7 @@ def test_tomo_nd_step_scan_retries_failed_flyscans(
             num_projections=10,
             exposure_time=0.1,
             num_retries=2,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
@@ -1505,7 +1510,7 @@ def test_tomo_nd_step_scan_gives_up_after_retries(
                 num_projections=10,
                 exposure_time=0.1,
                 num_retries=num_retries,
-                **DEVICES,  # type: ignore
+                **STEP_DEVICES,  # type: ignore
             )
         )  # fmt: skip
 
@@ -1529,7 +1534,7 @@ def test_tomo_nd_step_scan_never_retries_an_abort_or_halt(
             num_projections=10,
             exposure_time=0.1,
             num_retries=5,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
@@ -1554,7 +1559,7 @@ def test_tomo_nd_step_scan_checkpoints_before_each_step(
             exposure_time=0.1,
             dark_flat_offset=1.0,
             dark_flat_frequency=2,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
@@ -1584,7 +1589,7 @@ def test_tomo_nd_step_scan_deferred_pause_stops_between_points(
                 outer, 0, 3, 4,
                 num_projections=10,
                 exposure_time=0.1,
-                **DEVICES,  # type: ignore
+                **STEP_DEVICES,  # type: ignore
             )
         )  # fmt: skip
 
@@ -1667,7 +1672,7 @@ def test_tomo_1d_step_scan_retries_by_default(
             num_tomograms=1,
             num_projections=10,
             exposure_time=0.1,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )
 
@@ -1696,7 +1701,7 @@ def test_tomo_2d_step_scan(
             exposure_time=0.2,
             sample_name="rock",
             snake_axes=snake_axes,
-            **DEVICES,  # type: ignore
+            **STEP_DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
@@ -1721,6 +1726,7 @@ async def test_tomo_2d_step_scan_saves_to_tiled(
     open_fe_shutter: tuple[Shutter, Shutter],
     step_motors: tuple[AsyncEpicsMotor, AsyncEpicsMotor],
     tiled_client: tuple[Path, Container],
+    sample_tower: SampleTower,
 ):
     _, client = tiled_client
     outer, inner = step_motors
@@ -1748,6 +1754,7 @@ async def test_tomo_2d_step_scan_saves_to_tiled(
                 rot_motor=rig.rot_motor,
                 fe_shutter=fe_shutter,
                 photon_shutter=photon_shutter,
+                sample_tower=sample_tower,
             )
         )
     )  # fmt: skip

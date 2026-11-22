@@ -26,7 +26,6 @@ from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from hextools.bl_constants import fetch_beamline_constants
 from hextools.detectors.utils import enable_preview_mode
 
-from ..utils import ensure_available
 from .shutter import Shutter, ensure_shutter_closed, ensure_shutter_open
 
 
@@ -146,23 +145,18 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
         )
 
 
-def change_beam_mode(
-    mode: BeamMode,
-    dclm: DCLM | None = None,
-    fe_shutter: Shutter | None = None,
-):
+def change_beam_mode(dclm: DCLM, fe_shutter: Shutter, mode: BeamMode):
     """Bluesky plan to change the beam mode of the DCLM.
 
     Parameters
     ----------
+    dclm : DCLM
+        The DCLM to control.
+    fe_shutter : Shutter
+        The front-end shutter, closed for white beam and reopened after.
     mode : BeamMode
         The target beam mode for the DCLM
-    dclm : DCLM, optional
-        The DCLM instance to control. If None, the function will attempt to
-        retrieve it from the IPython namespace.
     """
-    dclm = ensure_available(DCLM, dclm=dclm)
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
     current_mode = yield from bps.rd(dclm.beam_mode)
     if current_mode == mode:
         return
@@ -176,6 +170,8 @@ def change_beam_mode(
 
 
 def change_energy(
+    dclm: DCLM,
+    fs_window_cam: VimbaDetector,
     energy: float,
     coarse_angle_range: float = 0.1,
     coarse_num_steps: int = 41,
@@ -184,17 +180,20 @@ def change_energy(
     fs_stats_plugin_name: str = "stats1",
     exposure_time: float = 0.5,
     auto_tune: bool = True,
-    dclm: DCLM | None = None,
-    fs_window_cam: VimbaDetector | None = None,
 ):
     """Bluesky plan to change monochromator energy for Si(111).
 
     Computes Bragg geometry and moves all crystal and beam stop motors.
-    If an area detector is provided, performs coarse and fine pitch scans
-    to auto-tune the crystal 2 pitch to the fluorescence peak.
+    With ``auto_tune``, performs coarse and fine pitch scans to auto-tune the
+    crystal 2 pitch to the fluorescence peak.
 
     Parameters
     ----------
+    dclm : DCLM
+        Must be in monochromatic mode.
+    fs_window_cam : VimbaDetector
+        Fluorescence screen camera for auto-tuning. Unused without
+        ``auto_tune``, when motors are moved without feedback.
     energy : float
         Target energy in keV.
     auto_tune : bool, optional
@@ -207,13 +206,6 @@ def change_energy(
         Half-width of the fine pitch auto-tune scan in degrees.
     fine_num_steps : int
         Number of points in the fine auto-tune scan.
-    dclm : DCLM, optional
-        Must be in monochromatic mode. If None, the function will attempt to
-        retrieve it from the IPython namespace.
-    fs_window_cam : VimbaDetector, optional
-        Fluorescence screen camera for auto-tuning. If None, with auto_tune
-        enabled, it will attempt to be retrieved from the IPython namespace.
-        Otherwise, motors are moved without feedback.
     exposure_time : float, optional
         Exposure time for the fluorescence screen camera during auto-tuning.
 
@@ -222,14 +214,10 @@ def change_energy(
     RuntimeError
         If the monochromator is not in monochromatic mode.
     """
-    # If not provided
-    dclm = ensure_available(DCLM, monochromator=dclm)
-    if auto_tune:
-        fs_window_cam = ensure_available(VimbaDetector, fs_window_cam=fs_window_cam)
 
     @bpp.reset_positions_decorator(
         [fs_window_cam.driver.acquire_time, fs_window_cam.driver.acquire_period]
-        if fs_window_cam is not None
+        if auto_tune
         else []
     )
     def _body():
@@ -263,8 +251,8 @@ def change_energy(
         )
         # fmt: on
 
-        # No feedback available without a camera, so just move the motors and return.
-        if fs_window_cam is None or not auto_tune:
+        # Without auto-tuning, just move the motors and return.
+        if not auto_tune:
             return
 
         fs_stats = fs_window_cam.get_plugin(fs_stats_plugin_name, NDStatsIO)
@@ -317,7 +305,7 @@ def change_energy(
     def _cleanup():
         # Reset the fluorescence screen and close the shutter on the way out.
         yield from bps.mv(dclm.flourescence_screen, dclm.constants.fs_out)
-        if fs_window_cam is not None:
+        if auto_tune:
             yield from enable_preview_mode(fs_window_cam)
 
     yield from (

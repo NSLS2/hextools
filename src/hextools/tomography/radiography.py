@@ -16,7 +16,6 @@ from hextools.photon_delivery_system.shutter import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )
-from hextools.utils import ensure_available
 
 
 def take_radiograph(
@@ -32,9 +31,10 @@ def take_radiograph(
     sample_name: str | None = None,
     description: str | None = None,
     use_shutter: bool = True,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
-    panda: HDFPanda | None = None,
+    *,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
+    panda: HDFPanda,
 ):
     """Acquire a burst-mode radiograph series on the HEX beamline.
 
@@ -78,8 +78,6 @@ def take_radiograph(
         the PandA that triggers the cameras when ``external_trigger`` is set
     """
     filter_type = NDProcessFilterType(filter_type)
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     bits = None
     pulse = None
     if external_trigger:
@@ -90,7 +88,6 @@ def take_radiograph(
                 "External triggering is not supported for continuous acquisition "
                 "detectors"
             )
-        panda = ensure_available(HDFPanda, panda=panda)
         bits = panda.bits  # type: ignore  # discovered from the IOC
         pulse = panda.pulse[1]
 

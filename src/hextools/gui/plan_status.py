@@ -740,7 +740,7 @@ class QtPlanHistory(QWidget):
                 item.args, item.kwargs
             )
             # No parent: a parented window is kept above the main window.
-            editor = QtPlanWidget(self._re_client, item.name, close_on_run=True)
+            editor = QtPlanWidget(self._re_client, item.name)
             editor.set_values(values)
             editor.setWindowTitle(f"Edit and Re-run \u2014 {item.name}")
             editor.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)

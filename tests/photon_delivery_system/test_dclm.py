@@ -62,7 +62,7 @@ async def test_change_energy_moves_motors(RE: RunEngine, dclm: DCLM, energy: flo
     expected_angle = 35.2544 - np.rad2deg(bragg_angle)
     expected_z = 25.0 / np.tan(2 * bragg_angle)
 
-    RE(change_energy(energy, dclm=dclm, auto_tune=False))
+    RE(change_energy(dclm, _make_fs_camera(), energy, auto_tune=False))
 
     assert await dclm.xtal1_pitch.user_readback.get_value() == pytest.approx(
         expected_angle
@@ -86,7 +86,7 @@ async def test_change_energy_moves_motors(RE: RunEngine, dclm: DCLM, energy: flo
 def test_change_energy_checkpoints_before_moving(RE: RunEngine, dclm: DCLM):
     commands: list[str] = []
     RE.msg_hook = lambda msg: commands.append(msg.command)  # type: ignore[assignment]
-    RE(change_energy(10.0, dclm=dclm, auto_tune=False))
+    RE(change_energy(dclm, _make_fs_camera(), 10.0, auto_tune=False))
     assert commands.index("checkpoint") < commands.index("set")
 
 
@@ -108,7 +108,7 @@ async def test_change_energy_raises_if_not_monochromatic(RE: RunEngine, dclm: DC
     set_mock_value(dclm.cooled_beam_stop.user_readback, dclm.constants.beam_stop_out)
 
     with pytest.raises(RuntimeError, match="not in monochromatic mode"):
-        RE(change_energy(10.0, dclm=dclm, auto_tune=False))
+        RE(change_energy(dclm, _make_fs_camera(), 10.0, auto_tune=False))
 
 
 def _make_fs_camera() -> VimbaDetector:
@@ -141,7 +141,7 @@ async def test_change_energy_with_auto_tune(RE: RunEngine, dclm: DCLM):
 
     callback_on_mock_put(driver.acquire, on_acquire)
 
-    RE(change_energy(energy, auto_tune=True, dclm=dclm, fs_window_cam=fs_camera))
+    RE(change_energy(dclm, fs_camera, energy, auto_tune=True))
 
     # Auto-tune should converge on the peak center.
     assert await dclm.xtal2_pitch.user_readback.get_value() == pytest.approx(
@@ -166,7 +166,7 @@ async def test_change_energy_no_peak_coarse_scan(RE: RunEngine, dclm: DCLM, mock
     _mock_peak_stats(mocker, None)
 
     with pytest.raises(RuntimeError, match="No peak found in coarse scan"):
-        RE(change_energy(10.0, auto_tune=True, dclm=dclm, fs_window_cam=fs_camera))
+        RE(change_energy(dclm, fs_camera, 10.0, auto_tune=True))
 
 
 async def test_change_energy_no_peak_fine_scan(RE: RunEngine, dclm: DCLM, mocker):
@@ -174,7 +174,7 @@ async def test_change_energy_no_peak_fine_scan(RE: RunEngine, dclm: DCLM, mocker
     _mock_peak_stats(mocker, 5.0, None)
 
     with pytest.raises(RuntimeError, match="No peak found in fine scan"):
-        RE(change_energy(10.0, auto_tune=True, dclm=dclm, fs_window_cam=fs_camera))
+        RE(change_energy(dclm, fs_camera, 10.0, auto_tune=True))
 
 
 @pytest.mark.parametrize("energy", [8.0, 10.0, 12.0])

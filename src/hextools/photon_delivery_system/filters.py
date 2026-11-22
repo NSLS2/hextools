@@ -26,7 +26,7 @@ from hextools.bl_constants import (
     fetch_beamline_constants,
 )
 
-from ..utils import ensure_available, get_obj_from_ipython_ns
+from ..utils import get_obj_from_ipython_ns
 from .shutter import PPSShutter, ShutterStatus, ensure_shutter_open
 
 
@@ -264,13 +264,13 @@ else:
 
 
 def set_filters(
+    filter1_upstream: Filter,
+    filter1_downstream: Filter,
+    filter2: Filter,
+    fe_shutter: PPSShutter,
     filter1_upstream_setting: Filter1UpstreamPosition | None = None,
     filter1_downstream_setting: Filter1DownstreamPosition | None = None,
     filter2_setting: Filter2Position | None = None,
-    filter1_upstream: Filter | None = None,
-    filter1_downstream: Filter | None = None,
-    filter2: Filter | None = None,
-    fe_shutter: PPSShutter | None = None,
 ):
     """Set filter 1 upstream, filter 1 downstream and filter 2 by material.
 
@@ -284,26 +284,22 @@ def set_filters(
 
     Parameters
     ----------
+    filter1_upstream, filter1_downstream, filter2 : Filter
+        The filter devices.
+    fe_shutter : PPSShutter
+        The front-end shutter.
     filter1_upstream_setting : Filter1UpstreamPosition, optional
         Material for filter 1 upstream.
     filter1_downstream_setting : Filter1DownstreamPosition, optional
         Material for filter 1 downstream.
     filter2_setting : Filter2Position, optional
         Material for filter 2.
-    filter1_upstream, filter1_downstream, filter2 : Filter, optional
-        The filter devices. If None, taken from the session namespace.
-    fe_shutter : PPSShutter, optional
-        The front-end shutter. If None, taken from the session namespace.
 
     Raises
     ------
     ValueError
         If no setting is given, or a setting is not one of that filter's choices.
     """
-    filter1_upstream = ensure_available(Filter, filter1_upstream=filter1_upstream)
-    filter1_downstream = ensure_available(Filter, filter1_downstream=filter1_downstream)
-    filter2 = ensure_available(Filter, filter2=filter2)
-
     args = []
     for device, setting, choices in (
         (filter1_upstream, filter1_upstream_setting, Filter1UpstreamPosition),
@@ -319,9 +315,7 @@ def set_filters(
     yield from move_filters(*args, fe_shutter=fe_shutter)
 
 
-def move_filters(
-    *args: Filter | FilterPosition | str, fe_shutter: PPSShutter | None = None
-):
+def move_filters(*args: Filter | FilterPosition | str, fe_shutter: PPSShutter):
     """Move filters, given as ``filter1, setting1, filter2, setting2, ...``.
 
     Each setting is a :class:`FilterPosition` or that filter's label for it (for
@@ -336,8 +330,8 @@ def move_filters(
     ----------
     *args : Filter, FilterPosition or str
         Alternating filters and settings.
-    fe_shutter : PPSShutter, optional
-        The front-end shutter. If None, taken from the session namespace.
+    fe_shutter : PPSShutter
+        The front-end shutter.
 
     Raises
     ------
@@ -347,7 +341,6 @@ def move_filters(
     """
     if not args or len(args) % 2:
         raise ValueError("Give one or more filter, setting pairs.")
-    fe_shutter = ensure_available(PPSShutter, fe_shutter=fe_shutter)
     moves: list = []
     for device, setting in zip(args[::2], args[1::2], strict=True):
         if not isinstance(device, Filter):

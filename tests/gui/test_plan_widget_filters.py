@@ -1,4 +1,5 @@
 import os
+from functools import partial
 
 import pytest
 
@@ -22,7 +23,8 @@ def test_filters_form_has_one_dropdown_per_filter_and_no_device_pickers():
     app = QApplication.instance() or QApplication([])
     namespace = {
         "RE": RunEngine({}, call_returns_result=True),
-        "set_filters": set_filters,
+        # As the profile binds it, with the filters and shutter filled in.
+        "set_filters": partial(set_filters, *(object() for _ in range(4))),
     }
     widget = QtPlanWidget(InProcessRunEngineClient(namespace), "set_filters")
     try:

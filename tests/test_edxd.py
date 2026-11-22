@@ -142,7 +142,7 @@ async def test_configure_test_pulses(
 
     RE(
         configure_test_pulses(
-            use_test_pulses,
+            use_test_pulses=use_test_pulses,
             test_pulse_amplitude=50,
             test_pulse_freq=200,
             test_pulse_count=10,
@@ -176,7 +176,9 @@ async def test_edxd_count(
     tiled: CatalogOfBlueskyRuns,
     description: str | None,
 ):
-    docs, _ = _run(RE, edxd_count(0.02, num=3, description=description, germ=germ))
+    docs, _ = _run(
+        RE, edxd_count(count_time=0.02, num=3, description=description, germ=germ)
+    )
 
     (start,) = docs["start"]
     assert start["plan_name"] == "edxd_count"
@@ -575,7 +577,7 @@ async def test_edxd_2theta_tilt(
 
     RE(
         edxd_2theta_tilt(
-            theta, edxd_table=edxd_table, collimator_table=collimator_table
+            theta=theta, edxd_table=edxd_table, collimator_table=collimator_table
         )
     )
 
@@ -600,7 +602,7 @@ async def test_edxd_2theta_tilt_move_out_only_retracts_the_table(
 
     RE(
         edxd_2theta_tilt(
-            10.0,
+            theta=10.0,
             move_out=True,
             edxd_table=edxd_table,
             collimator_table=collimator_table,
@@ -649,8 +651,8 @@ async def test_edxd_calib_scan_sweeps_during_one_count(
     docs, _ = _run(
         RE,
         edxd_calib_scan(
-            0.0,
-            1.0,
+            start=0.0,
+            stop=1.0,
             iterations=2,
             count_time=0.5,
             description="CeO2",
@@ -699,8 +701,8 @@ async def test_edxd_calib_scan_moves_in_range_first_at_full_speed(
     _run(
         RE,
         edxd_calib_scan(
-            0.0,
-            1.0,
+            start=0.0,
+            stop=1.0,
             iterations=1,
             count_time=0.5,
             sample_tower=sample_tower,
@@ -730,8 +732,8 @@ def test_edxd_calib_scan_rejects_a_sweep_faster_than_the_motor(
     with pytest.raises(ValueError, match="exceeds max velocity"):
         RE(
             edxd_calib_scan(
-                0.0,
-                1.0,
+                start=0.0,
+                stop=1.0,
                 iterations=2,
                 count_time=0.01,
                 sample_tower=sample_tower,

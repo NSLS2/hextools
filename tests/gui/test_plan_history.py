@@ -11,7 +11,6 @@ import bluesky.plan_stubs as bps  # noqa: E402
 from bluesky.plans import count  # noqa: E402
 from ophyd_async.core import init_devices  # noqa: E402
 from ophyd_async.sim import PatternGenerator, SimPointDetector  # noqa: E402
-from qtpy.QtCore import QCoreApplication, QEvent  # noqa: E402
 from qtpy.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from hextools.gui.plan_status import QtPlanHistory, _scan_id_ranges  # noqa: E402
@@ -252,35 +251,10 @@ def test_edit_and_rerun_prefills_the_form_and_runs_the_edited_plan(
 
         num.setText("5")
         editor._on_submit_clicked()
-        assert not editor.isVisible()
         QApplication.processEvents()
         (call,) = ran
         assert call.startswith("RE(count(") and "detectors=[det]" in call
         assert "num=5" in call and "md=" not in call
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        assert history._editors == {}
-    finally:
-        history.close()
-        QApplication.processEvents()
-
-
-def test_a_failed_edited_rerun_shows_its_form_again(RE, det, tmp_path, monkeypatch):
-    client, history = _history(RE, det, tmp_path / "history.json")
-    _finish_plan(RE, det)
-    history._table.selectRow(0)
-    monkeypatch.setattr(
-        "hextools.gui._ipython.run_in_ipython", lambda code: RuntimeError("boom")
-    )
-    errors = []
-    monkeypatch.setattr(
-        "hextools.gui.plan_widget.show_plan_error", lambda *a: errors.append(a[2])
-    )
-    try:
-        editor = history.edit_and_rerun(history._items[0])
-        editor._on_submit_clicked()
-        QApplication.processEvents()
-        assert editor.isVisible() and history._editors
-        assert "boom" in str(errors[0])
     finally:
         history.close()
         QApplication.processEvents()

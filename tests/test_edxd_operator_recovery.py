@@ -22,7 +22,7 @@ def _plan(kind, germ, stage, shutters, tower, *, reset=True):
     x, y = stage
     common = {"germ": germ, "fe_shutter": shutters[0], "photon_shutter": shutters[1]}
     if kind == "count":
-        return edxd_count(0.02, germ=germ)
+        return edxd_count(count_time=0.02, germ=germ)
     if kind == "scan":
         return edxd_scan(x, 0, 1, 2, 0.02, reset_position=reset, **common)
     if kind == "grid":
@@ -33,7 +33,9 @@ def _plan(kind, germ, stage, shutters, tower, *, reset=True):
         return edxd_custom_pos_list_grid(
             x, [0, 1], y, [0], [1], [2], 0.02, reset_positions=reset, **common
         )
-    return edxd_calib_scan(0, 1, count_time=0.1, **common, sample_tower=tower)
+    return edxd_calib_scan(
+        start=0, stop=1, count_time=0.1, **common, sample_tower=tower
+    )
 
 
 @pytest.fixture

@@ -38,7 +38,6 @@ from hextools.photon_delivery_system.shutter import (
     ensure_shutter_open,
 )
 from hextools.specs import TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
-from hextools.utils import ensure_available
 
 from ..detectors.phantom import PhantomDetector
 from ..flyers import SingleAxisFlyableLogic, construct_fly_info_models
@@ -58,9 +57,10 @@ def tomo_dark_flat(
     x_offset: float = 0.0,
     use_shutter: bool = True,
     restart_preview: bool = True,
-    sample_tower: SampleTower | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
+    *,
+    sample_tower: SampleTower,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ):
     """Take a series of dark and flat images for tomography.
 
@@ -82,16 +82,13 @@ def tomo_dark_flat(
     restart_preview : bool, optional
         Whether to put the detectors back into preview mode when the plan ends.
         Default is True.
-    sample_tower : SampleTower | None, optional
-        The sample tower to use. If None, will attempt to ensure availability.
-    fe_shutter : Shutter | None, optional
-        The front-end shutter to use. If None, will attempt to ensure availability.
-    photon_shutter : Shutter | None, optional
-        The photon shutter to use. If None, will attempt to ensure availability.
+    sample_tower : SampleTower
+        The sample tower to use.
+    fe_shutter : Shutter
+        The front-end shutter to use.
+    photon_shutter : Shutter
+        The photon shutter to use.
     """
-    sample_tower = ensure_available(SampleTower, sample_tower=sample_tower)
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     if use_shutter:
         yield from ensure_shutter_open(fe_shutter)
 
@@ -164,11 +161,12 @@ def tomo_flyscan(
     restart_preview: bool = True,
     sample_name: str | None = None,
     time_based: bool = True,
-    panda: HDFPanda | None = None,
-    rot_motor: RotationMotor | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
     md: dict[str, Any] | None = None,
+    *,
+    panda: HDFPanda,
+    rot_motor: RotationMotor,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ):
     """Take a single tomography fly scan.
 
@@ -201,22 +199,18 @@ def tomo_flyscan(
     time_based : bool
         Whether the triggers are issued equally spaced in time, as opposed to
         being position-based.
-    panda : HDFPanda | None
+    panda : HDFPanda
         The HDF Panda device to use.
-    rot_motor : RotationMotor | None
+    rot_motor : RotationMotor
         The rotation motor to use.
-    fe_shutter : Shutter | None
+    fe_shutter : Shutter
         The front-end shutter to use.
-    photon_shutter : Shutter | None
+    photon_shutter : Shutter
         The photon shutter to use.
     md : dict[str, Any] | None
         Extra metadata for the run's start document.
     """
     filter_type = NDProcessFilterType(filter_type)
-    panda = ensure_available(HDFPanda, panda=panda)
-    rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     single_axis_panda_flyer = SingleAxisFlyableLogic(panda).with_device()
 
     _md = {
@@ -397,11 +391,11 @@ def tomo_nd_step_scan(
     time_based: bool = True,
     snake_axes: bool | Sequence[AsyncEpicsMotor | SimMotor] = False,
     num_retries: int = 0,
-    sample_tower: SampleTower | None = None,
-    panda: HDFPanda | None = None,
-    rot_motor: RotationMotor | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
+    sample_tower: SampleTower,
+    panda: HDFPanda,
+    rot_motor: RotationMotor,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ):
     """N-D tomography step scan: a tomo flyscan at each point of an N-D grid.
 
@@ -462,16 +456,16 @@ def tomo_nd_step_scan(
         If True, snake every axis but the outermost; otherwise, the motors to snake.
     num_retries : int, optional
         How many times to retry a grid point's flyscan if it fails; 0 never retries.
-    panda : HDFPanda | None, optional
+    panda : HDFPanda
         The HDFPanda instance for data storage.
-    rot_motor : RotationMotor | None, optional
+    rot_motor : RotationMotor
         The rotation motor for the scan.
-    fe_shutter : Shutter | None, optional
+    fe_shutter : Shutter
         The front-end shutter for the scan.
-    photon_shutter : Shutter | None, optional
+    photon_shutter : Shutter
         The photon shutter for the scan.
-    sample_tower : SampleTower | None, optional
-        The SampleTower instance to use for positioning the sample. Default is None.
+    sample_tower : SampleTower
+        The SampleTower instance to use for positioning the sample.
     """
     # Ensure the number of retries is non-negative.
     if num_retries < 0:
@@ -628,11 +622,12 @@ def tomo_flyscan_loop(
     restart_preview: bool = True,
     sample_name: str | None = None,
     time_based: bool = True,
-    panda: HDFPanda | None = None,
-    sample_tower: SampleTower | None = None,
-    rot_motor: RotationMotor | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
+    *,
+    panda: HDFPanda,
+    sample_tower: SampleTower,
+    rot_motor: RotationMotor,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ):
     """Take a series of tomography fly scans, with interspersed dark/flat acquisitions.
 
@@ -683,16 +678,16 @@ def tomo_flyscan_loop(
         The name of the sample being scanned. Default is None.
     time_based : bool, optional
         Whether the fly scan is time-based. Default is True.
-    panda : HDFPanda | None, optional
-        The HDFPanda instance to use for data storage. Default is None.
-    sample_tower : SampleTower | None, optional
-        The SampleTower instance to use for positioning the sample. Default is None.
-    rot_motor : RotationMotor | None, optional
-        The rotation motor to use for the tomography scan. Default is None.
-    fe_shutter : Shutter | None, optional
-        The front-end shutter to use during acquisitions. Default is None.
-    photon_shutter : Shutter | None, optional
-        The photon shutter to use during acquisitions. Default is None.
+    panda : HDFPanda
+        The HDFPanda instance to use for data storage.
+    sample_tower : SampleTower
+        The SampleTower instance to use for positioning the sample.
+    rot_motor : RotationMotor
+        The rotation motor to use for the tomography scan.
+    fe_shutter : Shutter
+        The front-end shutter to use during acquisitions.
+    photon_shutter : Shutter
+        The photon shutter to use during acquisitions.
 
     """
     return (
@@ -748,11 +743,12 @@ def tomo_1d_step_scan(
     num_flat_images: int = 50,
     dark_flat_frequency: int = 0,
     time_based: bool = True,
-    panda: HDFPanda | None = None,
-    rot_motor: RotationMotor | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
-    sample_tower: SampleTower | None = None,
+    *,
+    panda: HDFPanda,
+    rot_motor: RotationMotor,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
+    sample_tower: SampleTower,
 ):
     """1-D tomography step scan: a tomo flyscan at each point along one axis.
 
@@ -806,16 +802,16 @@ def tomo_1d_step_scan(
         The frequency at which to acquire dark and flat images.
     stream_name : str, optional
         The name of the data stream.
-    panda : HDFPanda | None, optional
+    panda : HDFPanda
         The HDFPanda instance for data storage.
-    rot_motor : RotationMotor | None, optional
+    rot_motor : RotationMotor
         The rotation motor for the scan.
-    fe_shutter : Shutter | None, optional
+    fe_shutter : Shutter
         The front-end shutter for the scan.
-    photon_shutter : Shutter | None, optional
+    photon_shutter : Shutter
         The photon shutter for the scan.
-    sample_tower : SampleTower | None, optional
-        The SampleTower instance to use for positioning the sample. Default is None.
+    sample_tower : SampleTower
+        The SampleTower instance to use for positioning the sample.
     """
     return (
         yield from tomo_nd_step_scan(
@@ -874,11 +870,12 @@ def tomo_2d_step_scan(
     sample_name: str | None = None,
     time_based: bool = True,
     snake_axes: bool | None = False,
-    panda: HDFPanda | None = None,
-    rot_motor: RotationMotor | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
-    sample_tower: SampleTower | None = None,
+    *,
+    panda: HDFPanda,
+    rot_motor: RotationMotor,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
+    sample_tower: SampleTower,
 ):
     """2-D tomography step scan: a tomo flyscan at each point of a 2-D grid.
 
@@ -931,21 +928,21 @@ def tomo_2d_step_scan(
         The name of the sample being scanned.
     time_based : bool, default True
         If True, the scan is time-based rather than angle-based.
-    sample_tower : SampleTower | None, default None
-        The SampleTower instance to use for positioning the sample. Default is None.
+    sample_tower : SampleTower
+        The SampleTower instance to use for positioning the sample.
     num_retries : int, default 3
         The number of times to retry the scan if it fails.
     stream_name : str, default "primary"
         The name of the data stream.
     snake_axes : bool | None, default False
         If True, the scan will snake along the axes.
-    panda : HDFPanda | None, default None
+    panda : HDFPanda
         The HDFPanda instance for data storage.
-    rot_motor : RotationMotor | None, default None
+    rot_motor : RotationMotor
         The rotation motor for the tomography scan.
-    fe_shutter : Shutter | None, default None
+    fe_shutter : Shutter
         The front-end shutter for the scan.
-    photon_shutter : Shutter | None, default None
+    photon_shutter : Shutter
         The photon shutter for the scan.
 
     Returns

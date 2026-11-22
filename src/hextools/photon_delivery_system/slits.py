@@ -20,7 +20,6 @@ from ophyd_async.epics.core import EpicsDevice
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
 from hextools.bl_constants import fetch_beamline_constants
-from hextools.utils import ensure_available
 
 
 class SlitAperture(StrEnum):
@@ -90,18 +89,17 @@ class FrontEndSlit(StandardReadable, AsyncMovable[SlitAperture]):
         await self.y.stop(success=success)
 
 
-def set_fe_aperture(aperture: SlitAperture, fe_slit1: FrontEndSlit | None = None):
+def set_fe_aperture(fe_slit1: FrontEndSlit, aperture: SlitAperture):
     """Move front-end slit Y to a named aperture.
 
     Parameters
     ----------
+    fe_slit1 : FrontEndSlit
+        The slit.
     aperture : SlitAperture
         The aperture: fully open (24 x 4.55 mm), 7.13 x 3.56 mm, fully closed,
         3.56 x 3.56 mm, or the 0.89 mm pinhole.
-    fe_slit1 : FrontEndSlit, optional
-        The slit. If None, taken from the session namespace.
     """
-    fe_slit1 = ensure_available(FrontEndSlit, fe_slit1=fe_slit1)
     # Resuming after a pause rewinds here, so the slit is moved again.
     yield from bps.checkpoint()
     yield from bps.mv(fe_slit1, SlitAperture(aperture))
