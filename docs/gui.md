@@ -50,9 +50,9 @@ The window has four areas:
 
 | Panel              | What it does                                                                                                                                                    |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Plan Execution** | Pause (deferred or immediate), Resume, Stop, Abort and Halt the running plan. These do the same as `Ctrl+C` and `RE.resume()` etc. at the prompt.               |
-| **Proposal Info**  | The active proposal, cycle, title, type and PI. **Change Proposal…** switches proposals (see below).                                                             |
 | **Weather**        | Current conditions at the beamline.                                                                                                                             |
+| **Proposal Info**  | The active proposal, cycle, title, type and PI. **Change Proposal…** switches proposals (see below).                                                             |
+| **Plan Execution** | Pause (deferred or immediate), Resume, Stop, Abort and Halt the running plan. These do the same as `Ctrl+C` and `RE.resume()` etc. at the prompt.               |
 | **Plan Status**    | The running plan, its scan ID(s), and the last step it reported. When a plan runs another plan internally (e.g. a step scan running flyscans), both are shown. |
 | **Shutters**       | One button per shutter: green when open, red when closed. Click to toggle; both controls are disabled until that action finishes, and whenever the RunEngine is busy or paused. |
 

@@ -44,7 +44,6 @@ from hextools.gui._client_signals import QtRunEngineState
 from hextools.gui._theme import apply_bnl_theme, saved_theme
 from hextools.gui.available_devices import QtAvailableDevices
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor
-from hextools.gui.live_re_md_viewer import QtProposalInfo
 from hextools.gui.misc import QtTabbedDetectorsWidget, QtWeatherWidget
 from hextools.gui.plan_status import (
     QtPlanExecutionView,
@@ -53,6 +52,7 @@ from hextools.gui.plan_status import (
     QtPlanStatus,
 )
 from hextools.gui.plan_widget import QtPlanWidget
+from hextools.gui.proposal_info import QtProposalInfo
 from hextools.gui.re_execution_controls import QtReExecutionControls
 from hextools.gui.run_engine_clients import (
     InProcessRunEngineClient,
@@ -65,6 +65,11 @@ from hextools.gui.theme_switch import QtThemeAction
 from hextools.photon_delivery_system import Shutter
 from hextools.specs import ALL_SPECS
 from hextools.utils import is_running_in_ci
+from hextools.utils.proposals import (
+    MockProposalClient,
+    NSLS2ProposalClient,
+    ProposalClient,
+)
 
 from ._event_loop import get_our_app_name
 from ._threading import wait_for_workers_to_quit
@@ -360,11 +365,17 @@ class QtBeamlineView(QWidget):
         return tab
 
 
+def default_proposal_client() -> ProposalClient:
+    """Made-up proposals in mock mode, else HEX's from the NSLS-II API."""
+    return MockProposalClient() if is_running_in_ci() else NSLS2ProposalClient("HEX")
+
+
 class QtTabbedTechniqueSelector(QWidget):
     """Container with shared RE controls, technique tabs, and progress bars.
 
     The shared RE controls are on top, the technique tabs in the middle, and the
-    shared live progress bars along the bottom.
+    shared live progress bars along the bottom. ``proposal_client`` defaults to
+    :func:`default_proposal_client`.
     """
 
     def __init__(
@@ -373,6 +384,7 @@ class QtTabbedTechniqueSelector(QWidget):
         namespace: Mapping[str, Any],
         tiled_client: Any = None,
         *args,
+        proposal_client: ProposalClient | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -383,13 +395,19 @@ class QtTabbedTechniqueSelector(QWidget):
 
         vbox = QVBoxLayout()
 
-        # Shared top row: RE controls, metadata, plan status and shutters.
+        # Shared top row: weather, metadata, RE controls, plan status and shutters.
         controls = QHBoxLayout()
-        controls.addWidget(QtReExecutionControls(re_client))
-        self.proposal_info = QtProposalInfo(re_client)
-        controls.addWidget(self.proposal_info, stretch=1)
         controls.addWidget(QtWeatherWidget())
+        self.proposal_info = QtProposalInfo(
+            re_client, proposal_client or default_proposal_client()
+        )
+        # Wide enough for long titles without stretching across a full screen.
+        self.proposal_info.setMaximumWidth(800)
+        # Spare width goes to the proposal first, then to the gap before shutters.
+        controls.addWidget(self.proposal_info, stretch=100)
+        controls.addWidget(QtReExecutionControls(re_client))
         controls.addWidget(QtPlanStatus(re_client))
+        controls.addStretch(1)
         shutters, shutter_plan = shutter_controls(re_client.device_registry)
         controls.addWidget(QtShutterStatus(re_client, shutters, shutter_plan))
         vbox.addLayout(controls)
@@ -472,6 +490,9 @@ class QtDataAcquisitionWindow:
         The IPython session's namespace, for mock detectors.
     tiled_client : tiled client, optional
         Where the Scan Browser finds runs; without one, it isn't shown.
+    proposal_client : ProposalClient, optional
+        Lists and looks up the proposals offered by Change Proposal. Default:
+        :func:`default_proposal_client`.
 
     Attributes
     ----------
@@ -495,10 +516,13 @@ class QtDataAcquisitionWindow:
         namespace: Mapping[str, Any],
         tiled_client: Any = None,
         *,
+        proposal_client: ProposalClient | None = None,
         show: bool = True,
         end_ipython_on_close: bool = False,
     ):
-        self.qt_widget = QtTabbedTechniqueSelector(re_client, namespace, tiled_client)
+        self.qt_widget = QtTabbedTechniqueSelector(
+            re_client, namespace, tiled_client, proposal_client=proposal_client
+        )
 
         self._torn_down = False
         self._end_ipython_on_close = end_ipython_on_close
@@ -789,6 +813,7 @@ def launch_local_viewer(end_ipython_on_close: bool = False):
         ),
         user_ns,
         user_ns.get("tiled_reading_client") or user_ns.get("c"),
+        proposal_client=default_proposal_client(),
         end_ipython_on_close=end_ipython_on_close,
     )
 

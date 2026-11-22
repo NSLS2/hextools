@@ -24,6 +24,7 @@ from .nl_msg_hook import nl_msg_hook as nl_msg_hook
 from .path_providers import (
     StartDocAwareFilenameProvider as StartDocAwareFilenameProvider,
 )
+from .proposals import MOCK_PROPOSAL, MockProposalClient
 
 NSVarT = TypeVar("NSVarT")
 
@@ -168,14 +169,14 @@ def initialize_run_engine() -> RunEngine:
     if is_running_in_ci():
         return RunEngine(
             {
-                "data_session": "pass-123456",
+                "data_session": f"pass-{MOCK_PROPOSAL.number}",
                 "cycle": (
                     f"{datetime.today().year}-{int(datetime.today().month / 4) + 1}"
                 ),
                 "proposal": {
-                    "title": "Mock mode proposal",
-                    "type": "Mock Commissioning",
-                    "pi_name": os.getenv("USER", "Unknown"),
+                    "title": MOCK_PROPOSAL.title,
+                    "type": MOCK_PROPOSAL.type,
+                    "pi_name": MOCK_PROPOSAL.pi_name,
                 },
             }
         )
@@ -202,97 +203,6 @@ def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
         f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}[/italic]\n"
     )
     print_proposal_info(md)
-
-
-NSLS2_API_URL = "https://api.nsls2.bnl.gov"
-_MOCK_PROPOSALS = {
-    "123456": {"title": "Mock mode proposal", "type": "Mock Commissioning"},
-    "314159": {"title": "Another mock proposal", "type": "Mock General User"},
-}
-_MOCK_COMMISSIONING = ["123456"]
-
-
-def _sorted_desc(proposals: dict[str, str]) -> list[tuple[str, str]]:
-    return sorted(
-        proposals.items(),
-        key=lambda p: int(p[0]) if p[0].isdigit() else 0,
-        reverse=True,
-    )
-
-
-def list_proposals(beamline: str = "HEX") -> dict[str, list[tuple[str, str]]]:
-    """Return ``(number, title)`` of the proposals for ``beamline``, newest first.
-
-    Returns
-    -------
-    dict[str, list[tuple[str, str]]]
-        ``"user"``: the beamline's proposals in the current cycle, and
-        ``"commissioning"``: its commissioning proposals.
-    """
-    if is_running_in_ci():
-        titles = {p: info["title"] for p, info in _MOCK_PROPOSALS.items()}
-        return {
-            "user": [(p, t) for p, t in titles.items() if p not in _MOCK_COMMISSIONING],
-            "commissioning": [(p, titles.get(p, "")) for p in _MOCK_COMMISSIONING],
-        }
-
-    import httpx
-
-    with httpx.Client(base_url=NSLS2_API_URL, timeout=10) as client:
-        cycle = (
-            client.get("/v1/facility/nsls2/cycles/current")
-            .raise_for_status()
-            .json()["cycle"]
-        )
-        in_cycle = set(
-            client.get(f"/v1/facility/nsls2/cycle/{cycle}/proposals")
-            .raise_for_status()
-            .json()["proposals"]
-        )
-        # The beamline-filtered listing needs an API key; this public one doesn't.
-        beamline_proposals = (
-            client.get("/v1/proposals/recent/1000", params={"beamline": beamline})
-            .raise_for_status()
-            .json()["proposals"]
-        )
-        commissioning = set(
-            client.get("/v1/proposals/commissioning", params={"beamline": beamline})
-            .raise_for_status()
-            .json()
-            .get("commissioning_proposals", [])
-        )
-    titles = {p["proposal_id"]: p.get("title") or "" for p in beamline_proposals}
-    user = {p: t for p, t in titles.items() if p in in_cycle and p not in commissioning}
-    return {
-        "user": _sorted_desc(user),
-        "commissioning": _sorted_desc({p: titles.get(p, "") for p in commissioning}),
-    }
-
-
-def get_proposal_info(proposal_number: int | str) -> dict[str, str]:
-    """Return the ``title``, ``type``, and ``pi_name`` of a proposal."""
-    if is_running_in_ci():
-        info = _MOCK_PROPOSALS.get(
-            str(proposal_number), {"title": "Mock proposal", "type": "Mock"}
-        )
-        return {**info, "pi_name": os.getenv("USER", "Unknown")}
-
-    import httpx
-
-    with httpx.Client(base_url=NSLS2_API_URL, timeout=10) as client:
-        proposal = (
-            client.get(f"/v1/proposal/{proposal_number}")
-            .raise_for_status()
-            .json()["proposal"]
-        )
-    if "error_message" in proposal:
-        raise ValueError(proposal["error_message"])
-    pi = next((u for u in proposal.get("users") or [] if u.get("is_pi")), {})
-    return {
-        "title": proposal.get("title") or "",
-        "type": proposal.get("type") or "",
-        "pi_name": f"{pi.get('first_name') or ''} {pi.get('last_name') or ''}".strip(),
-    }
 
 
 def _run_sync_experiment(
@@ -371,12 +281,12 @@ def switch_proposal(
         md["data_session"] = f"pass-{proposal_number}"
         md["username"] = username
         md["start_datetime"] = datetime.now().isoformat()
-        info = get_proposal_info(proposal_number)
+        proposal = MockProposalClient().get_proposal(proposal_number)
         md["proposal"] = {
-            "proposal_id": str(proposal_number),
-            "title": info["title"],
-            "type": info["type"],
-            "pi_name": info["pi_name"],
+            "proposal_id": proposal.number,
+            "title": proposal.title,
+            "type": proposal.type,
+            "pi_name": proposal.pi_name,
         }
         return md
 

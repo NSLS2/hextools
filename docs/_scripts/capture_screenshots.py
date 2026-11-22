@@ -53,10 +53,10 @@ from ntnda_qt_viewer import NTNDAViewerWidget  # noqa: E402
 
 from hextools.gui.__main__ import launch_local_viewer  # noqa: E402
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor  # noqa: E402
-from hextools.gui.live_re_md_viewer import QtProposalInfo  # noqa: E402
 from hextools.gui.misc import QtTabbedDetectorsWidget, QtWeatherWidget  # noqa: E402
 from hextools.gui.plan_status import QtLiveTable, QtPlanStatus  # noqa: E402
 from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
+from hextools.gui.proposal_info import QtProposalInfo  # noqa: E402
 from hextools.gui.re_execution_controls import QtReExecutionControls  # noqa: E402
 from hextools.gui.shutter_status import QtShutterStatus  # noqa: E402
 from hextools.motors import move_motor  # noqa: E402
@@ -174,9 +174,9 @@ grab_annotated(
     "gui_overview_annotated",
     [
         qwin.menuBar(),
-        panel(qwin, QtReExecutionControls),
-        panel(qwin, QtProposalInfo),
         panel(qwin, QtWeatherWidget),
+        panel(qwin, QtProposalInfo),
+        panel(qwin, QtReExecutionControls),
         panel(qwin, QtPlanStatus),
         panel(qwin, QtShutterStatus),
         tabs.tabBar(),
