@@ -8,14 +8,14 @@ from ophyd_async.core import EnableDisable, get_mock_put, init_devices, set_mock
 from test_edxd import _fast, _run
 from test_edxd import stage as stage
 
-from hextools.edxd import (
+from hextools.devices.motors import SampleTower
+from hextools.plans.edxd import (
     edxd_calib_scan,
     edxd_count,
     edxd_custom_pos_list_grid,
     edxd_grid_scan,
     edxd_scan,
 )
-from hextools.motors import SampleTower
 
 
 def _plan(kind, germ, stage, shutters, tower, *, reset=True):

@@ -11,6 +11,19 @@ from qtpy.QtWidgets import QApplication, QComboBox  # noqa: E402
 
 from hextools.catalog.generate import type_expr  # noqa: E402
 from hextools.catalog.model import DeviceRegistry  # noqa: E402
+from hextools.devices.dclm import DCLM  # noqa: E402
+from hextools.devices.filters import (
+    Filter,
+    Filter1UpstreamPosition,
+    Filter2Position,
+)
+from hextools.devices.machine import NSLS2StorageRing  # noqa: E402
+from hextools.devices.motors import SampleTower  # noqa: E402
+from hextools.devices.shutter import Shutter  # noqa: E402
+from hextools.devices.slits import (  # noqa: E402
+    FrontEndSlit,
+    Slits,
+)
 from hextools.gui import _ipython  # noqa: E402
 from hextools.gui.hex_config import (  # noqa: E402
     filter_rows,
@@ -20,16 +33,6 @@ from hextools.gui.hex_config import (  # noqa: E402
 from hextools.gui.movable_group import QtMovableGroup  # noqa: E402
 from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 from hextools.gui.signal_status_group import QtBeamlineStatus  # noqa: E402
-from hextools.machine import NSLS2StorageRing  # noqa: E402
-from hextools.motors import SampleTower  # noqa: E402
-from hextools.photon_delivery_system.dclm import DCLM  # noqa: E402
-from hextools.photon_delivery_system.filters import (  # noqa: E402
-    Filter,
-    Filter1UpstreamPosition,
-    Filter2Position,
-)
-from hextools.photon_delivery_system.shutter import Shutter  # noqa: E402
-from hextools.photon_delivery_system.slits import FrontEndSlit, Slits  # noqa: E402
 
 
 def test_status_sections_cover_beamline_devices():

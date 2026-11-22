@@ -39,7 +39,8 @@ from qtpy.QtWidgets import (
 )
 from tiled.structures.core import Spec
 
-from hextools.detectors.germ import GeRMDetectorMock
+from hextools.devices.detectors.germ import GeRMDetectorMock
+from hextools.devices.shutter import Shutter
 from hextools.gui._client_signals import QtRunEngineState
 from hextools.gui._theme import apply_bnl_theme, saved_theme
 from hextools.gui.available_devices import QtAvailableDevices
@@ -62,7 +63,6 @@ from hextools.gui.scan_browser import QtScanBrowser
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui.signal_status_group import QtBeamlineStatus
 from hextools.gui.theme_switch import QtThemeAction
-from hextools.photon_delivery_system import Shutter
 from hextools.specs import ALL_SPECS
 from hextools.utils import is_running_in_ci
 from hextools.utils.proposals import (

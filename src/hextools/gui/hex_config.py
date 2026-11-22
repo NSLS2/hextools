@@ -5,31 +5,31 @@ from typing import Any
 
 from hextools.catalog.generate import type_expr
 from hextools.catalog.model import DeviceRegistry, TypeExpr
-from hextools.gui.run_engine_clients import RunEngineClient
-from hextools.gui.signal_status_group import QtDeviceStatus, QtStatusGroup
-from hextools.photon_delivery_system.filters import (
+from hextools.devices.filters import (
     Filter1DownstreamPosition,
     Filter1UpstreamPosition,
     Filter2Position,
     Filter3Position,
     Filter4Position,
 )
+from hextools.gui.run_engine_clients import RunEngineClient
+from hextools.gui.signal_status_group import QtDeviceStatus, QtStatusGroup
 
 # Qualified names of the device classes, as in the device registry.
-_STORAGE_RING = "hextools.machine.NSLS2StorageRing"
-_DCLM = "hextools.photon_delivery_system.dclm.DCLM"
-_FILTER = "hextools.photon_delivery_system.filters.Filter"
-_SHUTTER = "hextools.photon_delivery_system.shutter.Shutter"
-_FRONT_END_SLIT = "hextools.photon_delivery_system.slits.FrontEndSlit"
-_SLITS = "hextools.photon_delivery_system.slits.Slits"
+_STORAGE_RING = "hextools.devices.machine.NSLS2StorageRing"
+_DCLM = "hextools.devices.dclm.DCLM"
+_FILTER = "hextools.devices.filters.Filter"
+_SHUTTER = "hextools.devices.shutter.Shutter"
+_FRONT_END_SLIT = "hextools.devices.slits.FrontEndSlit"
+_SLITS = "hextools.devices.slits.Slits"
 
 # Upstream to downstream, with their section titles.
 _TOWER_TITLES: dict[str, str] = {
-    "hextools.motors.OpticsTable": "Optics Table",
-    "hextools.motors.SampleTower": "Sample Tower",
-    "hextools.motors.SampleSmall": "Sample Small",
-    "hextools.motors.CollimatorTable": "Collimator Table",
-    "hextools.motors.EDXDTable": "EDXD Table",
+    "hextools.devices.motors.OpticsTable": "Optics Table",
+    "hextools.devices.motors.SampleTower": "Sample Tower",
+    "hextools.devices.motors.SampleSmall": "Sample Small",
+    "hextools.devices.motors.CollimatorTable": "Collimator Table",
+    "hextools.devices.motors.EDXDTable": "EDXD Table",
 }
 
 # Position enum of each filter, by device name.

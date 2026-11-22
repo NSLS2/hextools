@@ -10,11 +10,11 @@ from ophyd_async.core import (
     set_mock_value,
 )
 
-from hextools.photon_delivery_system.slits import (
+from hextools.devices.slits import (
     FrontEndSlit,
     SlitAperture,
-    set_fe_aperture,
 )
+from hextools.plans.photon_delivery import set_fe_aperture
 
 
 def _re_slit() -> FrontEndSlit:

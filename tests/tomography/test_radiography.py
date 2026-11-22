@@ -16,8 +16,14 @@ from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.epics.core import epics_signal_rw
 from ophyd_async.fastcs.panda import DatasetTable, HDFPanda, PandaHdf5DatasetType
 
-from hextools.photon_delivery_system import Shutter, ShutterStatus
-from hextools.tomography.radiography import FRAME_PERIOD_MARGIN, take_radiograph
+from hextools.devices.shutter import (
+    Shutter,
+    ShutterStatus,
+)
+from hextools.plans.radiography import (
+    FRAME_PERIOD_MARGIN,
+    take_radiograph,
+)
 
 
 @pytest.mark.usefixtures("skip_long_sleeps")

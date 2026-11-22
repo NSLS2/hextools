@@ -12,11 +12,11 @@ from bluesky.utils import RunEngineInterrupted
 from ophyd_async.core import init_devices
 from qtpy.QtWidgets import QApplication
 
+from hextools.devices.shutter import Shutter
 from hextools.gui.hex_config import shutter_controls
 from hextools.gui.run_engine_clients import InProcessRunEngineClient
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui.signal_status import QtSignalStatus
-from hextools.photon_delivery_system import Shutter
 
 
 def _shutter_status(re: RunEngine, namespace: dict) -> QtShutterStatus:

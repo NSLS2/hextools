@@ -15,7 +15,11 @@ from ophyd_async.epics.adcore import (
 from ophyd_async.epics.advimba import VimbaDetector
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
-from hextools.photon_delivery_system.dclm import DCLM, BeamMode, change_energy
+from hextools.devices.dclm import (
+    DCLM,
+    BeamMode,
+)
+from hextools.plans.photon_delivery import change_energy
 
 
 @pytest.fixture
@@ -156,9 +160,7 @@ async def test_change_energy_with_auto_tune(RE: RunEngine, dclm: DCLM):
 def _mock_peak_stats(mocker, *centers):
     """Patch PeakStats so each auto-tune scan gets the next center (None = no peak)."""
     instances = [mocker.MagicMock(cen=cen, x_data=None) for cen in centers]
-    mocker.patch(
-        "hextools.photon_delivery_system.dclm.PeakStats", side_effect=instances
-    )
+    mocker.patch("hextools.plans.photon_delivery.PeakStats", side_effect=instances)
 
 
 async def test_change_energy_no_peak_coarse_scan(RE: RunEngine, dclm: DCLM, mocker):

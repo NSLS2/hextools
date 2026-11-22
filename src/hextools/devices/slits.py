@@ -3,7 +3,6 @@
 import asyncio
 from enum import StrEnum
 
-import bluesky.plan_stubs as bps
 from bluesky.protocols import Callback, Locatable, Location, Subscribable
 from ophyd_async.core import (
     AsyncMovable,
@@ -87,22 +86,6 @@ class FrontEndSlit(StandardReadable, AsyncMovable[SlitAperture]):
     async def stop(self, success: bool = False):
         """Stop Y, so pausing or aborting the RunEngine stops a move."""
         await self.y.stop(success=success)
-
-
-def set_fe_aperture(fe_slit1: FrontEndSlit, aperture: SlitAperture):
-    """Move front-end slit Y to a named aperture.
-
-    Parameters
-    ----------
-    fe_slit1 : FrontEndSlit
-        The slit.
-    aperture : SlitAperture
-        The aperture: fully open (24 x 4.55 mm), 7.13 x 3.56 mm, fully closed,
-        3.56 x 3.56 mm, or the 0.89 mm pinhole.
-    """
-    # Resuming after a pause rewinds here, so the slit is moved again.
-    yield from bps.checkpoint()
-    yield from bps.mv(fe_slit1, SlitAperture(aperture))
 
 
 class _BladePairAxis(
@@ -323,58 +306,3 @@ class Slits(
             self.bottom.stop(success=success),
             self.top.stop(success=success),
         )
-
-
-def move_slits(
-    slits: Slits,
-    horizontal_center: float | None = None,
-    vertical_center: float | None = None,
-    horizontal_gap: float | None = None,
-    vertical_gap: float | None = None,
-    relative: bool = False,
-):
-    """Move a pair of slit blades by their center line and gap.
-
-    Only the values given move; the others stay where they are. A center move
-    shifts both blades of the pair together, keeping the gap, and a gap move
-    opens or closes both blades about the center line.
-
-    Parameters
-    ----------
-    slits : Slits
-        The slits to move.
-    horizontal_center : float, optional
-        Center of the inboard/outboard pair, in mm.
-    vertical_center : float, optional
-        Center of the bottom/top pair, in mm.
-    horizontal_gap : float, optional
-        Gap between the inboard and outboard blades, in mm.
-    vertical_gap : float, optional
-        Gap between the bottom and top blades, in mm.
-    relative : bool, default False
-        Treat the given values as shifts from the current positions.
-
-    Raises
-    ------
-    ValueError
-        If no center or gap is given.
-    """
-    # A gap and a center on one axis drive the same two blades, so gaps go first
-    stages = [
-        [(slits.horizontal_gap, horizontal_gap), (slits.vertical_gap, vertical_gap)],
-        [
-            (slits.horizontal_center, horizontal_center),
-            (slits.vertical_center, vertical_center),
-        ],
-    ]
-    if all(value is None for stage in stages for _, value in stage):
-        raise ValueError("Give at least one center or gap to move the slits.")
-    move = bps.mvr if relative else bps.mv
-    for stage in stages:
-        args = [
-            x for signal, value in stage if value is not None for x in (signal, value)
-        ]
-        if args:
-            # Resuming after a pause rewinds here, so this stage is moved again.
-            yield from bps.checkpoint()
-            yield from move(*args)

@@ -59,7 +59,7 @@ from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
 from hextools.gui.proposal_info import QtProposalInfo  # noqa: E402
 from hextools.gui.re_execution_controls import QtReExecutionControls  # noqa: E402
 from hextools.gui.shutter_status import QtShutterStatus  # noqa: E402
-from hextools.motors import move_motor  # noqa: E402
+from hextools.plans.motors import move_motor  # noqa: E402
 
 window = launch_local_viewer()
 qwin = window._qt_window  # noqa: SLF001

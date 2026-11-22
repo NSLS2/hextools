@@ -10,13 +10,13 @@ from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
 from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
-from hextools.tomography.flyscans import (  # noqa: E402
+from hextools.plans.radiography import take_radiograph  # noqa: E402
+from hextools.plans.tomography.flyscans import (
     tomo_1d_step_scan,
     tomo_2d_step_scan,
     tomo_flyscan,
     tomo_flyscan_loop,
 )
-from hextools.tomography.radiography import take_radiograph  # noqa: E402
 
 
 @pytest.mark.parametrize(

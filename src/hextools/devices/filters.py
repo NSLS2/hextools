@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from typing import TYPE_CHECKING, TypeAlias
 
-import bluesky.plan_stubs as bps
 from bluesky.protocols import Callback, Reading, Subscribable
 from ophyd_async.core import (
     AsyncMovable,
@@ -25,9 +24,11 @@ from hextools.bl_constants import (
     build_enums_from_position_lists,
     fetch_beamline_constants,
 )
-
-from ..utils import get_obj_from_ipython_ns
-from .shutter import PPSShutter, ShutterStatus, ensure_shutter_open
+from hextools.devices.shutter import (
+    PPSShutter,
+    ShutterStatus,
+)
+from hextools.utils import get_obj_from_ipython_ns
 
 
 @dataclass
@@ -261,96 +262,3 @@ else:
     ) = build_enums_from_position_lists(
         "filters", always_included_keys=["pass_through"]
     )
-
-
-def set_filters(
-    filter1_upstream: Filter,
-    filter1_downstream: Filter,
-    filter2: Filter,
-    fe_shutter: PPSShutter,
-    filter1_upstream_setting: Filter1UpstreamPosition | None = None,
-    filter1_downstream_setting: Filter1DownstreamPosition | None = None,
-    filter2_setting: Filter2Position | None = None,
-):
-    """Set filter 1 upstream, filter 1 downstream and filter 2 by material.
-
-    Each setting is one of that filter's materials from ``bl_constants.yml`` (for
-    example ``"6 mm Cu"``) or ``"Pass Through"``. A filter with no setting does
-    not move; the others move together.
-
-    Moving a filter closes the front-end shutter through its interlock. Once the
-    filters are in position the interlock is acknowledged, and the front-end
-    shutter is reopened if it was open before.
-
-    Parameters
-    ----------
-    filter1_upstream, filter1_downstream, filter2 : Filter
-        The filter devices.
-    fe_shutter : PPSShutter
-        The front-end shutter.
-    filter1_upstream_setting : Filter1UpstreamPosition, optional
-        Material for filter 1 upstream.
-    filter1_downstream_setting : Filter1DownstreamPosition, optional
-        Material for filter 1 downstream.
-    filter2_setting : Filter2Position, optional
-        Material for filter 2.
-
-    Raises
-    ------
-    ValueError
-        If no setting is given, or a setting is not one of that filter's choices.
-    """
-    args = []
-    for device, setting, choices in (
-        (filter1_upstream, filter1_upstream_setting, Filter1UpstreamPosition),
-        (filter1_downstream, filter1_downstream_setting, Filter1DownstreamPosition),
-        (filter2, filter2_setting, Filter2Position),
-    ):
-        if setting is not None:
-            # Lookup by value accepts the member or its material string, and raises
-            # ValueError for anything that isn't one of this filter's choices.
-            args += [device, FilterPosition[choices(setting).name]]
-    if not args:
-        raise ValueError("Choose a setting for at least one filter.")
-    yield from move_filters(*args, fe_shutter=fe_shutter)
-
-
-def move_filters(*args: Filter | FilterPosition | str, fe_shutter: PPSShutter):
-    """Move filters, given as ``filter1, setting1, filter2, setting2, ...``.
-
-    Each setting is a :class:`FilterPosition` or that filter's label for it (for
-    example ``"6 mm Cu"`` or ``"Pass Through"``). The filters move together, and
-    the plan returns once they are in position.
-
-    Moving a filter closes the front-end shutter through its interlock. Once the
-    filters are in position the interlock is acknowledged, and the front-end
-    shutter is reopened if it was open before.
-
-    Parameters
-    ----------
-    *args : Filter, FilterPosition or str
-        Alternating filters and settings.
-    fe_shutter : PPSShutter
-        The front-end shutter.
-
-    Raises
-    ------
-    ValueError
-        If no filters are given, the arguments don't pair up, or a setting is not
-        one of its filter's.
-    """
-    if not args or len(args) % 2:
-        raise ValueError("Give one or more filter, setting pairs.")
-    moves: list = []
-    for device, setting in zip(args[::2], args[1::2], strict=True):
-        if not isinstance(device, Filter):
-            raise ValueError(f"{device!r} is not a filter")
-        moves += [device, device.position_for(setting)]  # type: ignore[arg-type]
-
-    fe_was_open = (yield from bps.rd(fe_shutter.status)) == ShutterStatus.OPEN
-    # Resuming after a pause rewinds here, so the filters are moved again.
-    yield from bps.checkpoint()
-    yield from bps.mv(*moves)
-    yield from bps.mv(fe_shutter.interlock_ack, True)
-    if fe_was_open:
-        yield from ensure_shutter_open(fe_shutter, allow_actuation=True, sleep_time=0)

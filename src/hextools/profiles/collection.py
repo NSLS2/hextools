@@ -37,17 +37,17 @@ from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.sim import SimMotor
 from tiled.client import from_uri, simple
 
-from hextools.detectors.germ import (
+from hextools.devices.dclm import DCLM
+from hextools.devices.detectors.germ import (
     GeRMDetector,
     GeRMStatsDataLogic,  # noqa: F401 - operator namespace
 )
-from hextools.detectors.kinetix import kinetix_factory
-from hextools.detectors.perkin_elmer import PerkinElmerDetector
-from hextools.detectors.phantom import PhantomDetector
-from hextools.edxd import *
-from hextools.log import *
-from hextools.machine import *
-from hextools.motors import (
+from hextools.devices.detectors.kinetix import kinetix_factory
+from hextools.devices.detectors.perkin_elmer import PerkinElmerDetector
+from hextools.devices.detectors.phantom import PhantomDetector
+from hextools.devices.filters import Filter
+from hextools.devices.machine import *
+from hextools.devices.motors import (
     CollimatorTable,
     DiffractionTable,
     EDXDTable,
@@ -56,16 +56,33 @@ from hextools.motors import (
     OpticsTable,
     SampleSmall,
     SampleTower,
+)
+from hextools.devices.shutter import (
+    InterlockAcknowledge,  # noqa: F401 - operator namespace
+    PPSShutter,
+    Shutter,
+    ShutterStatus,  # noqa: F401 - operator namespace
+)
+from hextools.devices.slits import (
+    FrontEndSlit,
+    SlitAperture,  # noqa: F401 - operator namespace
+    Slits,
+)
+from hextools.log import *
+from hextools.plans.edxd import *
+from hextools.plans.motors import (
     move_motor,  # noqa: F401 - operator namespace
 )
-from hextools.photon_delivery_system import *
-from hextools.settings import (
+from hextools.plans.photon_delivery import *
+from hextools.plans.radiography import take_radiograph
+from hextools.plans.settings import (
     apply_device_settings,  # noqa: F401 - operator namespace
     store_device_settings,  # noqa: F401 - operator namespace
     store_device_settings_snapshot,  # noqa: F401 - operator namespace
 )
+from hextools.plans.tomography import *
+from hextools.plans.xrd import *
 from hextools.suspenders import SuspendFloorUnlessOpsMode
-from hextools.tomography import *
 from hextools.utils import (
     StartDocAwareFilenameProvider,
     initialize_run_engine,
@@ -75,7 +92,6 @@ from hextools.utils import (
     show_docs,  # noqa: F401 - operator namespace
 )
 from hextools.utils.path_providers import mock_path_provider
-from hextools.xrd import *
 
 # TODO: Enable mock customization via flags once
 # https://github.com/bluesky/ophyd-async/pull/1446 is merged

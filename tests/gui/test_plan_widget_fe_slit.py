@@ -9,12 +9,10 @@ pytest.importorskip("qtpy")
 from bluesky import RunEngine  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
+from hextools.devices.slits import SlitAperture
 from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
 from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
-from hextools.photon_delivery_system.slits import (  # noqa: E402
-    SlitAperture,
-    set_fe_aperture,
-)
+from hextools.plans.photon_delivery import set_fe_aperture
 
 
 def test_fe_slit1_form_is_one_aperture_dropdown_and_no_device_picker():
@@ -22,7 +20,7 @@ def test_fe_slit1_form_is_one_aperture_dropdown_and_no_device_picker():
     namespace = {
         "RE": RunEngine({}, call_returns_result=True),
         # As the profile binds it, with the slit filled in.
-        "set_fe_aperture": partial(set_fe_aperture, object()),
+        "set_fe_aperture": partial(set_fe_aperture, object()),  # type: ignore
     }
     widget = QtPlanWidget(InProcessRunEngineClient(namespace), "set_fe_aperture")
     try:

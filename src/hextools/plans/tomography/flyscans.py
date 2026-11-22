@@ -25,23 +25,24 @@ from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.sim import SimMotor
 
-from hextools.detectors import (
-    FRAME_PERIOD_MARGIN,
+from hextools.devices.detectors import FRAME_PERIOD_MARGIN
+from hextools.devices.detectors.phantom import PhantomDetector
+from hextools.devices.flyers import (
+    SingleAxisFlyableLogic,
+    construct_fly_info_models,
+)
+from hextools.devices.motors import RotationMotor, SampleTower
+from hextools.devices.shutter import Shutter
+from hextools.plans.detectors import (
     enable_preview_mode,
     set_plugin_queue_sizes,
     set_proc_filter_type,
 )
-from hextools.motors import SampleTower
-from hextools.photon_delivery_system import Shutter
-from hextools.photon_delivery_system.shutter import (
+from hextools.plans.photon_delivery import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )
 from hextools.specs import TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
-
-from ..detectors.phantom import PhantomDetector
-from ..flyers import SingleAxisFlyableLogic, construct_fly_info_models
-from ..motors import RotationMotor
 
 logger = logging.getLogger("hextools")
 

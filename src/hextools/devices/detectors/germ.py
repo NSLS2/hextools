@@ -47,7 +47,7 @@ from ophyd_async.epics.adcore import (
 from ophyd_async.epics.core import EpicsDevice, PvSuffix
 
 if TYPE_CHECKING:
-    from hextools.photon_delivery_system.shutter import Shutter
+    from hextools.devices.shutter import Shutter
 
 logger = logging.getLogger(__name__)
 
@@ -566,7 +566,7 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
         return signal + np.rint(pulses).astype(np.int32)
 
     async def _shutters_open(self) -> bool:
-        from hextools.photon_delivery_system.shutter import ShutterStatus
+        from hextools.devices.shutter import ShutterStatus
 
         for shutter in self._shutters:
             if await shutter.status.get_value() != ShutterStatus.OPEN:

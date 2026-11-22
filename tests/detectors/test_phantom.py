@@ -25,15 +25,15 @@ from ophyd_async.epics.adcore import (
     NDProcessIO,
 )
 
-import hextools.detectors.phantom
-from hextools.detectors import enable_preview_mode
-from hextools.detectors.phantom import (
+import hextools.devices.detectors.phantom
+from hextools.devices.detectors.phantom import (
     PhantomAcquireLogic,
     PhantomDetector,
     PhantomIO,
     PhantomPixelDataFormat,
     PhantomTriggerLogic,
 )
+from hextools.plans.detectors import enable_preview_mode
 
 
 @pytest.fixture
@@ -153,7 +153,7 @@ async def test_arm_logic_arm_timeout_waiting_for_trigger(
     phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
-        hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
+        hextools.devices.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
     )  # Set a short timeout for the test
 
     # Pre-set waiting_for_trigger so set_and_wait_for_other_value completes immediately
@@ -178,7 +178,7 @@ async def test_arm_logic_arm_timeout_saving_to_cine(
     phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
-        hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
+        hextools.devices.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
     )  # Set a short timeout for the test
 
     # Pre-set waiting_for_trigger and trigger_received so the first two
@@ -200,7 +200,7 @@ async def test_arm_logic_arm_post_trig_frames_incorrect(
     phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
-        hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
+        hextools.devices.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
     )  # Set a short timeout for the test
 
     # Pre-set waiting_for_trigger and trigger_received so the first two loops
@@ -224,7 +224,7 @@ async def test_arm_logic_arm_success(
     phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
-        hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
+        hextools.devices.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
     )  # Set a short timeout for the test
 
     # Pre-set waiting_for_trigger and trigger_received so the first two loops
@@ -249,7 +249,7 @@ async def test_arm_logic_wait_for_idle_timeout(
     phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
-        hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
+        hextools.devices.detectors.phantom, "DEFAULT_TIMEOUT", 0.1
     )  # Set a short timeout for the test
     set_mock_value(phantom_arm_logic.driver.selected_cine, 1)
     set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)
@@ -268,7 +268,7 @@ async def test_arm_logic_wait_for_idle_success(
     phantom_arm_logic: PhantomAcquireLogic, monkeypatch
 ):
     monkeypatch.setattr(
-        hextools.detectors.phantom, "DEFAULT_TIMEOUT", 0.5
+        hextools.devices.detectors.phantom, "DEFAULT_TIMEOUT", 0.5
     )  # Set a short timeout for the test
     set_mock_value(phantom_arm_logic.driver.selected_cine, 1)
     set_mock_value(phantom_arm_logic.driver.download_start_frame, -5)

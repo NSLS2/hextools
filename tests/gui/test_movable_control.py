@@ -26,12 +26,12 @@ from qtpy.QtWidgets import (  # noqa: E402
 )
 
 from hextools.catalog.generate import set_type, type_expr  # noqa: E402
+from hextools.devices.slits import Slits  # noqa: E402
 from hextools.gui import _ipython, movable_group  # noqa: E402
 from hextools.gui.movable_control import QtMovableControl  # noqa: E402
 from hextools.gui.movable_group import QtMovableGroup  # noqa: E402
 from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 from hextools.gui.slits_control import QtSlitsControl  # noqa: E402
-from hextools.photon_delivery_system.slits import Slits  # noqa: E402
 
 
 class _Mode(StrictEnum):

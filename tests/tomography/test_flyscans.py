@@ -43,12 +43,17 @@ from ophyd_async.fastcs.panda import (
 )
 from tiled.client.container import Container
 
-from hextools.detectors import FRAME_PERIOD_MARGIN
-from hextools.motors import RotationMotor, SampleTower
-from hextools.photon_delivery_system import Shutter, ShutterStatus
-from hextools.specs import TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
-from hextools.tomography import flyscans
-from hextools.tomography.flyscans import (
+from hextools.devices.detectors import FRAME_PERIOD_MARGIN
+from hextools.devices.motors import (
+    RotationMotor,
+    SampleTower,
+)
+from hextools.devices.shutter import (
+    Shutter,
+    ShutterStatus,
+)
+from hextools.plans.tomography import flyscans
+from hextools.plans.tomography.flyscans import (
     MAX_MISSING_FRAMES,
     tomo_1d_step_scan,
     tomo_2d_step_scan,
@@ -57,6 +62,7 @@ from hextools.tomography.flyscans import (
     tomo_flyscan_loop,
     tomo_nd_step_scan,
 )
+from hextools.specs import TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
 
 Docs = dict[str, list[dict[str, Any]]]
 
@@ -1165,8 +1171,12 @@ def test_tomo_flyscan_loop_delay_between_tomograms(
 )
 def test_tomo_nd_step_scan_rejects_malformed_axes(args: tuple):
     plan = tomo_nd_step_scan(
-        ["det"], *args, num_projections=10, exposure_time=0.1, **STEP_DEVICES
-    )  # type: ignore
+        ["det"],  # type: ignore
+        *args,
+        num_projections=10,
+        exposure_time=0.1,
+        **STEP_DEVICES,  # type: ignore
+    )
     with pytest.raises(ValueError, match="motor, start, stop, num"):
         next(plan)
 

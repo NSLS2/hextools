@@ -11,9 +11,12 @@ pytest.importorskip("qtpy")
 from bluesky import RunEngine
 from qtpy.QtWidgets import QApplication, QCheckBox, QLineEdit
 
-from hextools.edxd import edxd_custom_pos_list_grid, edxd_scan
 from hextools.gui.plan_widget import QtPlanWidget
 from hextools.gui.run_engine_clients import InProcessRunEngineClient
+from hextools.plans.edxd import (
+    edxd_custom_pos_list_grid,
+    edxd_scan,
+)
 
 
 def _plan_widget(plan) -> QtPlanWidget:

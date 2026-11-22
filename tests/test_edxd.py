@@ -18,8 +18,17 @@ from ophyd_async.core import (
 )
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 
-from hextools.detectors.germ import GeRMDetector
-from hextools.edxd import (
+from hextools.devices.detectors.germ import GeRMDetector
+from hextools.devices.motors import (
+    CollimatorTable,
+    EDXDTable,
+    SampleTower,
+)
+from hextools.devices.shutter import (
+    Shutter,
+    ShutterStatus,
+)
+from hextools.plans.edxd import (
     configure_test_pulses,
     edxd_2theta_tilt,
     edxd_calib_scan,
@@ -28,8 +37,6 @@ from hextools.edxd import (
     edxd_grid_scan,
     edxd_scan,
 )
-from hextools.motors import CollimatorTable, EDXDTable, SampleTower
-from hextools.photon_delivery_system import Shutter, ShutterStatus
 from hextools.specs import EDXD_CALIBRATION_V1, EDXD_SCAN_V1
 
 Docs = dict[str, list[Any]]

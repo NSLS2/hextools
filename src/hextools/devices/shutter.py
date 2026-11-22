@@ -1,11 +1,9 @@
 """Shutter/GV device for the photon delivery system."""
 
 import asyncio
-import logging
 import random
-from collections.abc import Callable, Hashable
+from collections.abc import Callable
 
-from bluesky import plan_stubs as bps
 from bluesky.protocols import Reading, Subscribable
 from ophyd_async.core import (
     DEFAULT_TIMEOUT,
@@ -26,8 +24,6 @@ from ophyd_async.epics.core import (
     epics_signal_rw,
     epics_triggerable_command,
 )
-
-logger = logging.getLogger("hextools")
 
 
 class ShutterStatus(StrictEnum):
@@ -197,128 +193,3 @@ class PPSShutter(Shutter):
     def __init__(self, prefix: str, name: str = ""):
         self.interlock_ack = InterlockAcknowledge(prefix)
         super().__init__(prefix, name=name)
-
-
-def ensure_shutter_state(
-    shutter: Shutter | list[Shutter],
-    desired_state: bool,
-    allow_actuation: bool = False,
-    group: Hashable | None = None,
-    wait: bool = True,
-    sleep_time: float = 4.0,
-):
-    """Plan stub to guarantees that the shutter(s) is/are in the desired state.
-
-    Parameters
-    ----------
-    shutter : Shutter | list[Shutter]
-        shutter(s) to guarantee the state of.
-    desired_state : bool
-        the state of the shutter (True for open, False for closed)
-    allow_actuation : bool, default False
-        whether to allow the plan to actuate the shutter if it is not in the
-        desired state
-    group : Hashable | None, optional
-        the Bluesky group to use for the actuation, if any
-    wait : bool, default True
-        whether to wait for the shutter to reach the desired state after actuation
-    sleep_time : float, default 4.0
-        the time to sleep to ensure the shutter has reached the desired state
-    """
-    shutters = shutter if isinstance(shutter, list) else [shutter]
-
-    logger.info(
-        f"Ensuring shutter(s) {', '.join(s.name for s in shutters)} are in the "
-        f"desired state: {'open' if desired_state else 'closed'}"
-    )
-
-    shutter_statuses = {}
-    for s in shutters:
-        shutter_statuses[s.name] = yield from bps.rd(s.status)
-
-    actuated = False
-    for s in shutters:
-        if (shutter_statuses[s.name] == ShutterStatus.OPEN) != desired_state:
-            if allow_actuation:
-                yield from bps.abs_set(s, desired_state, group=group, wait=False)
-                actuated = True
-            else:
-                raise ValueError(
-                    f"Shutter {s.name} is {shutter_statuses[s.name].name.lower()}, but"
-                    f" the desired state is {'open' if desired_state else 'closed'}!"
-                )
-
-    if wait and actuated:
-        yield from bps.wait(group=group, timeout=DEFAULT_TIMEOUT)
-
-        # It seems that the shutter status in EPICS is not reliable enough to
-        # consider the shutter fully opened/closed, so wait some extra time
-        # if requested.
-        if sleep_time > 0:
-            yield from bps.sleep(sleep_time)
-
-
-def ensure_shutter_open(
-    shutter: Shutter | list[Shutter],
-    allow_actuation: bool = False,
-    group: Hashable | None = None,
-    wait: bool = True,
-    sleep_time: float = 4.0,
-):
-    """Plan stub to guarantee that the shutter(s) is/are open.
-
-    Parameters
-    ----------
-    shutter : Shutter | list[Shutter]
-        shutter(s) to guarantee the state of.
-    allow_actuation : bool, default False
-        whether to allow the plan to actuate the shutter if it is not in the
-        desired state
-    group : Hashable | None, optional
-        the Bluesky group to use for the actuation, if any
-    wait : bool, default True
-        whether to wait for the shutter to reach the desired state after actuation
-    sleep_time : float, default 4.0
-        the time to sleep to ensure the shutter has reached the desired state
-    """
-    yield from ensure_shutter_state(
-        shutter,
-        True,
-        allow_actuation=allow_actuation,
-        wait=wait,
-        group=group,
-        sleep_time=sleep_time,
-    )
-
-
-def ensure_shutter_closed(
-    shutter: Shutter | list[Shutter],
-    allow_actuation: bool = True,
-    group: Hashable | None = None,
-    wait: bool = True,
-    sleep_time: float = 4.0,
-):
-    """Plan stub to guarantee that the shutter is closed.
-
-    Parameters
-    ----------
-    shutter : Shutter | list[Shutter]
-        shutter(s) to guarantee the state of.
-    allow_actuation : bool, default True
-        whether to allow the plan to actuate the shutter if it is not in the
-        desired state
-    group : Hashable | None, optional
-        the Bluesky group to use for the actuation, if any
-    wait : bool, default True
-            whether to wait for the shutter to reach the desired state after actuation
-    sleep_time : float, default 4.0
-        the time to sleep to ensure the shutter has reached the desired state
-    """
-    yield from ensure_shutter_state(
-        shutter,
-        False,
-        allow_actuation=allow_actuation,
-        wait=wait,
-        group=group,
-        sleep_time=sleep_time,
-    )

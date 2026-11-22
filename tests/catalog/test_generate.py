@@ -22,7 +22,7 @@ from hextools.catalog import (
     type_expr,
     write_catalog,
 )
-from hextools.photon_delivery_system.slits import Slits
+from hextools.devices.slits import Slits
 
 jsonschema = pytest.importorskip("jsonschema")
 

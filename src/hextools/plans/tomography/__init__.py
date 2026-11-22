@@ -8,7 +8,6 @@ from .flyscans import (
     tomo_flyscan,
     tomo_flyscan_loop,
 )
-from .radiography import take_radiograph
 from .utils import LastDarkFlatUIDTracker
 
 __all__ = [
@@ -18,6 +17,5 @@ __all__ = [
     "tomo_2d_step_scan",
     "tomo_dark_flat",
     "tomo_alignment_scan",
-    "take_radiograph",
     "LastDarkFlatUIDTracker",
 ]

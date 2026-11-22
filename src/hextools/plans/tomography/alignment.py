@@ -17,10 +17,13 @@ from ophyd_async.epics.adkinetix import KinetixDetector
 from skimage import measure, segmentation
 from skimage.measure._regionprops import RegionProperties
 
-from hextools.detectors import PhantomDetector, enable_preview_mode
-from hextools.motors import RotationMotor
-from hextools.photon_delivery_system import Shutter
-from hextools.photon_delivery_system.shutter import (
+from hextools.devices.motors import RotationMotor
+from hextools.devices.shutter import Shutter
+from hextools.plans.detectors import (
+    PhantomDetector,
+    enable_preview_mode,
+)
+from hextools.plans.photon_delivery import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )

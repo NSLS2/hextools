@@ -19,34 +19,32 @@ from ophyd_async.sim import PatternGenerator, SimPointDetector  # noqa: E402
 from qtpy.QtCore import QCoreApplication, QEvent  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
-import hextools.edxd  # noqa: E402
 import hextools.gui.__main__ as gui_main  # noqa: E402
-import hextools.motors  # noqa: E402
-import hextools.photon_delivery_system  # noqa: E402
-import hextools.photon_delivery_system.dclm  # noqa: E402
-import hextools.settings  # noqa: E402
-import hextools.tomography.alignment  # noqa: E402
-import hextools.tomography.flyscans  # noqa: E402
-import hextools.tomography.radiography  # noqa: E402
+import hextools.plans.edxd  # noqa: E402
+import hextools.plans.motors  # noqa: E402
+import hextools.plans.photon_delivery  # noqa: E402
+import hextools.plans.radiography  # noqa: E402
+import hextools.plans.settings  # noqa: E402
+import hextools.plans.tomography.alignment  # noqa: E402
+import hextools.plans.tomography.flyscans  # noqa: E402
+import hextools.plans.xrd  # noqa: E402
 import hextools.utils  # noqa: E402
-import hextools.xrd  # noqa: E402
 from hextools.catalog.generate import is_plan  # noqa: E402
+from hextools.devices.slits import Slits  # noqa: E402
 from hextools.gui.__main__ import QtDataAcquisitionWindow  # noqa: E402
 from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 from hextools.gui.slits_control import QtSlitsSelector  # noqa: E402
-from hextools.photon_delivery_system.slits import Slits  # noqa: E402
 
 _PLAN_MODULES = (
-    hextools.edxd,
-    hextools.motors,
-    hextools.photon_delivery_system,
-    hextools.photon_delivery_system.dclm,
-    hextools.settings,
-    hextools.tomography.alignment,
-    hextools.tomography.flyscans,
-    hextools.tomography.radiography,
+    hextools.plans.edxd,
+    hextools.plans.motors,
+    hextools.plans.photon_delivery,
+    hextools.plans.settings,
+    hextools.plans.tomography.alignment,
+    hextools.plans.tomography.flyscans,
+    hextools.plans.radiography,
     hextools.utils,
-    hextools.xrd,
+    hextools.plans.xrd,
 )
 
 

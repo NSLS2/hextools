@@ -18,7 +18,7 @@ from ophyd_async.core import (
 )
 from tiled.client.container import Container
 
-from hextools.detectors.germ import (
+from hextools.devices.detectors.germ import (
     GeRMAcquireLogic,
     GeRMDetector,
     GeRMDetectorIO,
@@ -287,7 +287,7 @@ async def test_germ_mock_test_pulses(
 async def test_germ_mock_sleeps_no_longer_than_the_exposure(
     germ: GeRMDetector, monkeypatch
 ):
-    import hextools.detectors.germ as germ_module
+    import hextools.devices.detectors.germ as germ_module
 
     requested: list[float] = []
     real_sleep = asyncio.sleep

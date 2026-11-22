@@ -12,10 +12,14 @@ from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.sim import SimMotor
 from tiled.structures.core import Spec
 
-from hextools.detectors.germ import GeRMDetector
-from hextools.motors import CollimatorTable, EDXDTable, SampleTower
-from hextools.photon_delivery_system import Shutter, ensure_shutter_open
-from hextools.photon_delivery_system.shutter import ensure_shutter_closed
+from hextools.devices.detectors.germ import GeRMDetector
+from hextools.devices.motors import (
+    CollimatorTable,
+    EDXDTable,
+    SampleTower,
+)
+from hextools.devices.shutter import Shutter
+from hextools.plans.photon_delivery import ensure_shutter_closed, ensure_shutter_open
 from hextools.specs import EDXD_CALIBRATION_V1, EDXD_SCAN_V1
 
 

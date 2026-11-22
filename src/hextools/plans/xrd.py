@@ -20,11 +20,11 @@ from ophyd_async.epics.adcore import (
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.sim import SimMotor
 
-from hextools.detectors.perkin_elmer import PerkinElmerDetector
-from hextools.detectors.utils import enable_preview_mode
-from hextools.motors import DiffractionTable
-from hextools.photon_delivery_system.shutter import (
-    Shutter,
+from hextools.devices.detectors.perkin_elmer import PerkinElmerDetector
+from hextools.devices.motors import DiffractionTable
+from hextools.devices.shutter import Shutter
+from hextools.plans.detectors import enable_preview_mode
+from hextools.plans.photon_delivery import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )

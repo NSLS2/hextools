@@ -8,11 +8,15 @@ from ophyd_async.epics.adcore import ContAcqDetector, NDProcessFilterType
 from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.fastcs.panda import HDFPanda
 
-from hextools.detectors import FRAME_PERIOD_MARGIN, PhantomDetector
-from hextools.detectors.perkin_elmer import PerkinElmerDetector
-from hextools.detectors.utils import enable_preview_mode, set_proc_filter_type
-from hextools.photon_delivery_system import Shutter
-from hextools.photon_delivery_system.shutter import (
+from hextools.devices.detectors import FRAME_PERIOD_MARGIN
+from hextools.devices.detectors.perkin_elmer import PerkinElmerDetector
+from hextools.devices.shutter import Shutter
+from hextools.plans.detectors import (
+    PhantomDetector,
+    enable_preview_mode,
+    set_proc_filter_type,
+)
+from hextools.plans.photon_delivery import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )

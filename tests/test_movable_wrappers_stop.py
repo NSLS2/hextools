@@ -17,10 +17,14 @@ from ophyd_async.core import (
 )
 from ophyd_async.epics.motor import Motor
 
-from hextools.motors import CameraObjective, FOV_2_4_mm_Camera, HomeStatus
-from hextools.photon_delivery_system.dclm import DCLM
-from hextools.photon_delivery_system.filters import Filter
-from hextools.photon_delivery_system.slits import Slits
+from hextools.devices.dclm import DCLM
+from hextools.devices.filters import Filter
+from hextools.devices.motors import (
+    CameraObjective,
+    FOV_2_4_mm_Camera,
+    HomeStatus,
+)
+from hextools.devices.slits import Slits
 
 
 def _mock_slits() -> Slits:

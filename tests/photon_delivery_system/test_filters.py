@@ -16,7 +16,7 @@ from ophyd_async.core import (
 )
 
 from hextools.bl_constants import fetch_beamline_constants
-from hextools.photon_delivery_system.filters import (
+from hextools.devices.filters import (
     Filter,
     Filter1DownstreamPosition,
     Filter1UpstreamPosition,
@@ -26,10 +26,15 @@ from hextools.photon_delivery_system.filters import (
     FilterMock,
     FilterPosition,
     FilterSetting,
+)
+from hextools.devices.shutter import (
+    PPSShutter,
+    ShutterStatus,
+)
+from hextools.plans.photon_delivery import (
     move_filters,
     set_filters,
 )
-from hextools.photon_delivery_system.shutter import PPSShutter, ShutterStatus
 
 
 @pytest.fixture
@@ -464,7 +469,7 @@ async def test_set_filters_fails_and_keeps_the_fe_shutter_closed_if_ack_never_co
     RE: RunEngine, monkeypatch
 ):
     monkeypatch.setattr("random.uniform", lambda *_: 0.0)
-    monkeypatch.setattr("hextools.photon_delivery_system.shutter.DEFAULT_TIMEOUT", 0.1)
+    monkeypatch.setattr("hextools.plans.photon_delivery.DEFAULT_TIMEOUT", 0.1)
     devices = _set_filters_devices()
     fe_shutter = _fe_shutter(ShutterStatus.OPEN)
     _trip_fe_interlock_on_move(devices["filter2"], fe_shutter)

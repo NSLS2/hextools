@@ -4,7 +4,10 @@ import pytest
 from bluesky.run_engine import RunEngine
 from ophyd_async.core import init_devices, set_mock_value
 
-from hextools.machine import NSLS2OpsMode, NSLS2StorageRing
+from hextools.devices.machine import (
+    NSLS2OpsMode,
+    NSLS2StorageRing,
+)
 from hextools.suspenders import SuspendFloorUnlessOpsMode
 
 SKIP = (NSLS2OpsMode.MAINTENANCE, NSLS2OpsMode.SHUTDOWN)

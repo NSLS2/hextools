@@ -2,7 +2,7 @@
   "plan": "tomo_flyscan",
   "args": [
     {
-      "$record": "hextools.tomography.FlyscanSetup",
+      "$record": "hextools.plans.tomography.FlyscanSetup",
       "rotation": {"$device": "sample_tower.rotation"},
       "detectors": [{"$device": "kinetix1"}, {"$device": "kinetix3"}],
       "exposure": 0.02

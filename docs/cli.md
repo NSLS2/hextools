@@ -72,10 +72,10 @@ created. Data from runs is written to Tiled as it is collected.
 Once paused, choose how to continue:
 
 ```python
-RE.resume()   # carry on from the last checkpoint
-RE.stop()     # end the plan, marking the run as successful
-RE.abort()    # end the plan, marking the run as aborted
-RE.halt()     # end immediately, skipping cleanup (emergencies only)
+RE.resume()  # carry on from the last checkpoint
+RE.stop()  # end the plan, marking the run as successful
+RE.abort()  # end the plan, marking the run as aborted
+RE.halt()  # end immediately, skipping cleanup (emergencies only)
 ```
 
 If the storage-ring current drops below 100 mA, the RunEngine suspends the
@@ -89,7 +89,10 @@ The front-end (`fe_shutter`) and photon (`photon_shutter`) shutters are
 opened and closed with plan stubs that check the state before acting:
 
 ```python
-from hextools.photon_delivery_system import ensure_shutter_open, ensure_shutter_closed
+from hextools.plans.photon_delivery import (
+    ensure_shutter_open,
+    ensure_shutter_closed,
+)
 
 RE(ensure_shutter_open([fe_shutter, photon_shutter], allow_actuation=True))
 RE(ensure_shutter_closed(photon_shutter))
@@ -116,25 +119,25 @@ RE(change_energy(70.0, auto_tune=True))
 ### Motors and filters
 
 ```python
-RE(move_motor(sample_tower.ry2, 90))          # single motor, absolute
-RE(bps.mv(sample_tower.x1, 1, sample_tower.y, 2))   # several motors at once
-RE(bps.mvr(sample_tower.x1, 0.5))             # relative move
+RE(move_motor(sample_tower.ry2, 90))  # single motor, absolute
+RE(bps.mv(sample_tower.x1, 1, sample_tower.y, 2))  # several motors at once
+RE(bps.mvr(sample_tower.x1, 0.5))  # relative move
 ```
 
 Slits (`a_slits`, `f_slits`, `edxd_slits`) move by the center line and gap of each
 blade pair; only the values given move, and a center move keeps the gap:
 
 ```python
-RE(move_slits(a_slits, horizontal_center=0.5))                  # shift the pair
-RE(move_slits(a_slits, horizontal_gap=2.0, vertical_gap=1.0))   # open about the center
-RE(move_slits(f_slits, vertical_center=-0.1, relative=True))    # nudge by 0.1 mm
+RE(move_slits(a_slits, horizontal_center=0.5))  # shift the pair
+RE(move_slits(a_slits, horizontal_gap=2.0, vertical_gap=1.0))  # open about the center
+RE(move_slits(f_slits, vertical_center=-0.1, relative=True))  # nudge by 0.1 mm
 ```
 
 Front-end Slit1 has fixed apertures chosen by its Y axis (`fe_slit1`):
 
 ```python
 RE(set_fe_aperture("Pinhole (0.89 mm)"))
-RE(set_fe_aperture(SlitAperture.FULLY_OPEN))   # 24 x 4.55 mm
+RE(set_fe_aperture(SlitAperture.FULLY_OPEN))  # 24 x 4.55 mm
 ```
 
 The filters (`filter1_upstream`, `filter1_downstream`, `filter2`, `filter3`,
@@ -152,6 +155,7 @@ To see what a device contains, print its tree:
 
 ```python
 from hextools.utils import print_device_tree
+
 print_device_tree(sample_tower)
 ```
 
@@ -166,15 +170,35 @@ form below is usually all you need.
 
 ```python
 # One flyscan: rotate 0 -> 180 degrees while kinetix1 takes 1800 images
-RE(tomo_flyscan([kinetix1], num_images=1801, exposure_time=0.01, sample_name="steel_rod"))
+RE(
+    tomo_flyscan(
+        [kinetix1], num_images=1801, exposure_time=0.01, sample_name="steel_rod"
+    )
+)
 
 # Repeat the flyscan at 5 heights
-RE(tomo_1d_step_scan([kinetix1], sample_tower.z1, 0, 4, 5,
-                     num_images=1801, exposure_time=0.01))
+RE(
+    tomo_1d_step_scan(
+        [kinetix1], sample_tower.z1, 0, 4, 5, num_images=1801, exposure_time=0.01
+    )
+)
 
 # Repeat over a 2D grid
-RE(tomo_2d_step_scan([kinetix1], sample_tower.x1, -1, 1, 3, sample_tower.z1, 0, 4, 5,
-                     num_images=1801, exposure_time=0.01))
+RE(
+    tomo_2d_step_scan(
+        [kinetix1],
+        sample_tower.x1,
+        -1,
+        1,
+        3,
+        sample_tower.z1,
+        0,
+        4,
+        5,
+        num_images=1801,
+        exposure_time=0.01,
+    )
+)
 
 # Rotation-axis alignment scan: 37 projections over 360 degrees
 RE(tomo_alignment_scan(kinetix1, exposure_time=0.01))
@@ -187,7 +211,7 @@ the photon shutter for the acquisition.
 ### Radiography
 
 ```python
-from hextools.tomography.radiography import take_radiograph
+from hextools.plans.radiography import take_radiograph
 
 RE(take_radiograph([kinetix1], exposure_time=0.005, num_images=100))
 ```
@@ -198,8 +222,8 @@ The energy-dispersive plans use the GeRM detector (`germ`):
 
 ```python
 RE(edxd_count(count_time=10, num=3, description="background"))
-RE(edxd_scan(...))          # 1D scan
-RE(edxd_grid_scan(...))     # 2D grid
+RE(edxd_scan(...))  # 1D scan
+RE(edxd_grid_scan(...))  # 2D grid
 ```
 
 Use `edxd_count?` (or any plan name followed by `?`) to print its full
@@ -230,7 +254,8 @@ switch to a beamtime:
 
 ```python
 from hextools.utils import start_beamtime
-start_beamtime(123456)    # prompts for your BNL username and password
+
+start_beamtime(123456)  # prompts for your BNL username and password
 ```
 
 This runs NSLS-II's `sync-experiment`, which checks that you are allowed to
@@ -242,8 +267,8 @@ In an interactive session the profile creates a Tiled client for the HEX raw
 catalog, available as `c` (and `tiled_reading_client`):
 
 ```python
-run = c[-1]                          # most recent run
-run.start                            # start document (metadata)
-run["primary"]["kinetix1"].read()    # an image stack, as a numpy array
-c.search(...)                        # search by metadata
+run = c[-1]  # most recent run
+run.start  # start document (metadata)
+run["primary"]["kinetix1"].read()  # an image stack, as a numpy array
+c.search(...)  # search by metadata
 ```
