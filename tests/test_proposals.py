@@ -1,3 +1,5 @@
+import pytest
+
 from hextools.utils import initialize_run_engine
 from hextools.utils.proposals import MOCK_PROPOSAL, MockProposalClient, Proposal
 
@@ -50,3 +52,24 @@ def test_mock_client_looks_up_listed_proposals_and_rejects_unknown_ones():
         pass
     else:
         raise AssertionError("unknown proposal was not rejected")
+
+
+def test_mock_client_changes_the_proposal_in_the_metadata():
+    client = MockProposalClient()
+    (target, *_) = client.list_proposals().user
+    md = {"data_session": f"pass-{MOCK_PROPOSAL.number}", "group": "HEX"}
+
+    client.change_proposal(target.number, "someone", "any password", md)
+
+    assert md["data_session"] == f"pass-{target.number}"
+    assert md["username"] == "someone"
+    assert md["proposal"] == {
+        "proposal_id": target.number,
+        "title": target.title,
+        "type": target.type,
+        "pi_name": target.pi_name,
+    }
+    assert md["group"] == "HEX"
+    with pytest.raises(ValueError):
+        client.change_proposal("1", "someone", "", md)
+    assert md["data_session"] == f"pass-{target.number}"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
+
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QIntValidator
 from qtpy.QtWidgets import (
@@ -37,7 +39,8 @@ class QtProposalInfo(QtReMetadataMonitor):
     re_client : RunEngineClient
         Whose metadata holds the active proposal.
     proposal_client : ProposalClient
-        Lists the proposals offered by **Change Proposal…**, and looks them up.
+        Lists the proposals offered by **Change Proposal…**, looks them up, and
+        changes to the chosen one, recording it in the RunEngine metadata.
     parent : QWidget, optional
         Parent widget.
     poll_period : float, optional
@@ -76,7 +79,11 @@ class QtProposalInfo(QtReMetadataMonitor):
         self._group_layout.addWidget(self._change_button)
 
     def _switch(self, proposal: int, username: str, password: str):
-        return
+        md = self._re_client.metadata()
+        # In process, this is the live RE.md.
+        if not isinstance(md, MutableMapping):
+            raise TypeError("This RunEngine client's metadata can't be changed")
+        self._proposal_client.change_proposal(proposal, username, password, md)
 
     def change_proposal(self):
         """Open the dialog to pick a proposal and sign in, then switch to it."""

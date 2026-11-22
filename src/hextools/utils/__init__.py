@@ -2,8 +2,6 @@
 
 import asyncio
 import os
-import shutil
-import sys
 from collections.abc import AsyncIterable, MutableMapping
 from datetime import datetime
 from typing import Any, TypeVar
@@ -24,7 +22,7 @@ from .nl_msg_hook import nl_msg_hook as nl_msg_hook
 from .path_providers import (
     StartDocAwareFilenameProvider as StartDocAwareFilenameProvider,
 )
-from .proposals import MOCK_PROPOSAL, MockProposalClient
+from .proposals import MOCK_PROPOSAL, MockProposalClient, NSLS2ProposalClient
 
 NSVarT = TypeVar("NSVarT")
 
@@ -205,57 +203,6 @@ def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
     print_proposal_info(md)
 
 
-def _run_sync_experiment(
-    proposal_number: int,
-    username: str,
-    password: str,
-    beamline: str,
-    timeout: float = 60.0,
-) -> str:
-    """Run ``sync-experiment``, answering its prompts.
-
-    Return its output, or raise on failure.
-    """
-    import pexpect
-
-    exe = shutil.which(
-        "sync-experiment", path=os.path.dirname(sys.executable)
-    ) or shutil.which("sync-experiment")
-    if exe is None:
-        raise RuntimeError("The sync-experiment command was not found.")
-
-    child = pexpect.spawn(
-        exe,
-        ["--beamline", beamline, "--proposal", str(proposal_number), "--enable-ssl"],
-        encoding="utf-8",
-        timeout=timeout,
-    )
-    output = ""
-    try:
-        for prompt, answer in (("Username : ", username), ("Password : ", password)):
-            if child.expect([prompt, pexpect.EOF]) == 1:
-                output += child.before or ""
-                break
-            output += (child.before or "") + prompt
-            child.sendline(answer)
-        else:
-            child.expect(pexpect.EOF)
-            output += child.before or ""
-    except pexpect.TIMEOUT:
-        raise RuntimeError("sync-experiment timed out.") from None
-    finally:
-        child.close(force=True)
-
-    if child.exitstatus != 0:
-        lines = [line for line in output.splitlines() if line.strip()]
-        raise RuntimeError(
-            lines[-1]
-            if lines
-            else f"sync-experiment failed (exit status {child.exitstatus})."
-        )
-    return output
-
-
 def switch_proposal(
     proposal_number: int,
     username: str,
@@ -278,20 +225,14 @@ def switch_proposal(
     if is_running_in_ci():
         if md is None:
             raise ValueError("In mock mode, the metadata to update must be given.")
-        md["data_session"] = f"pass-{proposal_number}"
-        md["username"] = username
-        md["start_datetime"] = datetime.now().isoformat()
-        proposal = MockProposalClient().get_proposal(proposal_number)
-        md["proposal"] = {
-            "proposal_id": proposal.number,
-            "title": proposal.title,
-            "type": proposal.type,
-            "pi_name": proposal.pi_name,
-        }
+        MockProposalClient().change_proposal(proposal_number, username, password, md)
         return md
 
-    _run_sync_experiment(proposal_number, username, password, beamline)
-    return md if md is not None else {}
+    md = md if md is not None else {}
+    NSLS2ProposalClient(beamline).change_proposal(
+        proposal_number, username, password, md
+    )
+    return md
 
 
 PIPE = "│"

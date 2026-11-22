@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import os
 import random
+import shutil
+import sys
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 
 NSLS2_API_URL = "https://api.nsls2.bnl.gov"
 
@@ -41,7 +45,7 @@ MOCK_PROPOSAL = Proposal(
 
 
 class ProposalClient(ABC):
-    """Lists a beamline's proposals and looks up their details."""
+    """Lists a beamline's proposals, looks up their details, and changes to one."""
 
     @abstractmethod
     def list_proposals(self) -> ProposalListing:
@@ -55,6 +59,33 @@ class ProposalClient(ABC):
         ------
         ValueError
             If there is no such proposal.
+        """
+
+    @abstractmethod
+    def change_proposal(
+        self,
+        number: int | str,
+        username: str,
+        password: str,
+        md: MutableMapping[str, Any],
+    ) -> None:
+        """Sign ``username`` in and make proposal ``number`` the active one.
+
+        Parameters
+        ----------
+        number : int or str
+            The proposal to change to.
+        username, password : str
+            Credentials of someone on the proposal.
+        md : MutableMapping[str, Any]
+            The RunEngine metadata (``RE.md``) that records the active proposal.
+
+        Raises
+        ------
+        ValueError
+            If there is no such proposal.
+        RuntimeError
+            If the change was refused or failed.
         """
 
 
@@ -149,6 +180,71 @@ class NSLS2ProposalClient(ProposalClient):
             type=proposal.get("type") or "",
             pi_name=f"{pi.get('first_name') or ''} {pi.get('last_name') or ''}".strip(),
         )
+
+    def change_proposal(
+        self,
+        number: int | str,
+        username: str,
+        password: str,
+        md: MutableMapping[str, Any],
+    ) -> None:
+        """Run ``nslsii``'s ``sync-experiment``, answering its prompts.
+
+        It writes the proposal to Redis, which ``md`` reads from at the beamline,
+        so ``md`` itself isn't written to.
+        """
+        _run_sync_experiment(number, username, password, self.beamline)
+
+
+def _run_sync_experiment(
+    proposal_number: int | str,
+    username: str,
+    password: str,
+    beamline: str,
+    timeout: float = 60.0,
+) -> str:
+    """Run ``sync-experiment``, answering its prompts.
+
+    Return its output, or raise on failure.
+    """
+    import pexpect
+
+    exe = shutil.which(
+        "sync-experiment", path=os.path.dirname(sys.executable)
+    ) or shutil.which("sync-experiment")
+    if exe is None:
+        raise RuntimeError("The sync-experiment command was not found.")
+
+    child = pexpect.spawn(
+        exe,
+        ["--beamline", beamline, "--proposal", str(proposal_number), "--enable-ssl"],
+        encoding="utf-8",
+        timeout=timeout,
+    )
+    output = ""
+    try:
+        for prompt, answer in (("Username : ", username), ("Password : ", password)):
+            if child.expect([prompt, pexpect.EOF]) == 1:
+                output += child.before or ""
+                break
+            output += (child.before or "") + prompt
+            child.sendline(answer)
+        else:
+            child.expect(pexpect.EOF)
+            output += child.before or ""
+    except pexpect.TIMEOUT:
+        raise RuntimeError("sync-experiment timed out.") from None
+    finally:
+        child.close(force=True)
+
+    if child.exitstatus != 0:
+        lines = [line for line in output.splitlines() if line.strip()]
+        raise RuntimeError(
+            lines[-1]
+            if lines
+            else f"sync-experiment failed (exit status {child.exitstatus})."
+        )
+    return output
 
 
 _TECHNIQUES = (
@@ -247,3 +343,22 @@ class MockProposalClient(ProposalClient):
             return self._proposals[str(number)]
         except KeyError:
             raise ValueError(f"No proposal {number}") from None
+
+    def change_proposal(
+        self,
+        number: int | str,
+        username: str,
+        password: str,
+        md: MutableMapping[str, Any],
+    ) -> None:
+        """Record proposal ``number`` in ``md``; any credentials are accepted."""
+        proposal = self.get_proposal(number)
+        md["data_session"] = f"pass-{proposal.number}"
+        md["username"] = username
+        md["start_datetime"] = datetime.now().isoformat()
+        md["proposal"] = {
+            "proposal_id": proposal.number,
+            "title": proposal.title,
+            "type": proposal.type,
+            "pi_name": proposal.pi_name,
+        }
