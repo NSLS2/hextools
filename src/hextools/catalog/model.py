@@ -10,7 +10,7 @@ it receives; :meth:`PlanCatalog.from_namespace` and
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -135,6 +135,26 @@ class PlanDescription:
     def device_parameters(self) -> list[Parameter]:
         """Return the parameters that take a device anywhere in their type."""
         return [p for p in self.parameters if device_types(p.type)]
+
+    def bind(self, args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict[str, Any]:
+        """Return the arguments of a call by parameter name, as keywords.
+
+        Raises
+        ------
+        TypeError
+            If there are more positional arguments than positional parameters.
+        """
+        positional = [
+            p.name
+            for p in self.parameters
+            if p.kind in ("positional_only", "positional_or_keyword")
+        ]
+        if len(args) > len(positional):
+            raise TypeError(
+                f"{self.name} takes {len(positional)} positional arguments by name, "
+                f"not {len(args)}"
+            )
+        return {**dict(zip(positional, args, strict=False)), **kwargs}
 
     def matches(self, text: str) -> bool:
         """Return True if ``text`` is in the name, description or a parameter name.

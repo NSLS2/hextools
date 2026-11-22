@@ -196,7 +196,14 @@ errors.
 Every plan run in this session, from the GUI or the terminal: start and stop
 times, the plan and its arguments, whether it succeeded, and its scan IDs and
 uids. Select a row and press **Re-run Selected Plan** to run it again with the
-same arguments. Use `--history-file` to keep the history across sessions.
+same arguments, or **Edit and Re-run…** to open the plan's form filled in with
+them, change what you need, and press **Run Plan**. Use `--history-file` to
+keep the history across sessions.
+
+Double-click a row to open its **Plan Summary**: how the plan ended and when,
+the plan's description, every parameter with the value it ran with (defaults in
+italics) and its description, a table of every run's scan ID and uid, and the
+traceback if it failed.
 
 ### Available Devices
 

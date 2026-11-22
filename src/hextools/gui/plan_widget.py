@@ -19,7 +19,9 @@ changes. The run button runs the plan through the client.
 
 from __future__ import annotations
 
+import enum
 import html
+from collections.abc import Mapping
 from typing import Any
 
 from qtpy.QtCore import QEvent, QSize, Qt, QTimer, Slot
@@ -48,6 +50,8 @@ from hextools.gui.run_engine_clients import (
     PlanError,
     PlanPausedError,
     RunEngineClient,
+    _source,
+    serialize,
 )
 
 _NO_SELECTION = "\u2014"  # em dash placeholder for an unset single device
@@ -153,6 +157,10 @@ class QtPlanWidget(QWidget):
         Parent widget.
     title : str, optional
         Group box title. Default: derived from the plan name.
+    close_on_run : bool, optional
+        For a form in its own window: hide it on **Run Plan** and close it once
+        the plan ends, unless the plan failed, when it shows again with the
+        error so the values can be fixed. Default: False.
 
     Raises
     ------
@@ -167,10 +175,12 @@ class QtPlanWidget(QWidget):
         parent=None,
         *,
         title: str | None = None,
+        close_on_run: bool = False,
     ):
         super().__init__(parent)
         self._re_client = re_client
         self._plan_name = plan_name
+        self._close_on_run = close_on_run
         try:
             self._plan = re_client.plan_catalog[plan_name]
         except KeyError:
@@ -203,6 +213,11 @@ class QtPlanWidget(QWidget):
 
         self._submit_button = QPushButton("Run Plan")
         self._submit_button.clicked.connect(self._on_submit_clicked)
+        self._extra_kwargs: dict[str, Any] = {}
+        self._extras_label = QLabel()
+        self._extras_label.setWordWrap(True)
+        self._extras_label.hide()
+        vbox.addWidget(self._extras_label)
         vbox.addWidget(self._submit_button)
 
         self._status_label = QLabel("")
@@ -219,6 +234,69 @@ class QtPlanWidget(QWidget):
         self._catalog = QtCatalog(re_client, self)
         self._catalog.changed.connect(lambda *_: self._refresh_devices())
         self._refresh_devices()
+
+    # -- Pre-filling -----------------------------------------------------------
+
+    def set_values(self, values: Mapping[str, Any]) -> None:
+        """Fill the form with ``values``, by parameter name.
+
+        Values the form has no field for, e.g. of devices the plan otherwise
+        finds itself, are listed under the form and passed unchanged on **Run**,
+        unless a plan call can't carry them (e.g. a ``dict``); those are left
+        to the plan's defaults, and listed too.
+        """
+        remaining = dict(values)
+        for field in self._device_fields:
+            if field["name"] not in remaining:
+                continue
+            value = remaining.pop(field["name"])
+            if field["kind"] == "list":
+                field["widget"].set_selected_devices(str(v) for v in value or ())
+            else:
+                combo = field["widget"]
+                combo.setCurrentIndex(max(combo.findData(str(value)), 0))
+        for name, kind, widget, _ in self._scalar_fields:
+            if name not in remaining:
+                continue
+            value = remaining.pop(name)
+            if kind is bool:
+                widget.setChecked(bool(value))  # type: ignore[attr-defined]
+            else:
+                widget.setText("" if value is None else str(value))  # type: ignore[attr-defined]
+        for name, _, widget, _ in self._scalar_list_fields:
+            if name in remaining:
+                value = remaining.pop(name)
+                widget.setText(", ".join(str(v) for v in value or ()))  # type: ignore[attr-defined]
+        for name, combo, _ in self._enum_fields:
+            if name in remaining:
+                value = remaining.pop(name)
+                if isinstance(value, enum.Enum):
+                    value = value.value
+                index = combo.findData(value)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+        passed, dropped = {}, []
+        for name, value in remaining.items():
+            try:
+                serialize(value)
+            except TypeError:
+                dropped.append(name)
+            else:
+                passed[name] = value
+        self._extra_kwargs = passed
+        notes = []
+        if passed:
+            notes.append(
+                "Also passed as before: "
+                + ", ".join(f"{k}={_source(v)}" for k, v in passed.items())
+            )
+        if dropped:
+            notes.append(
+                "Left to the plan's defaults (can't be passed from here): "
+                + ", ".join(dropped)
+            )
+        self._extras_label.setText("\n".join(notes))
+        self._extras_label.setVisible(bool(notes))
 
     # -- Form construction -----------------------------------------------------
 
@@ -484,7 +562,10 @@ class QtPlanWidget(QWidget):
                 if isinstance(value, list)
                 else DeviceName(value)
             )
+        kwargs = {**self._extra_kwargs, **kwargs}
         self._set_status("Running\u2026")
+        if self._close_on_run:
+            self.hide()
         # Defer so the click handler returns before the plan runs.
         QTimer.singleShot(0, lambda: self._execute(kwargs))
 
@@ -494,12 +575,16 @@ class QtPlanWidget(QWidget):
         except PlanPausedError as error:
             self._set_status("Plan paused.")
             show_plan_error(self, "Plan execution failed", error)
-            return
         except PlanError as error:
             self._set_status(f"Plan failed: {error}", error=True)
+            if self._close_on_run:
+                self.show()
             show_plan_error(self, "Plan execution failed", error)
             return
-        self._set_status("Plan complete.")
+        else:
+            self._set_status("Plan complete.")
+        if self._close_on_run:
+            self.close()
 
     def _set_status(self, message: str, *, error: bool = False):
         self._status_label.setText(message)
