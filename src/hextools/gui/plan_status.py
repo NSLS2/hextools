@@ -576,6 +576,8 @@ class QtPlanHistory(QWidget):
 
     _COLUMNS = ("Start", "Stop", "Plan", "Arguments", "Status", "Scan ID", "UID")
     _ARGUMENTS_COLUMN = 3
+    # Wrapped to these widths, in average characters, rather than widening the table.
+    _WRAPPED_WIDTHS = {4: 28, 5: 14}
 
     def __init__(self, re_client: RunEngineClient, parent=None):
         super().__init__(parent)
@@ -587,12 +589,22 @@ class QtPlanHistory(QWidget):
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # Long cells wrap onto more lines, and rows grow to show them whole.
+        self._table.setWordWrap(True)
+        self._table.setTextElideMode(Qt.TextElideMode.ElideNone)
         self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(
             self._ARGUMENTS_COLUMN, QHeaderView.ResizeMode.Stretch
         )
+        char_width = self._table.fontMetrics().averageCharWidth()
+        for column, chars in self._WRAPPED_WIDTHS.items():
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+            header.resizeSection(column, chars * char_width)
         self._table.itemSelectionChanged.connect(self._update_button)
 
         self._rerun_button = QPushButton("Re-run Selected Plan")
@@ -637,10 +649,14 @@ class QtPlanHistory(QWidget):
                 item.arguments,
                 f"{status}: {result.msg}" if result.msg else status,
                 ", ".join(scan_ids) or _NOT_APPLICABLE,
-                ", ".join(result.run_uids) or _NOT_APPLICABLE,
+                # A uid can't wrap, so the column is one uid wide and each has a line.
+                "\n".join(result.run_uids) or _NOT_APPLICABLE,
             )
             for column, text in enumerate(cells):
                 cell = QTableWidgetItem(text)
+                cell.setTextAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+                )
                 cell.setToolTip(text)
                 self._table.setItem(row, column, cell)
             if selected is not None and item.item_uid == selected.item_uid:
