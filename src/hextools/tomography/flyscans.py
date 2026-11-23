@@ -166,7 +166,7 @@ def tomo_flyscan(
     restart_preview: bool = True,
     sample_name: str | None = None,
     time_based: bool = True,
-    min_lead: float = 0.2,
+    min_lead_angle: float = 0.0,
     panda: HDFPanda | None = None,
     rot_motor: RotationMotor | None = None,
     fe_shutter: Shutter | None = None,
@@ -204,12 +204,9 @@ def tomo_flyscan(
     time_based : bool
         Whether the triggers are issued equally spaced in time, as opposed to
         being position-based.
-    min_lead : float, optional
-        The least distance, in degrees, the rotation stage parks before ``start``
-        before the scan. Default 0.2. The PandA's position compare only fires its
-        start pulse once the encoder has been before ``start``; a slow scan's
-        acceleration run-up alone can be smaller than the stage's parking error or
-        jitter, and then no frames are taken.
+    min_lead_angle : float, optional
+        Least distance (deg) the stage parks before ``start``. Default 0. Raise it
+        (e.g. 0.2) when slow scans miss their start trigger.
     panda : HDFPanda | None
         The HDF Panda device to use.
     rot_motor : RotationMotor | None
@@ -306,7 +303,7 @@ def tomo_flyscan(
             max_motor_velocity=max_velocity,
             acq_time_overhead=overhead,
             time_based=time_based,
-            min_lead=min_lead,
+            min_lead_angle=min_lead_angle,
         )
 
         if use_shutter:
@@ -405,6 +402,7 @@ def tomo_nd_step_scan(
     dark_flat_frequency: int = 0,
     sample_name: str | None = None,
     time_based: bool = True,
+    min_lead_angle: float = 0.0,
     snake_axes: bool | Sequence[AsyncEpicsMotor | SimMotor] = False,
     num_retries: int = 0,
     sample_tower: SampleTower | None = None,
@@ -468,6 +466,8 @@ def tomo_nd_step_scan(
         If greater than 0, also take a dark/flat after every this many grid points.
     time_based : bool, optional
         Whether the scan is time-based.
+    min_lead_angle : float, optional
+        Passed to each :func:`tomo_flyscan`. Default 0.
     snake_axes : bool | Sequence[AsyncEpicsMotor | SimMotor], optional
         If True, snake every axis but the outermost; otherwise, the motors to snake.
     num_retries : int, optional
@@ -576,6 +576,7 @@ def tomo_nd_step_scan(
                         restart_preview=False,
                         sample_name=sample_name,
                         time_based=time_based,
+                        min_lead_angle=min_lead_angle,
                         panda=panda,
                         rot_motor=rot_motor,
                         fe_shutter=fe_shutter,
@@ -638,6 +639,7 @@ def tomo_flyscan_loop(
     restart_preview: bool = True,
     sample_name: str | None = None,
     time_based: bool = True,
+    min_lead_angle: float = 0.0,
     panda: HDFPanda | None = None,
     sample_tower: SampleTower | None = None,
     rot_motor: RotationMotor | None = None,
@@ -693,6 +695,8 @@ def tomo_flyscan_loop(
         The name of the sample being scanned. Default is None.
     time_based : bool, optional
         Whether the fly scan is time-based. Default is True.
+    min_lead_angle : float, optional
+        Passed to each :func:`tomo_flyscan`. Default 0.
     panda : HDFPanda | None, optional
         The HDFPanda instance to use for data storage. Default is None.
     sample_tower : SampleTower | None, optional
@@ -726,6 +730,7 @@ def tomo_flyscan_loop(
             restart_preview=restart_preview,
             sample_name=sample_name,
             time_based=time_based,
+            min_lead_angle=min_lead_angle,
             panda=panda,
             sample_tower=sample_tower,
             rot_motor=rot_motor,
@@ -758,6 +763,7 @@ def tomo_1d_step_scan(
     num_flat_images: int = 50,
     dark_flat_frequency: int = 0,
     time_based: bool = True,
+    min_lead_angle: float = 0.0,
     panda: HDFPanda | None = None,
     rot_motor: RotationMotor | None = None,
     fe_shutter: Shutter | None = None,
@@ -806,6 +812,8 @@ def tomo_1d_step_scan(
         The number of times to retry the scan if it fails.
     time_based : bool, optional
         Whether the scan is time-based.
+    min_lead_angle : float, optional
+        Passed to each :func:`tomo_flyscan`. Default 0.
     dark_flat_offset : float, optional
         The offset for dark and flat images.
     num_dark_images : int, optional
@@ -847,6 +855,7 @@ def tomo_1d_step_scan(
             alternate_flyscan_dir=alternate_flyscan_dir,
             sample_name=sample_name,
             time_based=time_based,
+            min_lead_angle=min_lead_angle,
             dark_flat_offset=dark_flat_offset,
             num_dark_images=num_dark_images,
             num_flat_images=num_flat_images,
@@ -883,6 +892,12 @@ def tomo_2d_step_scan(
     num_retries: int = 0,
     sample_name: str | None = None,
     time_based: bool = True,
+    min_lead_angle: float = 0.0,
+    dark_flat_offset: float = 0.0,
+    dark_flat_exposure_time: float | None = None,
+    num_dark_images: int = 20,
+    num_flat_images: int = 50,
+    dark_flat_frequency: int = 0,
     snake_axes: bool | None = False,
     panda: HDFPanda | None = None,
     rot_motor: RotationMotor | None = None,
@@ -941,6 +956,19 @@ def tomo_2d_step_scan(
         The name of the sample being scanned.
     time_based : bool, default True
         If True, the scan is time-based rather than angle-based.
+    min_lead_angle : float, optional
+        Passed to each :func:`tomo_flyscan`. Default 0.
+    dark_flat_offset : float, default 0.0
+        Sample x offset for flats. If non-zero, a dark/flat is taken before and
+        after the scan; if 0, no darks/flats are taken.
+    dark_flat_exposure_time : float | None, default None
+        Exposure time for darks/flats. If None, ``exposure_time`` is used.
+    num_dark_images : int, default 20
+        Number of dark images per dark/flat.
+    num_flat_images : int, default 50
+        Number of flat images per dark/flat.
+    dark_flat_frequency : int, default 0
+        If greater than 0, also take a dark/flat after every this many grid points.
     sample_tower : SampleTower | None, default None
         The SampleTower instance to use for positioning the sample. Default is None.
     num_retries : int, default 3
@@ -986,6 +1014,12 @@ def tomo_2d_step_scan(
             alternate_flyscan_dir=alternate_flyscan_dir,
             sample_name=sample_name,
             time_based=time_based,
+            min_lead_angle=min_lead_angle,
+            dark_flat_offset=dark_flat_offset,
+            dark_flat_exposure_time=dark_flat_exposure_time,
+            num_dark_images=num_dark_images,
+            num_flat_images=num_flat_images,
+            dark_flat_frequency=dark_flat_frequency,
             snake_axes=bool(snake_axes),
             num_retries=num_retries,
             panda=panda,
