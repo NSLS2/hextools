@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import MutableMapping
-
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QIntValidator
 from qtpy.QtWidgets import (
@@ -79,11 +77,9 @@ class QtProposalInfo(QtReMetadataMonitor):
         self._group_layout.addWidget(self._change_button)
 
     def _switch(self, proposal: int, username: str, password: str):
-        md = self._re_client.metadata()
-        # In process, this is the live RE.md.
-        if not isinstance(md, MutableMapping):
-            raise TypeError("This RunEngine client's metadata can't be changed")
-        self._proposal_client.change_proposal(proposal, username, password, md)
+        updates = self._proposal_client.change_proposal(proposal, username, password)
+        if updates:
+            self._re_client.update_metadata(updates)
 
     def change_proposal(self):
         """Open the dialog to pick a proposal and sign in, then switch to it."""

@@ -54,12 +54,11 @@ def test_mock_client_looks_up_listed_proposals_and_rejects_unknown_ones():
         raise AssertionError("unknown proposal was not rejected")
 
 
-def test_mock_client_changes_the_proposal_in_the_metadata():
+def test_mock_client_returns_the_metadata_of_the_new_proposal():
     client = MockProposalClient()
     (target, *_) = client.list_proposals().user
-    md = {"data_session": f"pass-{MOCK_PROPOSAL.number}", "group": "HEX"}
 
-    client.change_proposal(target.number, "someone", "any password", md)
+    md = client.change_proposal(target.number, "someone", "any password")
 
     assert md["data_session"] == f"pass-{target.number}"
     assert md["username"] == "someone"
@@ -69,7 +68,5 @@ def test_mock_client_changes_the_proposal_in_the_metadata():
         "type": target.type,
         "pi_name": target.pi_name,
     }
-    assert md["group"] == "HEX"
     with pytest.raises(ValueError):
-        client.change_proposal("1", "someone", "", md)
-    assert md["data_session"] == f"pass-{target.number}"
+        client.change_proposal("1", "someone", "")

@@ -7,7 +7,7 @@ import random
 import shutil
 import sys
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, MutableMapping
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -63,12 +63,8 @@ class ProposalClient(ABC):
 
     @abstractmethod
     def change_proposal(
-        self,
-        number: int | str,
-        username: str,
-        password: str,
-        md: MutableMapping[str, Any],
-    ) -> None:
+        self, number: int | str, username: str, password: str
+    ) -> dict[str, Any]:
         """Sign ``username`` in and make proposal ``number`` the active one.
 
         Parameters
@@ -77,8 +73,12 @@ class ProposalClient(ABC):
             The proposal to change to.
         username, password : str
             Credentials of someone on the proposal.
-        md : MutableMapping[str, Any]
-            The RunEngine metadata (``RE.md``) that records the active proposal.
+
+        Returns
+        -------
+        dict[str, Any]
+            The RunEngine metadata (``RE.md``) keys to set to record the change;
+            empty if the metadata follows the change by itself.
 
         Raises
         ------
@@ -182,18 +182,15 @@ class NSLS2ProposalClient(ProposalClient):
         )
 
     def change_proposal(
-        self,
-        number: int | str,
-        username: str,
-        password: str,
-        md: MutableMapping[str, Any],
-    ) -> None:
+        self, number: int | str, username: str, password: str
+    ) -> dict[str, Any]:
         """Run ``nslsii``'s ``sync-experiment``, answering its prompts.
 
-        It writes the proposal to Redis, which ``md`` reads from at the beamline,
-        so ``md`` itself isn't written to.
+        It writes the proposal to Redis, which ``RE.md`` reads from at the
+        beamline, so there is no metadata to set.
         """
         _run_sync_experiment(number, username, password, self.beamline)
+        return {}
 
 
 def _run_sync_experiment(
@@ -345,20 +342,18 @@ class MockProposalClient(ProposalClient):
             raise ValueError(f"No proposal {number}") from None
 
     def change_proposal(
-        self,
-        number: int | str,
-        username: str,
-        password: str,
-        md: MutableMapping[str, Any],
-    ) -> None:
-        """Record proposal ``number`` in ``md``; any credentials are accepted."""
+        self, number: int | str, username: str, password: str
+    ) -> dict[str, Any]:
+        """Return the metadata recording proposal ``number``; any credentials do."""
         proposal = self.get_proposal(number)
-        md["data_session"] = f"pass-{proposal.number}"
-        md["username"] = username
-        md["start_datetime"] = datetime.now().isoformat()
-        md["proposal"] = {
-            "proposal_id": proposal.number,
-            "title": proposal.title,
-            "type": proposal.type,
-            "pi_name": proposal.pi_name,
+        return {
+            "data_session": f"pass-{proposal.number}",
+            "username": username,
+            "start_datetime": datetime.now().isoformat(),
+            "proposal": {
+                "proposal_id": proposal.number,
+                "title": proposal.title,
+                "type": proposal.type,
+                "pi_name": proposal.pi_name,
+            },
         }

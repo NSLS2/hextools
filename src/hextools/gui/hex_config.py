@@ -3,15 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from hextools.catalog.generate import type_expr
-from hextools.catalog.model import DeviceRegistry, TypeExpr
-from hextools.devices.filters import (
-    Filter1DownstreamPosition,
-    Filter1UpstreamPosition,
-    Filter2Position,
-    Filter3Position,
-    Filter4Position,
-)
+from hextools.catalog.model import DeviceRegistry, PlanCatalog, TypeExpr
 from hextools.gui.run_engine_clients import RunEngineClient
 from hextools.gui.signal_status_group import QtDeviceStatus, QtStatusGroup
 
@@ -32,17 +24,10 @@ _TOWER_TITLES: dict[str, str] = {
     "hextools.devices.motors.EDXDTable": "EDXD Table",
 }
 
-# Position enum of each filter, by device name.
-FILTER_POSITION_ENUMS: dict[str, type] = {
-    "filter1_upstream": Filter1UpstreamPosition,
-    "filter1_downstream": Filter1DownstreamPosition,
-    "filter2": Filter2Position,
-    "filter3": Filter3Position,
-    "filter4": Filter4Position,
-}
-
 # Filters offered in the filter controls, by device name.
 CONTROLLED_FILTERS = ("filter1_upstream", "filter1_downstream", "filter2")
+# The plan whose ``<filter name>_setting`` parameters list each filter's materials.
+_SET_FILTERS = "set_filters"
 
 
 def _find(registry: DeviceRegistry, class_name: str) -> list[str]:
@@ -75,20 +60,30 @@ def _filters(registry: DeviceRegistry) -> list[str]:
 
 
 def filter_rows(
-    registry: DeviceRegistry,
+    registry: DeviceRegistry, catalog: PlanCatalog
 ) -> tuple[dict[str, str], dict[str, TypeExpr]]:
     """Row label to path, and path to position type, for each controlled filter.
 
-    Only :data:`CONTROLLED_FILTERS` with a position enum are included.
+    Only :data:`CONTROLLED_FILTERS` are included, and only if ``set_filters`` in
+    ``catalog`` has a setting parameter for them, whose type gives the materials.
     """
     rows: dict[str, str] = {}
     value_types: dict[str, TypeExpr] = {}
+    set_filters = catalog.get(_SET_FILTERS)
+    if set_filters is None:
+        return rows, value_types
     for path in _filters(registry):
         name = registry[path].name or path
-        enum = FILTER_POSITION_ENUMS.get(name)
-        if enum is not None and name in CONTROLLED_FILTERS:
-            rows[f"Filter {_filter_label(path)}"] = path
-            value_types[path] = type_expr(enum)
+        if name not in CONTROLLED_FILTERS:
+            continue
+        try:
+            setting = set_filters.parameter(f"{name}_setting").type
+        except KeyError:
+            continue
+        rows[f"Filter {_filter_label(path)}"] = path
+        value_types[path] = (
+            setting["of"] if setting.get("kind") == "optional" else setting
+        )
     return rows, value_types
 
 

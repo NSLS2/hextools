@@ -225,12 +225,16 @@ def switch_proposal(
     if is_running_in_ci():
         if md is None:
             raise ValueError("In mock mode, the metadata to update must be given.")
-        MockProposalClient().change_proposal(proposal_number, username, password, md)
+        md.update(
+            MockProposalClient().change_proposal(proposal_number, username, password)
+        )
         return md
 
     md = md if md is not None else {}
-    NSLS2ProposalClient(beamline).change_proposal(
-        proposal_number, username, password, md
+    md.update(
+        NSLS2ProposalClient(beamline).change_proposal(
+            proposal_number, username, password
+        )
     )
     return md
 

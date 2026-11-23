@@ -59,7 +59,6 @@ def test_mock_germ_frames_reach_the_viewer_through_the_client(RE, monkeypatch):
     from hextools.utils.path_providers import mock_path_provider
 
     app = QApplication.instance() or QApplication([])
-    monkeypatch.setenv("HEXTOOLS_RUNNING_IN_CI", "YES")
     shown: list[tuple[str, np.ndarray]] = []
     monkeypatch.setattr(
         QtTabbedDetectorsWidget,
@@ -69,7 +68,9 @@ def test_mock_germ_frames_reach_the_viewer_through_the_client(RE, monkeypatch):
     with init_devices(mock=True):
         germ = GeRMDetector("GERM:", mock_path_provider("/tmp/germ"))
     plans = {name: getattr(edxd, name) for name in edxd.__all__}
-    view = QtEDXDView(InProcessRunEngineClient({"RE": RE, "germ": germ, **plans}))
+    view = QtEDXDView(
+        InProcessRunEngineClient({"RE": RE, "germ": germ, **plans}, mock=True)
+    )
     try:
         frame = np.arange(np.prod(GERM_IMAGE_SHAPE), dtype=np.int32)
 

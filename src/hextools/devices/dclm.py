@@ -133,3 +133,6 @@ class DCLM(StandardReadable, EpicsDevice, AsyncMovable[BeamMode]):
             self.xtal1_vertical_trans.stop(success=success),
             self.cooled_beam_stop.stop(success=success),
         )
+
+
+__all__ = ["BeamMode", "DCLM"]

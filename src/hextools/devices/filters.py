@@ -262,3 +262,14 @@ else:
     ) = build_enums_from_position_lists(
         "filters", always_included_keys=["pass_through"]
     )
+
+__all__ = [
+    "Filter",
+    "Filter1UpstreamPosition",
+    "Filter1DownstreamPosition",
+    "Filter2Position",
+    "Filter3Position",
+    "Filter4Position",
+    "FilterPosition",
+    "FilterSetting",
+]

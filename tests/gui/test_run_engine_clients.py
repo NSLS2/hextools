@@ -41,6 +41,20 @@ def _client(RE, namespace=None) -> InProcessRunEngineClient:
 def test_in_process_client_needs_a_run_engine_in_the_namespace():
     with pytest.raises(ValueError):
         InProcessRunEngineClient({})
+
+
+def test_in_process_client_updates_only_the_metadata_keys_given(RE):
+    RE.md.update({"group": "HEX", "data_session": "pass-1"})
+    _client(RE).update_metadata({"data_session": "pass-2", "username": "someone"})
+    assert RE.md["group"] == "HEX"
+    assert RE.md["data_session"] == "pass-2"
+    assert RE.md["username"] == "someone"
+
+
+@pytest.mark.parametrize("mock", [True, False])
+def test_in_process_client_reports_whether_devices_are_mocked(RE, mock):
+    client = InProcessRunEngineClient({"RE": RE}, mock=mock)
+    assert client.mock is mock
     with pytest.raises(ValueError):
         InProcessRunEngineClient({"RE": object()})
 

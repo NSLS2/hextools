@@ -328,3 +328,14 @@ class DiffractionTable(StandardReadable, EpicsDevice):
             self.x_rbk = AsyncEpicsMotor(prefix + "XRbk}Mtr", name="x_rbk")
             self.y = AsyncEpicsMotor(prefix + "Y}Mtr", name="y")
             self.z = AsyncEpicsMotor(prefix + "Z}Mtr", name="z")
+
+
+__all__ = [
+    "DiffractionTable",
+    "CollimatorTable",
+    "EDXDTable",
+    "FOV_20_40_mm_Camera",
+    "FOV_2_4_mm_Camera",
+    "SampleSmall",
+    "SampleTower",
+]

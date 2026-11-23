@@ -196,7 +196,7 @@ class QtEDXDView(QWidget):
 
         top = QHBoxLayout()
         detectors = QtTabbedDetectorsWidget(re_client)
-        mock = is_running_in_ci()
+        mock = re_client.mock
         detectors.add_detector(
             "germ", "XF:27ID1-ES{GeRM-Det:1}MCA", **germ_viewer_options(mock=mock)
         )
@@ -348,7 +348,9 @@ class QtBeamlineView(QWidget):
         from hextools.gui.hex_config import filter_rows
         from hextools.gui.movable_group import QtMovableGroup
 
-        rows, value_types = filter_rows(re_client.device_registry)
+        rows, value_types = filter_rows(
+            re_client.device_registry, re_client.plan_catalog
+        )
         tab = QWidget()
         vbox = QVBoxLayout(tab)
         if rows:
@@ -372,9 +374,9 @@ class QtBeamlineView(QWidget):
         return tab
 
 
-def default_proposal_client() -> ProposalClient:
-    """Made-up proposals in mock mode, else HEX's from the NSLS-II API."""
-    return MockProposalClient() if is_running_in_ci() else NSLS2ProposalClient("HEX")
+def default_proposal_client(re_client: RunEngineClient) -> ProposalClient:
+    """Made-up proposals if the client's devices are mocked, else HEX's from NSLS-II."""
+    return MockProposalClient() if re_client.mock else NSLS2ProposalClient("HEX")
 
 
 class QtTabbedTechniqueSelector(QWidget):
@@ -405,7 +407,7 @@ class QtTabbedTechniqueSelector(QWidget):
         controls = QHBoxLayout()
         controls.addWidget(QtWeatherWidget())
         self.proposal_info = QtProposalInfo(
-            re_client, proposal_client or default_proposal_client()
+            re_client, proposal_client or default_proposal_client(re_client)
         )
         # Wide enough for long titles without stretching across a full screen.
         self.proposal_info.setMaximumWidth(800)
@@ -819,9 +821,9 @@ def launch_local_viewer(end_ipython_on_close: bool = False):
             logger_name="hextools",
             history_file=history_file,
             queue_file=queue_file,
+            mock=is_running_in_ci(),
         ),
         user_ns.get("tiled_reading_client") or user_ns.get("c"),
-        proposal_client=default_proposal_client(),
         end_ipython_on_close=end_ipython_on_close,
     )
 

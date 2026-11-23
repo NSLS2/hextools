@@ -625,9 +625,18 @@ class RunEngineClient(ABC):
     def state(self) -> str:
         """The RunEngine state, e.g. ``"idle"``, ``"running"`` or ``"paused"``."""
 
+    @property
+    @abstractmethod
+    def mock(self) -> bool:
+        """Whether the session's devices are simulated rather than real."""
+
     @abstractmethod
     def metadata(self) -> Mapping[str, Any]:
         """Return the RunEngine metadata (``RE.md``)."""
+
+    @abstractmethod
+    def update_metadata(self, updates: Mapping[str, Any]) -> None:
+        """Set the RunEngine metadata keys in ``updates``, leaving the rest."""
 
     @abstractmethod
     def serialize_plan(self, name: str, *args: Any, **kwargs: Any) -> str:
@@ -1067,6 +1076,8 @@ class InProcessRunEngineClient(RunEngineClient):
     call_soon : Callable, optional
         Calls a function on the main thread after the caller returns; queued
         plans run through it, one at a time. Default: a zero-delay Qt timer.
+    mock : bool, optional
+        Whether the namespace's devices are simulated. Default: False.
     """
 
     def __init__(
@@ -1076,8 +1087,10 @@ class InProcessRunEngineClient(RunEngineClient):
         history_file: str | Path | None = None,
         queue_file: str | Path | None = None,
         call_soon: Callable[[Callable[[], None]], None] | None = None,
+        mock: bool = False,
     ):
         super().__init__()
+        self._mock = mock
         self._logger = logging.getLogger(logger_name)
         re = namespace.get("RE", None)
         if not isinstance(re, RunEngine):
@@ -1111,8 +1124,15 @@ class InProcessRunEngineClient(RunEngineClient):
     def state(self) -> str:
         return str(self._re.state)
 
+    @property
+    def mock(self) -> bool:
+        return self._mock
+
     def metadata(self) -> Mapping[str, Any]:
         return self._re.md
+
+    def update_metadata(self, updates: Mapping[str, Any]) -> None:
+        self._re.md.update(updates)
 
     def refresh_catalog(self) -> None:
         """Describe the namespace's plans and devices again, and notify subscribers."""

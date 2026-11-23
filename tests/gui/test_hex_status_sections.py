@@ -10,7 +10,7 @@ from ophyd_async.core import init_devices  # noqa: E402
 from qtpy.QtWidgets import QApplication, QComboBox  # noqa: E402
 
 from hextools.catalog.generate import type_expr  # noqa: E402
-from hextools.catalog.model import DeviceRegistry  # noqa: E402
+from hextools.catalog.model import DeviceRegistry, PlanCatalog  # noqa: E402
 from hextools.devices.dclm import DCLM  # noqa: E402
 from hextools.devices.filters import (
     Filter,
@@ -33,6 +33,9 @@ from hextools.gui.hex_config import (  # noqa: E402
 from hextools.gui.movable_group import QtMovableGroup  # noqa: E402
 from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
 from hextools.gui.signal_status_group import QtBeamlineStatus  # noqa: E402
+from hextools.plans.photon_delivery import set_filters  # noqa: E402
+
+_CATALOG = PlanCatalog.from_namespace({"set_filters": set_filters})
 
 
 def test_status_sections_cover_beamline_devices():
@@ -95,8 +98,16 @@ def test_filter_rows_offer_only_filters_one_and_two():
     names = ["filter1_upstream", "filter1_downstream", "filter2", "filter3", "filter4"]
     with init_devices(mock=True):
         namespace = {n: Filter(f"{n}:", f"{n}:Sw", name=n) for n in names}
-    rows, _ = filter_rows(DeviceRegistry.from_namespace(namespace))
+    rows, _ = filter_rows(DeviceRegistry.from_namespace(namespace), _CATALOG)
     assert list(rows.values()) == names[:3]
+
+
+def test_filter_rows_need_set_filters_for_the_materials():
+    RunEngine()
+    with init_devices(mock=True):
+        filter2 = Filter("F2:", "F2:Sw", name="filter2")
+    registry = DeviceRegistry.from_namespace({"filter2": filter2})
+    assert filter_rows(registry, PlanCatalog.from_namespace({})) == ({}, {})
 
 
 def test_aliases_resolve_to_the_name_the_registry_keeps():
@@ -106,7 +117,7 @@ def test_aliases_resolve_to_the_name_the_registry_keeps():
         a_slits = Slits("A:", name="a_slits")
     namespace = {"alias": filter2, "filter2": filter2, "a": a_slits, "a_slits": a_slits}
     registry = DeviceRegistry.from_namespace(namespace)
-    rows, _ = filter_rows(registry)
+    rows, _ = filter_rows(registry, _CATALOG)
     assert list(rows.values()) == ["filter2"]
     assert slits_entries(registry) == [("a_slits", "A Slits")]
 
@@ -117,9 +128,14 @@ def test_filter_group_batches_material_settings_into_move_filters(monkeypatch):
     with init_devices(mock=True):
         filter2 = Filter("F2:", "F2:Sw", name="filter2")
         filter1_upstream = Filter("F1U:", "F1U:Sw", name="filter1_upstream")
-    namespace = {"filter2": filter2, "filter1_upstream": filter1_upstream, "RE": RE}
+    namespace = {
+        "filter2": filter2,
+        "filter1_upstream": filter1_upstream,
+        "set_filters": set_filters,
+        "RE": RE,
+    }
     client = InProcessRunEngineClient(namespace)
-    rows, value_types = filter_rows(client.device_registry)
+    rows, value_types = filter_rows(client.device_registry, client.plan_catalog)
     assert rows == {"Filter 1 Upstream": "filter1_upstream", "Filter 2": "filter2"}
     assert value_types == {
         "filter1_upstream": type_expr(Filter1UpstreamPosition),
