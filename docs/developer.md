@@ -325,7 +325,7 @@ plan_tabs.addTab(QtPlanWidget(re_client, height_survey), "Height Survey")
 mode) or Queue Server client, and the plan function. The form's title defaults
 to the function name in title case; pass `title=` to override it.
 
-When the user presses **Run Plan**, the widget:
+When the user presses **Run Now**, the widget:
 
 1. checks every field (required fields filled, numbers valid, devices exist and
    have the right type);

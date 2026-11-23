@@ -54,6 +54,8 @@ from hextools.gui.plan_status import (
 )
 from hextools.gui.plan_widget import QtPlanWidget
 from hextools.gui.proposal_info import QtProposalInfo
+from hextools.gui.queue_controls import QtQueueControls
+from hextools.gui.queue_editor import QtQueuePage
 from hextools.gui.re_execution_controls import QtReExecutionControls
 from hextools.gui.run_engine_clients import (
     InProcessRunEngineClient,
@@ -75,13 +77,24 @@ from ._event_loop import get_our_app_name
 from ._threading import wait_for_workers_to_quit
 
 PLAN_HISTORY_FILE_ENV = "HEXTOOLS_PLAN_HISTORY_FILE"
+PLAN_QUEUE_FILE_ENV = "HEXTOOLS_PLAN_QUEUE_FILE"
+
+
+def _state_file(stem: str) -> Path:
+    """``$XDG_STATE_HOME/hextools/<stem>[_mock].json``."""
+    state_home = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
+    name = f"{stem}_mock.json" if is_running_in_ci() else f"{stem}.json"
+    return Path(state_home) / "hextools" / name
 
 
 def default_plan_history_file() -> Path:
     """``$XDG_STATE_HOME/hextools/plan_history[_mock].json``."""
-    state_home = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
-    name = "plan_history_mock.json" if is_running_in_ci() else "plan_history.json"
-    return Path(state_home) / "hextools" / name
+    return _state_file("plan_history")
+
+
+def default_plan_queue_file() -> Path:
+    """``$XDG_STATE_HOME/hextools/plan_queue[_mock].json``."""
+    return _state_file("plan_queue")
 
 
 def _plan_tabs(re_client: RunEngineClient, plans: dict[str, str]) -> QTabWidget:
@@ -395,7 +408,8 @@ class QtTabbedTechniqueSelector(QWidget):
 
         vbox = QVBoxLayout()
 
-        # Shared top row: weather, metadata, RE controls, plan status and shutters.
+        # Shared top row: weather, metadata, RE and queue controls, plan status and
+        # shutters.
         controls = QHBoxLayout()
         controls.addWidget(QtWeatherWidget())
         self.proposal_info = QtProposalInfo(
@@ -406,6 +420,7 @@ class QtTabbedTechniqueSelector(QWidget):
         # Spare width goes to the proposal first, then to the gap before shutters.
         controls.addWidget(self.proposal_info, stretch=100)
         controls.addWidget(QtReExecutionControls(re_client))
+        controls.addWidget(QtQueueControls(re_client))
         controls.addWidget(QtPlanStatus(re_client))
         controls.addStretch(1)
         shutters, shutter_plan = shutter_controls(re_client.device_registry)
@@ -439,6 +454,7 @@ class QtTabbedTechniqueSelector(QWidget):
             tabs.addTab(self.scan_browser, "Scan Browser")
         self.plan_history = QtPlanHistory(re_client)
         tabs.addTab(self.plan_history, "History")
+        tabs.addTab(QtQueuePage(re_client), "Queue")
         tabs.addTab(QtPlanLogView(re_client), "Log")
         # self.auto_exporter = QtAutoExporterView(autostart=not is_running_in_ci())
         # tabs.addTab(self.auto_exporter, "NXS Export")
@@ -807,9 +823,13 @@ def launch_local_viewer(end_ipython_on_close: bool = False):
     apply_bnl_theme(app, saved_theme())
     user_ns = IPython.get_ipython().user_ns
     history_file = os.environ.get(PLAN_HISTORY_FILE_ENV) or default_plan_history_file()
+    queue_file = os.environ.get(PLAN_QUEUE_FILE_ENV) or default_plan_queue_file()
     return QtDataAcquisitionWindow(
         InProcessRunEngineClient(
-            user_ns, logger_name="hextools", history_file=history_file
+            user_ns,
+            logger_name="hextools",
+            history_file=history_file,
+            queue_file=queue_file,
         ),
         user_ns,
         user_ns.get("tiled_reading_client") or user_ns.get("c"),
@@ -841,6 +861,14 @@ def main():
         " or plan_history_mock.json with --mock). Can also be set"
         f" with {PLAN_HISTORY_FILE_ENV}.",
     )
+    parser.add_argument(
+        "--queue-file",
+        default=None,
+        help="JSON file to save the plan queue to as it changes, and to load it"
+        " from on startup (default: ~/.local/state/hextools/plan_queue.json,"
+        " or plan_queue_mock.json with --mock). Can also be set"
+        f" with {PLAN_QUEUE_FILE_ENV}.",
+    )
 
     parser.add_argument(
         "--keep-ipython",
@@ -856,6 +884,8 @@ def main():
     if args.history_file:
         # An env var, so it reaches the GUI built later inside the IPython session.
         os.environ[PLAN_HISTORY_FILE_ENV] = args.history_file
+    if args.queue_file:
+        os.environ[PLAN_QUEUE_FILE_ENV] = args.queue_file
 
     os.environ["BEAMLINE_ACRONYM"] = "HEX"
 

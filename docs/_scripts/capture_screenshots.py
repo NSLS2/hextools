@@ -217,7 +217,7 @@ grab_annotated(
         visible(form, QLineEdit, lambda w: w.placeholderText() == "optional"),
         visible(form, QCheckBox),
         visible(form, QLabel, lambda w: bool(w.toolTip())),
-        visible(form, QPushButton, lambda w: w.text() == "Run Plan"),
+        visible(form, QPushButton, lambda w: w.text() == "Run Now"),
     ],
 )
 

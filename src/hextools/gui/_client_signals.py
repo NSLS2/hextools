@@ -1,4 +1,4 @@
-"""Qt signals for a RunEngine client's state, plans, catalog, history, and logs."""
+"""Qt signals for a RunEngine client's state, plans, catalog, history, queue, logs."""
 
 from __future__ import annotations
 
@@ -157,6 +157,64 @@ class QtCatalog(QObject):
             lambda catalog, registry: forwarder((catalog, registry))
         )
         forwarder.on_cancel = lambda: re_client.unsubscribe_catalog(token)
+
+    def stop(self):
+        """End the subscription."""
+        self._forwarder.cancel()
+
+
+class QtPlanQueueChanges(QObject):
+    """Emit :attr:`changed` on the Qt thread whenever the plan queue changes.
+
+    The subscription ends when :meth:`stop` is called or this object (or its
+    parent) is deleted.
+
+    Parameters
+    ----------
+    re_client : RunEngineClient
+        The client whose queue to watch.
+    parent : QObject
+        Owner; usually the widget that shows or edits the queue.
+    """
+
+    #: The new :class:`~hextools.gui.run_engine_clients.PlanQueue`.
+    changed = Signal(object)
+
+    def __init__(self, re_client: RunEngineClient, parent: QObject):
+        super().__init__(parent)
+        self._forwarder = _Forwarder(self.changed.emit)
+        self.destroyed.connect(self._forwarder.cancel)
+        token = re_client.subscribe_queue(self._forwarder)
+        self._forwarder.on_cancel = lambda: re_client.unsubscribe_queue(token)
+
+    def stop(self):
+        """End the subscription."""
+        self._forwarder.cancel()
+
+
+class QtQueueStatus(QObject):
+    """Emit :attr:`changed` on the Qt thread whenever the queue's status changes.
+
+    The subscription ends when :meth:`stop` is called or this object (or its
+    parent) is deleted.
+
+    Parameters
+    ----------
+    re_client : RunEngineClient
+        The client whose queue to watch.
+    parent : QObject
+        Owner; usually the widget that reacts to the queue running.
+    """
+
+    #: The new :class:`~hextools.gui.run_engine_clients.QueueStatus`.
+    changed = Signal(object)
+
+    def __init__(self, re_client: RunEngineClient, parent: QObject):
+        super().__init__(parent)
+        self._forwarder = _Forwarder(self.changed.emit)
+        self.destroyed.connect(self._forwarder.cancel)
+        token = re_client.subscribe_queue_status(self._forwarder)
+        self._forwarder.on_cancel = lambda: re_client.unsubscribe_queue_status(token)
 
     def stop(self):
         """End the subscription."""

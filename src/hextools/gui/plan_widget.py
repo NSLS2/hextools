@@ -14,14 +14,15 @@ parameters' types:
 
 Device fields are offered and validated from the client's
 :class:`~hextools.catalog.model.DeviceRegistry`, and offered again whenever it
-changes. The run button runs the plan through the client.
+changes. **Run Now** runs the plan through the client, unless the queue is
+running, and **Add to Queue** adds it to the client's plan queue.
 """
 
 from __future__ import annotations
 
 import enum
 import html
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from qtpy.QtCore import QEvent, QSize, Qt, QTimer, Slot
@@ -32,6 +33,7 @@ from qtpy.QtWidgets import (
     QFormLayout,
     QFrame,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -42,13 +44,16 @@ from qtpy.QtWidgets import (
 )
 
 from hextools.catalog.model import TypeExpr
-from hextools.gui._client_signals import QtCatalog
+from hextools.gui._client_signals import QtCatalog, QtQueueStatus
 from hextools.gui.device_selector_widget import DynamicDeviceSelector
 from hextools.gui.plan_errors import show_plan_error
 from hextools.gui.run_engine_clients import (
     DeviceName,
     PlanError,
     PlanPausedError,
+    QueueError,
+    QueueItem,
+    QueueStatus,
     RunEngineClient,
     _source,
     serialize,
@@ -157,6 +162,10 @@ class QtPlanWidget(QWidget):
         Parent widget.
     title : str, optional
         Group box title. Default: derived from the plan name.
+    on_save : Callable, optional
+        Show a **Save** button, instead of **Add to Queue** and **Run Now**, that
+        calls ``on_save`` with the plan's arguments by name, then closes the
+        form. If it raises, the form stays open and shows why.
 
     Raises
     ------
@@ -171,10 +180,12 @@ class QtPlanWidget(QWidget):
         parent=None,
         *,
         title: str | None = None,
+        on_save: Callable[[dict[str, Any]], None] | None = None,
     ):
         super().__init__(parent)
         self._re_client = re_client
         self._plan_name = plan_name
+        self._on_save = on_save
         try:
             self._plan = re_client.plan_catalog[plan_name]
         except KeyError:
@@ -205,14 +216,26 @@ class QtPlanWidget(QWidget):
         scroll.setWidget(fields)
         vbox.addWidget(scroll, stretch=1)
 
-        self._submit_button = QPushButton("Run Plan")
+        self._submit_button = QPushButton("Run Now")
         self._submit_button.clicked.connect(self._on_submit_clicked)
+        self._queue_button = QPushButton("Add to Queue")
+        self._queue_button.setToolTip("Add the plan to the back of the queue")
+        self._queue_button.clicked.connect(self._on_queue_clicked)
         self._extra_kwargs: dict[str, Any] = {}
         self._extras_label = QLabel()
         self._extras_label.setWordWrap(True)
         self._extras_label.hide()
         vbox.addWidget(self._extras_label)
-        vbox.addWidget(self._submit_button)
+        buttons = QHBoxLayout()
+        buttons.addWidget(self._queue_button)
+        buttons.addWidget(self._submit_button)
+        self._save_button = QPushButton("Save")
+        self._save_button.clicked.connect(self._on_save_clicked)
+        buttons.addWidget(self._save_button)
+        self._queue_button.setVisible(on_save is None)
+        self._submit_button.setVisible(on_save is None)
+        self._save_button.setVisible(on_save is not None)
+        vbox.addLayout(buttons)
 
         self._status_label = QLabel("")
         self._status_label.setWordWrap(True)
@@ -228,6 +251,19 @@ class QtPlanWidget(QWidget):
         self._catalog = QtCatalog(re_client, self)
         self._catalog.changed.connect(lambda *_: self._refresh_devices())
         self._refresh_devices()
+
+        self._queue_status = QtQueueStatus(re_client, self)
+        self._queue_status.changed.connect(self._update_run_button)
+        self._update_run_button(re_client.queue_status())
+
+    @Slot(object)
+    def _update_run_button(self, status: QueueStatus):
+        self._submit_button.setEnabled(not status.running)
+        self._submit_button.setToolTip(
+            "The queue is running: add the plan to the queue instead."
+            if status.running
+            else "Run the plan now, outside the queue"
+        )
 
     # -- Pre-filling -----------------------------------------------------------
 
@@ -542,12 +578,13 @@ class QtPlanWidget(QWidget):
                 f"'{device_name}' is not a valid device for '{param_name}'"
             )
 
-    def _on_submit_clicked(self):
+    def _plan_kwargs(self) -> dict | None:
+        """Return the plan's arguments from the form, or None if they're invalid."""
         try:
             kwargs, device_keys = self._collect_inputs()
         except ValueError as ex:
             self._set_status(str(ex), error=True)
-            return
+            return None
 
         for name in device_keys & kwargs.keys():
             value = kwargs[name]
@@ -556,10 +593,38 @@ class QtPlanWidget(QWidget):
                 if isinstance(value, list)
                 else DeviceName(value)
             )
-        kwargs = {**self._extra_kwargs, **kwargs}
+        return {**self._extra_kwargs, **kwargs}
+
+    def _on_submit_clicked(self):
+        kwargs = self._plan_kwargs()
+        if kwargs is None:
+            return
         self._set_status("Running\u2026")
         # Defer so the click handler returns before the plan runs.
         QTimer.singleShot(0, lambda: self._execute(kwargs))
+
+    def _on_queue_clicked(self):
+        kwargs = self._plan_kwargs()
+        if kwargs is None:
+            return
+        try:
+            self._re_client.item_add(QueueItem(self._plan_name, (), kwargs))
+        except QueueError as error:
+            self._set_status(f"Not added to the queue: {error}", error=True)
+            return
+        queued = len(self._re_client.queue_get().items)
+        self._set_status(f"Added to the queue ({queued} queued).")
+
+    def _on_save_clicked(self):
+        kwargs = self._plan_kwargs()
+        if kwargs is None or self._on_save is None:
+            return
+        try:
+            self._on_save(kwargs)
+        except Exception as error:
+            self._set_status(f"Not saved: {error}", error=True)
+            return
+        self.close()
 
     def _execute(self, kwargs: dict):
         try:
@@ -579,4 +644,5 @@ class QtPlanWidget(QWidget):
 
     def closeEvent(self, event):
         self._catalog.stop()
+        self._queue_status.stop()
         super().closeEvent(event)

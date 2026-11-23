@@ -38,6 +38,7 @@ from hextools.gui._client_signals import (
     QtCurrentPlan,
     QtLogRecords,
     QtPlanHistoryChanges,
+    QtQueueStatus,
     QtRunEngineState,
 )
 from hextools.gui._elided_label import ElidedLabel
@@ -45,7 +46,13 @@ from hextools.gui.log_watcher import level_color
 from hextools.gui.plan_errors import show_plan_error
 from hextools.gui.plan_summary import QtPlanSummary
 from hextools.gui.plan_widget import QtPlanWidget
-from hextools.gui.run_engine_clients import HistoryItem, PlanInfo, RunEngineClient
+from hextools.gui.run_engine_clients import (
+    HistoryItem,
+    PlanInfo,
+    QueueError,
+    QueueItem,
+    RunEngineClient,
+)
 
 _NO_PLAN = "\u2014"  # em dash
 _NOT_APPLICABLE = "N/A"
@@ -581,7 +588,8 @@ def _scan_id_ranges(scan_ids: list[int]) -> str:
 class QtPlanHistory(QWidget):
     """Table of a RunEngine client's plan history, newest first.
 
-    A selected plan can be re-run, and the history cleared. Consecutive scan IDs
+    A selected plan can be re-run, unless the queue is running, or added to the
+    queue, and the history cleared. Consecutive scan IDs
     are shown as ranges, e.g. ``2 - 6``; hovering a cell shows it all.
     Double-clicking a plan opens its :class:`QtPlanSummary`.
 
@@ -639,6 +647,9 @@ class QtPlanHistory(QWidget):
         self._edit_button = QPushButton("Edit and Re-run\u2026")
         self._edit_button.setEnabled(False)
         self._edit_button.clicked.connect(self._on_edit_clicked)
+        self._queue_button = QPushButton("Add to Queue")
+        self._queue_button.setEnabled(False)
+        self._queue_button.clicked.connect(self._on_queue_clicked)
         self._clear_button = QPushButton("Clear History")
         self._clear_button.setEnabled(False)
         self._clear_button.clicked.connect(self._on_clear_clicked)
@@ -646,6 +657,7 @@ class QtPlanHistory(QWidget):
         buttons.addWidget(self._clear_button)
         buttons.addStretch()
         buttons.addWidget(self._edit_button)
+        buttons.addWidget(self._queue_button)
         buttons.addWidget(self._rerun_button)
 
         vbox = QVBoxLayout()
@@ -655,6 +667,8 @@ class QtPlanHistory(QWidget):
 
         self._history = QtPlanHistoryChanges(re_client, self)
         self._history.changed.connect(self._show)
+        self._queue_status = QtQueueStatus(re_client, self)
+        self._queue_status.changed.connect(self._update_button)
         self._show(re_client.plan_history())
 
     @staticmethod
@@ -787,10 +801,16 @@ class QtPlanHistory(QWidget):
         return None
 
     @Slot()
-    def _update_button(self):
+    def _update_button(self, *_):
         self._clear_button.setEnabled(bool(self._items))
         item = self._selected_item()
         problem = self._rerun_problem(item) if item is not None else None
+        self._queue_button.setEnabled(item is not None and problem is None)
+        self._queue_button.setToolTip(
+            problem or "Add the plan, with the same arguments, to the queue"
+        )
+        if problem is None and self._re_client.queue_status().running:
+            problem = "The queue is running: add the plan to the queue instead."
         self._rerun_button.setEnabled(item is not None and problem is None)
         self._rerun_button.setToolTip(problem or "")
         problem = self._edit_problem(item) if item is not None else None
@@ -803,6 +823,15 @@ class QtPlanHistory(QWidget):
         item = self._selected_item()
         if item is not None and self._edit_problem(item) is None:
             self.edit_and_rerun(item)
+
+    def _on_queue_clicked(self):
+        item = self._selected_item()
+        if item is None or self._rerun_problem(item) is not None:
+            return
+        try:
+            self._re_client.item_add(QueueItem(item.name, item.args, item.kwargs))
+        except QueueError as error:
+            QMessageBox.warning(self, "Not added to the queue", str(error))
 
     def _on_rerun_clicked(self):
         item = self._selected_item()
@@ -824,6 +853,7 @@ class QtPlanHistory(QWidget):
 
     def closeEvent(self, event):
         self._history.stop()
+        self._queue_status.stop()
         for summary in list(self._summaries.values()):
             summary.close()
         for editor in list(self._editors.values()):
