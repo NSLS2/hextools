@@ -31,6 +31,7 @@ def _models(num_projections, images_to_average, time_based, start=0.0, stop=180.
         stop_position=stop,
         encoder_resolution=RES,
         max_motor_velocity=10.0,
+        acceleration_time=0.0,
         current_position=0.0,
         current_enc_position=0,
         time_based=time_based,

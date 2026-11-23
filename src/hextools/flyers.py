@@ -151,20 +151,21 @@ def construct_fly_info_models(
     stop_position: float,
     encoder_resolution: float,
     max_motor_velocity: float,
+    acceleration_time: float,
     current_position: float,
     current_enc_position: int,
     acq_time_overhead: float = 0.001,
     time_based: bool = False,
     position_dataset_name: str = "rotation_angle",
     position_dataset_units: str = "deg",
-    acceleration_time: float = 0.0,
 ) -> tuple[SingleAxisFlyscanInfo, FlyMotorInfo]:
     """Construct the fly info models for a single axis flyscan.
 
     Parameters
     ----------
-    acceleration_time : float, default 0.0
-        The motor's acceleration time. The run-up before ``start_position`` is
+    acceleration_time : float
+        The motor's acceleration time (ACCL), read from the motor like
+        ``max_motor_velocity``. The run-up before ``start_position`` is
         ``max(acceleration_time * speed / 2, MIN_LEAD_ANGLE)``; any extra is covered
         at the fly speed, so speed and triggers are unchanged.
 
