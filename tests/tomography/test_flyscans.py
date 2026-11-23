@@ -44,6 +44,7 @@ from ophyd_async.fastcs.panda import (
 from tiled.client.container import Container
 
 from hextools.detectors import FRAME_PERIOD_MARGIN
+from hextools.flyers import MIN_LEAD_ANGLE
 from hextools.motors import RotationMotor, SampleTower
 from hextools.photon_delivery_system import Shutter, ShutterStatus
 from hextools.specs import TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
@@ -448,6 +449,7 @@ class FlyRig:
         self.shutter_during_move: ShutterStatus | None = None
         self.write_files = False
         self.written: list[dict[str, np.ndarray]] = []
+        self.moves: list[float] = []
 
         set_mock_value(panda.data.directory_exists, True)
         set_mock_value(
@@ -473,6 +475,7 @@ class FlyRig:
         callback_on_mock_put(rot.user_setpoint, self._move)
 
     async def _move(self, value: float):
+        self.moves.append(value)
         start = await self.rot_motor.user_readback.get_value()
         set_mock_value(self.rot_motor.user_readback, value)
         if not await self.panda.pcomp[1].active.get_value():
@@ -729,6 +732,41 @@ async def test_tomo_flyscan_arms_only_after_run_up(
         if msg.command == "prepare" and msg.kwargs.get("group") == "arm"
     )
     assert wait_for_run_up < first_arm
+
+
+# A slow scan's acceleration run-up (here 0.0001 s x speed / 2) is far below the
+# stage's parking error, so PCOMP could be enabled with the encoder already past
+# its start position and never fire: zero frames (HEX, 2026-11-22).
+@pytest.mark.parametrize(("start", "stop"), [(0, 180), (180, 0)])
+async def test_tomo_flyscan_run_up_clears_start_by_min_lead_angle(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[[int], KinetixDetector],
+    fly_rig: Callable[..., FlyRig],
+    open_fe_shutter: tuple[Shutter, Shutter],
+    start: float,
+    stop: float,
+):
+    ktx = kinetix_det_factory(1)
+    rig = fly_rig([ktx])
+
+    RE(
+        rig.flyscan(
+            [ktx],
+            open_fe_shutter,
+            num_projections=5,
+            exposure_time=0.01,
+            start=start,
+            stop=stop,
+        )
+    )
+
+    run_up = rig.moves[0]
+    lead = (start - run_up) if stop > start else (run_up - start)
+    assert lead == pytest.approx(MIN_LEAD_ANGLE)
+    # the PandA still starts the scan at `start`
+    assert await rig.panda.pcomp[1].start.get_value() == round(
+        1000 + (start - 0) / 0.01
+    )
 
 
 async def test_tomo_flyscan_reverse_direction(
@@ -1766,6 +1804,39 @@ def test_tomo_2d_step_scan(
     ]
     assert all(c["sample_name"] == "rock" for c in recorder.flyscans)
     assert recorder.sequence == "F" * 6
+
+
+def test_tomo_2d_step_scan_dark_flats(
+    RE: RunEngine,
+    recorder: Recorder,
+    step_motors: tuple[AsyncEpicsMotor, AsyncEpicsMotor],
+    sample_tower: SampleTower,
+):
+    outer, inner = step_motors
+
+    RE(
+        tomo_2d_step_scan(
+            ["det"],  # type: ignore
+            outer, 0, 1, 2,
+            inner, 5, 6, 2,
+            num_projections=100,
+            exposure_time=0.2,
+            dark_flat_offset=1.5,
+            dark_flat_frequency=2,
+            dark_flat_exposure_time=0.4,
+            num_dark_images=3,
+            num_flat_images=4,
+            sample_tower=sample_tower,
+            **DEVICES,  # type: ignore
+        )
+    )  # fmt: skip
+
+    assert recorder.sequence == "DFFDFFD"
+    for call in recorder.dark_flats:
+        assert call["x_offset"] == 1.5
+        assert call["exposure_time"] == 0.4
+        assert (call["num_dark_images"], call["num_flat_images"]) == (3, 4)
+        assert call["sample_tower"] is sample_tower
 
 
 # ==================================================================================

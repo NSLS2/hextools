@@ -262,6 +262,7 @@ def tomo_flyscan(
         # Get the start position in encoder counts
         encoder_res = yield from bps.rd(rot_motor.encoder_resolution)
         max_velocity = yield from bps.rd(rot_motor.max_velocity)
+        acceleration_time = yield from bps.rd(rot_motor.acceleration_time)
         current_position = yield from bps.rd(rot_motor.user_readback)
 
         # TODO: Come up with better way to access panda calc block
@@ -299,6 +300,7 @@ def tomo_flyscan(
             max_motor_velocity=max_velocity,
             acq_time_overhead=overhead,
             time_based=time_based,
+            acceleration_time=acceleration_time,
         )
 
         if use_shutter:
@@ -875,6 +877,11 @@ def tomo_2d_step_scan(
     num_retries: int = 0,
     sample_name: str | None = None,
     time_based: bool = True,
+    dark_flat_offset: float = 0.0,
+    dark_flat_exposure_time: float | None = None,
+    num_dark_images: int = 20,
+    num_flat_images: int = 50,
+    dark_flat_frequency: int = 0,
     snake_axes: bool | None = False,
     panda: HDFPanda | None = None,
     rot_motor: RotationMotor | None = None,
@@ -933,6 +940,17 @@ def tomo_2d_step_scan(
         The name of the sample being scanned.
     time_based : bool, default True
         If True, the scan is time-based rather than angle-based.
+    dark_flat_offset : float, default 0.0
+        Sample x offset for flats. If non-zero, a dark/flat is taken before and
+        after the scan; if 0, no darks/flats are taken.
+    dark_flat_exposure_time : float | None, default None
+        Exposure time for darks/flats. If None, ``exposure_time`` is used.
+    num_dark_images : int, default 20
+        Number of dark images per dark/flat.
+    num_flat_images : int, default 50
+        Number of flat images per dark/flat.
+    dark_flat_frequency : int, default 0
+        If greater than 0, also take a dark/flat after every this many grid points.
     sample_tower : SampleTower | None, default None
         The SampleTower instance to use for positioning the sample. Default is None.
     num_retries : int, default 3
@@ -978,6 +996,11 @@ def tomo_2d_step_scan(
             alternate_flyscan_dir=alternate_flyscan_dir,
             sample_name=sample_name,
             time_based=time_based,
+            dark_flat_offset=dark_flat_offset,
+            dark_flat_exposure_time=dark_flat_exposure_time,
+            num_dark_images=num_dark_images,
+            num_flat_images=num_flat_images,
+            dark_flat_frequency=dark_flat_frequency,
             snake_axes=bool(snake_axes),
             num_retries=num_retries,
             panda=panda,
