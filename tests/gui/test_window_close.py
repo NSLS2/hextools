@@ -63,7 +63,7 @@ def _session(RE):
 
 def _window(RE, **kwargs) -> QtDataAcquisitionWindow:
     user_ns = _session(RE)
-    return QtDataAcquisitionWindow(InProcessRunEngineClient(user_ns), user_ns, **kwargs)
+    return QtDataAcquisitionWindow(InProcessRunEngineClient(user_ns), **kwargs)
 
 
 @pytest.fixture

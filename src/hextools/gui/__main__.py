@@ -15,12 +15,13 @@ import asyncio
 import atexit
 import os
 import time as ttime
-from collections.abc import Mapping
-from functools import partial
+from collections.abc import Hashable
 from pathlib import Path
 from typing import Any
 
 import IPython
+import numpy as np
+from bluesky.protocols import Reading
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from qtpy import shiboken
 from qtpy.QtCore import Qt
@@ -39,8 +40,6 @@ from qtpy.QtWidgets import (
 )
 from tiled.structures.core import Spec
 
-from hextools.devices.detectors.germ import GeRMDetectorMock
-from hextools.devices.shutter import Shutter
 from hextools.gui._client_signals import QtRunEngineState
 from hextools.gui._theme import apply_bnl_theme, saved_theme
 from hextools.gui.available_devices import QtAvailableDevices
@@ -161,6 +160,12 @@ class QtTomographyView(QWidget):
         self.setLayout(vbox)
 
 
+#: Strips and energy bins of a GeRM frame; ``mca`` holds it flattened.
+GERM_IMAGE_SHAPE = (192, 4096)
+#: The registry path of the signal the mock GeRM publishes its frames to.
+GERM_MCA = "germ.driver.mca"
+
+
 def germ_viewer_options(mock: bool) -> dict[str, Any]:
     """Options for the live GeRM viewer.
 
@@ -169,7 +174,7 @@ def germ_viewer_options(mock: bool) -> dict[str, Any]:
     """
     options: dict[str, Any] = {
         "raw_waveform": True,
-        "image_shape": (192, 4096),
+        "image_shape": GERM_IMAGE_SHAPE,
         "colormap": "JET",
         "roi_suffix_pattern": "1:ROI{}:",
         "auto_scale_method": "minmax",
@@ -185,16 +190,9 @@ def germ_viewer_options(mock: bool) -> dict[str, Any]:
 class QtEDXDView(QWidget):
     """Energy-dispersive X-ray diffraction view: the live GeRM viewer and EDXD plans."""
 
-    def __init__(
-        self,
-        re_client: RunEngineClient,
-        namespace: Mapping[str, Any],
-        *args,
-        **kwargs,
-    ):
+    def __init__(self, re_client: RunEngineClient, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._re_client = re_client
-        self._namespace = namespace
 
         top = QHBoxLayout()
         detectors = QtTabbedDetectorsWidget(re_client)
@@ -224,31 +222,27 @@ class QtEDXDView(QWidget):
         vbox.addLayout(top, stretch=1)
         self.setLayout(vbox)
 
-        self._germ_mock: GeRMDetectorMock | None = None
+        self._germ_token: Hashable | None = None
         if mock:
-            self._attach_germ_mock(detectors)
+            self._show_mock_germ(detectors)
 
-    def _attach_germ_mock(self, detectors: QtTabbedDetectorsWidget) -> None:
-        """Show the mock GeRM's frames, gated by the namespace's shutters."""
-        user_ns = self._namespace
-        mock = getattr(user_ns.get("germ"), "_mock", None)
-        if not isinstance(mock, GeRMDetectorMock):
-            return
-        mock.set_shutters(
-            *(
-                shutter
-                for name in ("fe_shutter", "photon_shutter")
-                if isinstance(shutter := user_ns.get(name), Shutter)
-            )
-        )
-        self._show_germ_frame = partial(detectors.show_frame, "germ")
-        mock.register_frame_callback(self._show_germ_frame)
-        self._germ_mock = mock
+    def _show_mock_germ(self, detectors: QtTabbedDetectorsWidget) -> None:
+        """Show each frame the mock GeRM puts in its ``mca`` signal."""
+
+        def show(reading: Reading) -> None:
+            frame = np.asarray(reading["value"])
+            if frame.size == np.prod(GERM_IMAGE_SHAPE):
+                detectors.show_frame("germ", frame.reshape(GERM_IMAGE_SHAPE))
+
+        try:
+            self._germ_token = self._re_client.subscribe_reading(GERM_MCA, show)
+        except KeyError:
+            pass  # no GeRM in this session
 
     def closeEvent(self, event):
-        if self._germ_mock is not None:
-            self._germ_mock.unregister_frame_callback(self._show_germ_frame)
-            self._germ_mock = None
+        if self._germ_token is not None:
+            self._re_client.unsubscribe_reading(self._germ_token)
+            self._germ_token = None
         super().closeEvent(event)
 
 
@@ -394,7 +388,6 @@ class QtTabbedTechniqueSelector(QWidget):
     def __init__(
         self,
         re_client: RunEngineClient,
-        namespace: Mapping[str, Any],
         tiled_client: Any = None,
         *args,
         proposal_client: ProposalClient | None = None,
@@ -404,7 +397,6 @@ class QtTabbedTechniqueSelector(QWidget):
         from hextools.gui.hex_config import shutter_controls
 
         self._re_client = re_client
-        user_ns = namespace
 
         vbox = QVBoxLayout()
 
@@ -435,7 +427,7 @@ class QtTabbedTechniqueSelector(QWidget):
         tabs.addTab(self._beamline, "Beamline")
         self._tomography = QtTomographyView(self._re_client)
         tabs.addTab(self._tomography, "Tomography")
-        self._edxd = QtEDXDView(self._re_client, user_ns)
+        self._edxd = QtEDXDView(self._re_client)
         tabs.addTab(self._edxd, "EDXD")
         self._xrd = QtXRDView(self._re_client)
         tabs.addTab(self._xrd, "XRD")
@@ -502,8 +494,6 @@ class QtDataAcquisitionWindow:
     ----------
     re_client : RunEngineClient
         Drives the RunEngine and reads the devices.
-    namespace : Mapping[str, Any]
-        The IPython session's namespace, for mock detectors.
     tiled_client : tiled client, optional
         Where the Scan Browser finds runs; without one, it isn't shown.
     proposal_client : ProposalClient, optional
@@ -529,7 +519,6 @@ class QtDataAcquisitionWindow:
     def __init__(
         self,
         re_client: RunEngineClient,
-        namespace: Mapping[str, Any],
         tiled_client: Any = None,
         *,
         proposal_client: ProposalClient | None = None,
@@ -537,7 +526,7 @@ class QtDataAcquisitionWindow:
         end_ipython_on_close: bool = False,
     ):
         self.qt_widget = QtTabbedTechniqueSelector(
-            re_client, namespace, tiled_client, proposal_client=proposal_client
+            re_client, tiled_client, proposal_client=proposal_client
         )
 
         self._torn_down = False
@@ -831,7 +820,6 @@ def launch_local_viewer(end_ipython_on_close: bool = False):
             history_file=history_file,
             queue_file=queue_file,
         ),
-        user_ns,
         user_ns.get("tiled_reading_client") or user_ns.get("c"),
         proposal_client=default_proposal_client(),
         end_ipython_on_close=end_ipython_on_close,

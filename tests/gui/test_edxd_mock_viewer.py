@@ -46,3 +46,46 @@ def test_frames_reach_viewers_through_push_frame():
     )
 
     assert pushed == [frame]
+
+
+def test_mock_germ_frames_reach_the_viewer_through_the_client(RE, monkeypatch):
+    from bluesky.run_engine import call_in_bluesky_event_loop
+    from ophyd_async.core import init_devices, set_mock_value
+
+    from hextools.devices.detectors.germ import GeRMDetector
+    from hextools.gui.__main__ import GERM_IMAGE_SHAPE, QtEDXDView
+    from hextools.gui.run_engine_clients import InProcessRunEngineClient
+    from hextools.plans import edxd
+    from hextools.utils.path_providers import mock_path_provider
+
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setenv("HEXTOOLS_RUNNING_IN_CI", "YES")
+    shown: list[tuple[str, np.ndarray]] = []
+    monkeypatch.setattr(
+        QtTabbedDetectorsWidget,
+        "show_frame",
+        lambda self, name, frame: shown.append((name, frame)),
+    )
+    with init_devices(mock=True):
+        germ = GeRMDetector("GERM:", mock_path_provider("/tmp/germ"))
+    plans = {name: getattr(edxd, name) for name in edxd.__all__}
+    view = QtEDXDView(InProcessRunEngineClient({"RE": RE, "germ": germ, **plans}))
+    try:
+        frame = np.arange(np.prod(GERM_IMAGE_SHAPE), dtype=np.int32)
+
+        async def publish():
+            set_mock_value(germ.driver.mca, frame)
+
+        call_in_bluesky_event_loop(publish())
+        # The mock's zeros, sent on subscribing, then the published frame.
+        assert [name for name, _ in shown] == ["germ", "germ"]
+        assert not shown[0][1].any()
+        np.testing.assert_array_equal(shown[1][1], frame.reshape(GERM_IMAGE_SHAPE))
+
+        view.close()
+        call_in_bluesky_event_loop(publish())
+        assert len(shown) == 2
+    finally:
+        view.close()
+        view.deleteLater()
+        app.processEvents()

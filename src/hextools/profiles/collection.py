@@ -456,3 +456,7 @@ RE.preprocessors.append(sd)
 # Disable bec printout of baseline readings
 # since it is kind of noisy
 bec.disable_baseline()
+
+if is_running_in_ci():
+    # The mock GeRM only counts diffraction while both shutters are open.
+    germ._mock.set_shutters(fe_shutter, photon_shutter)  # noqa: SLF001

@@ -191,18 +191,23 @@ async def _wait_idle(germ: GeRMDetector):
 
 
 async def _take_frame(germ: GeRMDetector) -> np.ndarray:
-    frames: list[np.ndarray] = []
-    mock = germ._mock
-    assert isinstance(mock, GeRMDetectorMock)
-    mock.register_frame_callback(frames.append)
-    frames.clear()
     await germ.driver.acquire.set(True)
     await asyncio.wait_for(_wait_idle(germ), timeout=5)
-    mock.unregister_frame_callback(frames.append)
-    (frame,) = frames
-    assert frame.shape == (NUM_ELEMENTS, NUM_BINS)
+    frame = (await germ.driver.mca.get_value()).reshape(NUM_ELEMENTS, NUM_BINS)
     assert float(frame.sum()) == await germ.stats1.total.get_value()
     return frame
+
+
+def _record_mca(germ: GeRMDetector) -> list[np.ndarray]:
+    """Collect each frame put in ``mca`` from now on, as the GUI viewer does."""
+    frames: list[np.ndarray] = []
+    germ.driver.mca.subscribe_reading(
+        lambda readings: frames.append(
+            next(iter(readings.values()))["value"].reshape(NUM_ELEMENTS, NUM_BINS)
+        )
+    )
+    frames.clear()  # the current value, sent on subscribing
+    return frames
 
 
 @pytest.fixture
@@ -211,28 +216,24 @@ def germ_mock(germ: GeRMDetector) -> GeRMDetectorMock:
     return germ._mock
 
 
-async def test_germ_mock_frame_callback_gets_each_frame(germ: GeRMDetector):
+async def test_germ_mock_puts_the_frame_in_mca(germ: GeRMDetector):
     frame = await _take_frame(germ)
-    np.testing.assert_array_equal(await germ.driver.mca.get_value(), frame.ravel())
     assert frame.sum() > 0
+    np.testing.assert_array_equal(
+        await germ.driver.spectrum.get_value(), frame.sum(axis=0)
+    )
 
 
-async def test_germ_mock_sends_zeros_when_a_callback_registers(
-    germ_mock: GeRMDetectorMock,
-):
-    frames: list[np.ndarray] = []
-    germ_mock.register_frame_callback(frames.append)
-    (frame,) = frames
-    assert frame.shape == (NUM_ELEMENTS, NUM_BINS)
-    assert not frame.any()
+async def test_germ_mock_mca_starts_as_zeros(germ: GeRMDetector):
+    mca = await germ.driver.mca.get_value()
+    assert mca.shape == (NUM_ELEMENTS * NUM_BINS,)
+    assert not mca.any()
 
 
 async def test_germ_mock_frame_updates_each_second_while_counting(
-    germ: GeRMDetector, germ_mock: GeRMDetectorMock
+    germ: GeRMDetector,
 ):
-    frames: list[np.ndarray] = []
-    germ_mock.register_frame_callback(frames.append)
-    frames.clear()
+    frames = _record_mca(germ)
     set_mock_value(germ.driver.acquire_time, 2.5)
     await germ.driver.acquire.set(True)
     await asyncio.wait_for(_wait_idle(germ), timeout=10)
@@ -317,8 +318,7 @@ async def test_germ_mock_keeps_pulses_counted_before_they_were_turned_off(
     driver = germ.driver
     set_mock_value(driver.test_pulse_enable, True)
     set_mock_value(driver.acquire_time, 0.4)
-    frames: list[np.ndarray] = []
-    germ_mock.register_frame_callback(frames.append)
+    frames = _record_mca(germ)
 
     await driver.acquire.set(True)
     await asyncio.sleep(0.25)
