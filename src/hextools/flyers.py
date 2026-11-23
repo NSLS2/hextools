@@ -10,6 +10,11 @@ from ophyd_async.core import (
 )
 from ophyd_async.fastcs.panda import CommonPandaBlocks, PandaPcompDirection
 
+# Least run-up before the start position, in the motor's units (deg for a rotation
+# stage). PCOMP only fires once the encoder has been before its start position, and
+# a slow scan's acceleration run-up alone can be within the stage's parking error.
+MIN_LEAD_ANGLE = 0.2
+
 
 class SingleAxisFlyscanInfo(ConfinedModel):
     """Information for a single axis flyscan.
@@ -152,16 +157,16 @@ def construct_fly_info_models(
     time_based: bool = False,
     position_dataset_name: str = "rotation_angle",
     position_dataset_units: str = "deg",
-    min_lead_angle: float = 0.0,
+    acceleration_time: float = 0.0,
 ) -> tuple[SingleAxisFlyscanInfo, FlyMotorInfo]:
     """Construct the fly info models for a single axis flyscan.
 
     Parameters
     ----------
-    min_lead_angle : float, default 0.0
-        Extra run-up before ``start_position``, covered at the fly speed, so the
-        encoder parks clear of the PandA start position. Speed and triggers are
-        unchanged.
+    acceleration_time : float, default 0.0
+        The motor's acceleration time. The run-up before ``start_position`` is
+        ``max(acceleration_time * speed / 2, MIN_LEAD_ANGLE)``; any extra is covered
+        at the fly speed, so speed and triggers are unchanged.
 
     Returns
     -------
@@ -223,12 +228,15 @@ def construct_fly_info_models(
         end_position=stop_position,
         time_for_move=move_time,
     )
-    if min_lead_angle > 0 and stop_position != start_position:
-        travel = abs(stop_position - start_position)
+    travel = abs(stop_position - start_position)
+    # ophyd-async's own run-up: the distance covered while accelerating
+    calculated_lead = acceleration_time * travel / (2 * move_time) if travel else 0.0
+    extra = max(0.0, MIN_LEAD_ANGLE - calculated_lead)
+    if extra > 0 and travel:
         sign = 1 if stop_position > start_position else -1
         motor_info = FlyMotorInfo(
-            start_position=start_position - sign * min_lead_angle,
+            start_position=start_position - sign * extra,
             end_position=stop_position,
-            time_for_move=move_time * (travel + min_lead_angle) / travel,
+            time_for_move=move_time * (travel + extra) / travel,
         )
     return flyer_info, motor_info

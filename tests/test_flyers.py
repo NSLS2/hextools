@@ -5,7 +5,7 @@ import pytest
 from ophyd_async.fastcs.panda import PandaPcompDirection
 
 from hextools.exporters.utils import average_per_projection
-from hextools.flyers import construct_fly_info_models
+from hextools.flyers import MIN_LEAD_ANGLE, construct_fly_info_models
 
 RES = 0.001  # deg per encoder count
 
@@ -17,12 +17,10 @@ def _trigger_angles(flyer_info, motor_info, start):
         sign = 1 if flyer_info.direction == PandaPcompDirection.POSITIVE else -1
         counts = flyer_info.start + sign * k * flyer_info.pulse_step
         return counts * flyer_info.position_scale + flyer_info.position_offset
-    # Constant velocity between start_position and end_position over time_for_move.
-    velocity = (
-        motor_info.end_position - motor_info.start_position
-    ) / motor_info.time_for_move
-    positions = motor_info.start_position + velocity * k * flyer_info.pulse_step
-    return positions - start
+    # PCOMP fires at `start`; the train then runs at the constant fly velocity.
+    return np.sign(motor_info.end_position - start) * (
+        motor_info.speed * k * flyer_info.pulse_step
+    )
 
 
 def _models(num_projections, images_to_average, time_based, start=0.0, stop=180.0):
@@ -72,11 +70,16 @@ def test_single_time_based_pulse_fires_at_start():
     np.testing.assert_allclose(_trigger_angles(flyer_info, motor_info, 0.0), [0.0])
 
 
+# _models: 180 deg in 18 s, so ophyd-async's run-up is acceleration_time * 10 / 2 deg.
 @pytest.mark.parametrize("time_based", [False, True])
 @pytest.mark.parametrize(("start", "stop"), [(0.0, 180.0), (180.0, 0.0)])
-def test_min_lead_angle_starts_the_motor_further_back_at_the_same_speed(
-    time_based, start, stop
+@pytest.mark.parametrize(
+    ("acceleration_time", "lead"), [(0.0, 0.2), (0.01, 0.2), (0.1, 0.5)]
+)
+def test_run_up_is_at_least_min_lead_angle_at_the_same_speed(
+    time_based, start, stop, acceleration_time, lead
 ):
+    assert MIN_LEAD_ANGLE == 0.2
     flyer_info, motor_info = _models(19, 1, time_based, start, stop)
     led_flyer, led_motor = construct_fly_info_models(
         num_pulses=19,
@@ -88,10 +91,13 @@ def test_min_lead_angle_starts_the_motor_further_back_at_the_same_speed(
         current_position=0.0,
         current_enc_position=0,
         time_based=time_based,
-        min_lead_angle=0.2,
+        acceleration_time=acceleration_time,
     )
     sign = 1 if stop > start else -1
-    assert led_motor.start_position == pytest.approx(start - sign * 0.2)
+    # the run-up the motor actually makes, by ophyd-async's own formula
+    assert led_motor.ramp_up_start_pos(acceleration_time) == pytest.approx(
+        start - sign * lead
+    )
     assert led_motor.end_position == motor_info.end_position
     assert led_motor.speed == pytest.approx(motor_info.speed)
     # the PandA side (start position, pulse spacing) is unchanged

@@ -44,6 +44,7 @@ from ophyd_async.fastcs.panda import (
 from tiled.client.container import Container
 
 from hextools.detectors import FRAME_PERIOD_MARGIN
+from hextools.flyers import MIN_LEAD_ANGLE
 from hextools.motors import RotationMotor, SampleTower
 from hextools.photon_delivery_system import Shutter, ShutterStatus
 from hextools.specs import TOMO_DARK_FLAT_V1, TOMO_FLYSCAN_V1
@@ -737,7 +738,6 @@ async def test_tomo_flyscan_arms_only_after_run_up(
 # stage's parking error, so PCOMP could be enabled with the encoder already past
 # its start position and never fire: zero frames (HEX, 2026-11-22).
 @pytest.mark.parametrize(("start", "stop"), [(0, 180), (180, 0)])
-@pytest.mark.parametrize("min_lead_angle", [0.0, 0.5])
 async def test_tomo_flyscan_run_up_clears_start_by_min_lead_angle(
     RE: RunEngine,
     kinetix_det_factory: Callable[[int], KinetixDetector],
@@ -745,11 +745,9 @@ async def test_tomo_flyscan_run_up_clears_start_by_min_lead_angle(
     open_fe_shutter: tuple[Shutter, Shutter],
     start: float,
     stop: float,
-    min_lead_angle: float,
 ):
     ktx = kinetix_det_factory(1)
     rig = fly_rig([ktx])
-    kwargs = {"min_lead_angle": min_lead_angle} if min_lead_angle else {}
 
     RE(
         rig.flyscan(
@@ -759,17 +757,12 @@ async def test_tomo_flyscan_run_up_clears_start_by_min_lead_angle(
             exposure_time=0.01,
             start=start,
             stop=stop,
-            **kwargs,
         )
     )
 
     run_up = rig.moves[0]
     lead = (start - run_up) if stop > start else (run_up - start)
-    if min_lead_angle:
-        assert lead >= min_lead_angle
-    else:
-        # the default adds nothing: only the acceleration run-up remains
-        assert 0 < lead < 0.2
+    assert lead == pytest.approx(MIN_LEAD_ANGLE)
     # the PandA still starts the scan at `start`
     assert await rig.panda.pcomp[1].start.get_value() == round(
         1000 + (start - 0) / 0.01
@@ -1103,7 +1096,6 @@ def test_tomo_flyscan_loop_forwards_flyscan_arguments(
             use_shutter=False,
             sample_name="rock",
             time_based=False,
-            min_lead_angle=0.3,
             **DEVICES,  # type: ignore
         )
     )
@@ -1122,7 +1114,6 @@ def test_tomo_flyscan_loop_forwards_flyscan_arguments(
         "restart_preview": False,
         "sample_name": "rock",
         "time_based": False,
-        "min_lead_angle": 0.3,
         **DEVICES,
     }
     for call in recorder.flyscans:
@@ -1475,7 +1466,6 @@ def test_tomo_nd_step_scan_forwards_flyscan_arguments(
             use_shutter=False,
             sample_name="rock",
             time_based=False,
-            min_lead_angle=0.3,
             **DEVICES,  # type: ignore
         )
     )  # fmt: skip
@@ -1491,7 +1481,6 @@ def test_tomo_nd_step_scan_forwards_flyscan_arguments(
         "restart_preview": False,
         "sample_name": "rock",
         "time_based": False,
-        "min_lead_angle": 0.3,
         **DEVICES,
     }
     assert len(recorder.flyscans) == 2
@@ -1737,7 +1726,6 @@ async def test_tomo_1d_step_scan(
             num_dark_images=6,
             num_flat_images=8,
             sample_name="rock",
-            min_lead_angle=0.3,
             sample_tower=sample_tower,
             **DEVICES,  # type: ignore
         )
@@ -1754,7 +1742,6 @@ async def test_tomo_1d_step_scan(
     ]
     assert recorder.sequence == "DFFDFFDFD"
     assert all(c["sample_name"] == "rock" for c in recorder.flyscans)
-    assert all(c["min_lead_angle"] == 0.3 for c in recorder.flyscans)
     for call in recorder.dark_flats:
         assert call["sample_tower"] is sample_tower
         assert (call["num_dark_images"], call["num_flat_images"]) == (6, 8)
@@ -1819,7 +1806,7 @@ def test_tomo_2d_step_scan(
     assert recorder.sequence == "F" * 6
 
 
-def test_tomo_2d_step_scan_dark_flats_and_min_lead_angle(
+def test_tomo_2d_step_scan_dark_flats(
     RE: RunEngine,
     recorder: Recorder,
     step_motors: tuple[AsyncEpicsMotor, AsyncEpicsMotor],
@@ -1839,14 +1826,12 @@ def test_tomo_2d_step_scan_dark_flats_and_min_lead_angle(
             dark_flat_exposure_time=0.4,
             num_dark_images=3,
             num_flat_images=4,
-            min_lead_angle=0.3,
             sample_tower=sample_tower,
             **DEVICES,  # type: ignore
         )
     )  # fmt: skip
 
     assert recorder.sequence == "DFFDFFD"
-    assert all(c["min_lead_angle"] == 0.3 for c in recorder.flyscans)
     for call in recorder.dark_flats:
         assert call["x_offset"] == 1.5
         assert call["exposure_time"] == 0.4
