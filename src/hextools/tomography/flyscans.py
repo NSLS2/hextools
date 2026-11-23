@@ -166,6 +166,7 @@ def tomo_flyscan(
     restart_preview: bool = True,
     sample_name: str | None = None,
     time_based: bool = True,
+    min_lead: float = 0.2,
     panda: HDFPanda | None = None,
     rot_motor: RotationMotor | None = None,
     fe_shutter: Shutter | None = None,
@@ -203,6 +204,12 @@ def tomo_flyscan(
     time_based : bool
         Whether the triggers are issued equally spaced in time, as opposed to
         being position-based.
+    min_lead : float, optional
+        The least distance, in degrees, the rotation stage parks before ``start``
+        before the scan. Default 0.2. The PandA's position compare only fires its
+        start pulse once the encoder has been before ``start``; a slow scan's
+        acceleration run-up alone can be smaller than the stage's parking error or
+        jitter, and then no frames are taken.
     panda : HDFPanda | None
         The HDF Panda device to use.
     rot_motor : RotationMotor | None
@@ -299,6 +306,7 @@ def tomo_flyscan(
             max_motor_velocity=max_velocity,
             acq_time_overhead=overhead,
             time_based=time_based,
+            min_lead=min_lead,
         )
 
         if use_shutter:

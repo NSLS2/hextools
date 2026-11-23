@@ -448,6 +448,7 @@ class FlyRig:
         self.shutter_during_move: ShutterStatus | None = None
         self.write_files = False
         self.written: list[dict[str, np.ndarray]] = []
+        self.moves: list[float] = []
 
         set_mock_value(panda.data.directory_exists, True)
         set_mock_value(
@@ -473,6 +474,7 @@ class FlyRig:
         callback_on_mock_put(rot.user_setpoint, self._move)
 
     async def _move(self, value: float):
+        self.moves.append(value)
         start = await self.rot_motor.user_readback.get_value()
         set_mock_value(self.rot_motor.user_readback, value)
         if not await self.panda.pcomp[1].active.get_value():
@@ -729,6 +731,46 @@ async def test_tomo_flyscan_arms_only_after_run_up(
         if msg.command == "prepare" and msg.kwargs.get("group") == "arm"
     )
     assert wait_for_run_up < first_arm
+
+
+# A slow scan's acceleration run-up (here 0.0001 s x speed / 2) is far below the
+# stage's parking error, so PCOMP could be enabled with the encoder already past
+# its start position and never fire: zero frames (HEX, 2026-11-22).
+@pytest.mark.parametrize(("start", "stop"), [(0, 180), (180, 0)])
+@pytest.mark.parametrize("min_lead", [None, 0.5])
+async def test_tomo_flyscan_run_up_clears_start_by_min_lead(
+    RE: RunEngine,
+    kinetix_det_factory: Callable[[int], KinetixDetector],
+    fly_rig: Callable[..., FlyRig],
+    open_fe_shutter: tuple[Shutter, Shutter],
+    start: float,
+    stop: float,
+    min_lead: float | None,
+):
+    ktx = kinetix_det_factory(1)
+    rig = fly_rig([ktx])
+    kwargs = {} if min_lead is None else {"min_lead": min_lead}
+    expected_lead = 0.2 if min_lead is None else min_lead
+
+    RE(
+        rig.flyscan(
+            [ktx],
+            open_fe_shutter,
+            num_projections=5,
+            exposure_time=0.01,
+            start=start,
+            stop=stop,
+            **kwargs,
+        )
+    )
+
+    run_up = rig.moves[0]
+    lead = (start - run_up) if stop > start else (run_up - start)
+    assert lead >= expected_lead
+    # the PandA still starts the scan at `start`
+    assert await rig.panda.pcomp[1].start.get_value() == round(
+        1000 + (start - 0) / 0.01
+    )
 
 
 async def test_tomo_flyscan_reverse_direction(

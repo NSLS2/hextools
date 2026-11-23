@@ -70,3 +70,29 @@ def test_single_time_based_pulse_fires_at_start():
     flyer_info, motor_info = _models(1, 1, time_based=True)
     assert flyer_info.num_pulses == 1
     np.testing.assert_allclose(_trigger_angles(flyer_info, motor_info, 0.0), [0.0])
+
+
+@pytest.mark.parametrize("time_based", [False, True])
+@pytest.mark.parametrize(("start", "stop"), [(0.0, 180.0), (180.0, 0.0)])
+def test_min_lead_starts_the_motor_further_back_at_the_same_speed(
+    time_based, start, stop
+):
+    flyer_info, motor_info = _models(19, 1, time_based, start, stop)
+    led_flyer, led_motor = construct_fly_info_models(
+        num_pulses=19,
+        max_exposure_time=0.01,
+        start_position=start,
+        stop_position=stop,
+        encoder_resolution=RES,
+        max_motor_velocity=10.0,
+        current_position=0.0,
+        current_enc_position=0,
+        time_based=time_based,
+        min_lead=0.2,
+    )
+    sign = 1 if stop > start else -1
+    assert led_motor.start_position == pytest.approx(start - sign * 0.2)
+    assert led_motor.end_position == motor_info.end_position
+    assert led_motor.speed == pytest.approx(motor_info.speed)
+    # the PandA side (start position, pulse spacing) is unchanged
+    assert led_flyer == flyer_info

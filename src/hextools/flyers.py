@@ -152,8 +152,20 @@ def construct_fly_info_models(
     time_based: bool = False,
     position_dataset_name: str = "rotation_angle",
     position_dataset_units: str = "deg",
+    min_lead: float = 0.0,
 ) -> tuple[SingleAxisFlyscanInfo, FlyMotorInfo]:
     """Construct the fly info models for a single axis flyscan.
+
+    Parameters
+    ----------
+    min_lead : float, default 0.0
+        Extra run-up, in motor units, before ``start_position``. The motor starts
+        this much further back and covers it at the fly speed, so the scan's speed,
+        the PandA start position and the trigger timing are unchanged. PCOMP only
+        fires after the encoder has been before its start position, so the encoder
+        must park clear of it by more than the stage's parking error and jitter.
+        The acceleration run-up alone is ``acceleration_time * speed / 2``, which a
+        slow scan makes tiny.
 
     Returns
     -------
@@ -215,4 +227,12 @@ def construct_fly_info_models(
         end_position=stop_position,
         time_for_move=move_time,
     )
+    if min_lead > 0 and stop_position != start_position:
+        travel = abs(stop_position - start_position)
+        sign = 1 if stop_position > start_position else -1
+        motor_info = FlyMotorInfo(
+            start_position=start_position - sign * min_lead,
+            end_position=stop_position,
+            time_for_move=move_time * (travel + min_lead) / travel,
+        )
     return flyer_info, motor_info
