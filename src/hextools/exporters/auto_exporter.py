@@ -32,7 +32,7 @@ from hextools.exporters.tomography import (
 )
 from hextools.exporters.utils import confirm_required_start_fields
 from hextools.exporters.xrd import export_xrd_dark_reference, export_xrd_run_to_h5
-from hextools.log import configure_logger
+from hextools.log import configure_library_logging, configure_logger
 from hextools.specs import (
     EDXD_CALIBRATION_V1,
     EDXD_SCAN_V1,
@@ -278,6 +278,7 @@ def main() -> None:
     args = parser.parse_args()
 
     configure_logger(level=logging.DEBUG if args.debug else logging.INFO)
+    configure_library_logging()
 
     catalog = from_uri(args.tiled_uri)
     for segment in args.catalog.strip("/").split("/"):

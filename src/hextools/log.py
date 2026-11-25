@@ -103,6 +103,55 @@ def configure_logger(
     return logger
 
 
+#: Levels for libraries whose warnings are routine at HEX; the rest use the root level.
+LIBRARY_LOG_LEVELS: dict[str, int] = {
+    # Viewed PVs disconnect on purpose during plans; the viewer's status bar shows it.
+    "ntnda_qt_viewer": logging.ERROR,
+}
+
+
+def configure_library_logging(
+    level: int | str = logging.WARNING,
+    levels: dict[str, int] | None = None,
+    stream: TextIO | None = None,
+    color: bool | None = None,
+) -> None:
+    """Print other libraries' log records in the hextools format.
+
+    Without a handler on the root logger, Python prints their warnings bare (no
+    time, level or logger name) and offers no per-library level. Calling it again
+    replaces the handler from the previous call.
+
+    Parameters
+    ----------
+    level : int or str, optional
+        Minimum level printed for libraries, by default ``WARNING``.
+    levels : dict[str, int], optional
+        Per-library levels, by default :data:`LIBRARY_LOG_LEVELS`.
+    stream : TextIO, optional
+        Where to write records, by default ``sys.stderr``.
+    color : bool, optional
+        Whether to color the level names. By default, only if ``stream`` is a terminal.
+    """
+    stream = stream if stream is not None else sys.stderr
+    if color is None:
+        color = bool(getattr(stream, "isatty", lambda: False)())
+
+    root = logging.getLogger()
+    for handler in [h for h in root.handlers if isinstance(h, _HextoolsHandler)]:
+        root.removeHandler(handler)
+    # Libraries without a level of their own inherit the root's.
+    root.setLevel(level)
+    handler = _HextoolsHandler(stream)
+    handler.setLevel(level)
+    handler.setFormatter(_ColorFormatter(color=color))
+    root.addHandler(handler)
+    for name, library_level in (
+        LIBRARY_LOG_LEVELS if levels is None else levels
+    ).items():
+        logging.getLogger(name).setLevel(library_level)
+
+
 def _unwrap_failed_status(error: BaseException) -> BaseException:
     """Return the error behind a ``FailedStatus``, or ``error`` itself otherwise.
 
@@ -177,6 +226,8 @@ def log_state_changes(
 
 
 __all__ = [
+    "LIBRARY_LOG_LEVELS",
+    "configure_library_logging",
     "configure_logger",
     "log_plan_exceptions",
     "log_state_changes",
