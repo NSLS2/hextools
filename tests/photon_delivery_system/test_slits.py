@@ -11,12 +11,12 @@ from ophyd_async.core import (
     set_mock_value,
 )
 
-from hextools.photon_delivery_system.slits import (
+from hextools.devices.slits import (
     SlitCenter,
     SlitGap,
     Slits,
-    move_slits,
 )
+from hextools.plans.photon_delivery import move_slits
 
 
 @pytest.fixture

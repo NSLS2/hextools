@@ -15,12 +15,13 @@ import asyncio
 import atexit
 import os
 import time as ttime
-from collections.abc import Mapping
-from functools import partial
+from collections.abc import Hashable
 from pathlib import Path
 from typing import Any
 
 import IPython
+import numpy as np
+from bluesky.protocols import Reading
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
 from qtpy import shiboken
 from qtpy.QtCore import Qt
@@ -39,12 +40,10 @@ from qtpy.QtWidgets import (
 )
 from tiled.structures.core import Spec
 
-from hextools.detectors.germ import GeRMDetectorMock
 from hextools.gui._client_signals import QtRunEngineState
 from hextools.gui._theme import apply_bnl_theme, saved_theme
 from hextools.gui.available_devices import QtAvailableDevices
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor
-from hextools.gui.live_re_md_viewer import QtProposalInfo
 from hextools.gui.misc import QtTabbedDetectorsWidget, QtWeatherWidget
 from hextools.gui.plan_status import (
     QtPlanExecutionView,
@@ -53,6 +52,9 @@ from hextools.gui.plan_status import (
     QtPlanStatus,
 )
 from hextools.gui.plan_widget import QtPlanWidget
+from hextools.gui.proposal_info import QtProposalInfo
+from hextools.gui.queue_controls import QtQueueControls
+from hextools.gui.queue_editor import QtQueuePage
 from hextools.gui.re_execution_controls import QtReExecutionControls
 from hextools.gui.run_engine_clients import (
     InProcessRunEngineClient,
@@ -62,21 +64,36 @@ from hextools.gui.scan_browser import QtScanBrowser
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui.signal_status_group import QtBeamlineStatus
 from hextools.gui.theme_switch import QtThemeAction
-from hextools.photon_delivery_system import Shutter
 from hextools.specs import ALL_SPECS
 from hextools.utils import is_running_in_ci
+from hextools.utils.proposals import (
+    MockProposalClient,
+    NSLS2ProposalClient,
+    ProposalClient,
+)
 
 from ._event_loop import get_our_app_name
 from ._threading import wait_for_workers_to_quit
 
 PLAN_HISTORY_FILE_ENV = "HEXTOOLS_PLAN_HISTORY_FILE"
+PLAN_QUEUE_FILE_ENV = "HEXTOOLS_PLAN_QUEUE_FILE"
+
+
+def _state_file(stem: str) -> Path:
+    """``$XDG_STATE_HOME/hextools/<stem>[_mock].json``."""
+    state_home = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
+    name = f"{stem}_mock.json" if is_running_in_ci() else f"{stem}.json"
+    return Path(state_home) / "hextools" / name
 
 
 def default_plan_history_file() -> Path:
     """``$XDG_STATE_HOME/hextools/plan_history[_mock].json``."""
-    state_home = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
-    name = "plan_history_mock.json" if is_running_in_ci() else "plan_history.json"
-    return Path(state_home) / "hextools" / name
+    return _state_file("plan_history")
+
+
+def default_plan_queue_file() -> Path:
+    """``$XDG_STATE_HOME/hextools/plan_queue[_mock].json``."""
+    return _state_file("plan_queue")
 
 
 def _plan_tabs(re_client: RunEngineClient, plans: dict[str, str]) -> QTabWidget:
@@ -143,6 +160,12 @@ class QtTomographyView(QWidget):
         self.setLayout(vbox)
 
 
+#: Strips and energy bins of a GeRM frame; ``mca`` holds it flattened.
+GERM_IMAGE_SHAPE = (192, 4096)
+#: The registry path of the signal the mock GeRM publishes its frames to.
+GERM_MCA = "germ.driver.mca"
+
+
 def germ_viewer_options(mock: bool) -> dict[str, Any]:
     """Options for the live GeRM viewer.
 
@@ -151,7 +174,7 @@ def germ_viewer_options(mock: bool) -> dict[str, Any]:
     """
     options: dict[str, Any] = {
         "raw_waveform": True,
-        "image_shape": (192, 4096),
+        "image_shape": GERM_IMAGE_SHAPE,
         "colormap": "JET",
         "roi_suffix_pattern": "1:ROI{}:",
         "auto_scale_method": "minmax",
@@ -167,20 +190,13 @@ def germ_viewer_options(mock: bool) -> dict[str, Any]:
 class QtEDXDView(QWidget):
     """Energy-dispersive X-ray diffraction view: the live GeRM viewer and EDXD plans."""
 
-    def __init__(
-        self,
-        re_client: RunEngineClient,
-        namespace: Mapping[str, Any],
-        *args,
-        **kwargs,
-    ):
+    def __init__(self, re_client: RunEngineClient, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._re_client = re_client
-        self._namespace = namespace
 
         top = QHBoxLayout()
         detectors = QtTabbedDetectorsWidget(re_client)
-        mock = is_running_in_ci()
+        mock = re_client.mock
         detectors.add_detector(
             "germ", "XF:27ID1-ES{GeRM-Det:1}MCA", **germ_viewer_options(mock=mock)
         )
@@ -206,31 +222,27 @@ class QtEDXDView(QWidget):
         vbox.addLayout(top, stretch=1)
         self.setLayout(vbox)
 
-        self._germ_mock: GeRMDetectorMock | None = None
+        self._germ_token: Hashable | None = None
         if mock:
-            self._attach_germ_mock(detectors)
+            self._show_mock_germ(detectors)
 
-    def _attach_germ_mock(self, detectors: QtTabbedDetectorsWidget) -> None:
-        """Show the mock GeRM's frames, gated by the namespace's shutters."""
-        user_ns = self._namespace
-        mock = getattr(user_ns.get("germ"), "_mock", None)
-        if not isinstance(mock, GeRMDetectorMock):
-            return
-        mock.set_shutters(
-            *(
-                shutter
-                for name in ("fe_shutter", "photon_shutter")
-                if isinstance(shutter := user_ns.get(name), Shutter)
-            )
-        )
-        self._show_germ_frame = partial(detectors.show_frame, "germ")
-        mock.register_frame_callback(self._show_germ_frame)
-        self._germ_mock = mock
+    def _show_mock_germ(self, detectors: QtTabbedDetectorsWidget) -> None:
+        """Show each frame the mock GeRM puts in its ``mca`` signal."""
+
+        def show(reading: Reading) -> None:
+            frame = np.asarray(reading["value"])
+            if frame.size == np.prod(GERM_IMAGE_SHAPE):
+                detectors.show_frame("germ", frame.reshape(GERM_IMAGE_SHAPE))
+
+        try:
+            self._germ_token = self._re_client.subscribe_reading(GERM_MCA, show)
+        except KeyError:
+            pass  # no GeRM in this session
 
     def closeEvent(self, event):
-        if self._germ_mock is not None:
-            self._germ_mock.unregister_frame_callback(self._show_germ_frame)
-            self._germ_mock = None
+        if self._germ_token is not None:
+            self._re_client.unsubscribe_reading(self._germ_token)
+            self._germ_token = None
         super().closeEvent(event)
 
 
@@ -336,7 +348,9 @@ class QtBeamlineView(QWidget):
         from hextools.gui.hex_config import filter_rows
         from hextools.gui.movable_group import QtMovableGroup
 
-        rows, value_types = filter_rows(re_client.device_registry)
+        rows, value_types = filter_rows(
+            re_client.device_registry, re_client.plan_catalog
+        )
         tab = QWidget()
         vbox = QVBoxLayout(tab)
         if rows:
@@ -360,37 +374,49 @@ class QtBeamlineView(QWidget):
         return tab
 
 
+def default_proposal_client(re_client: RunEngineClient) -> ProposalClient:
+    """Made-up proposals if the client's devices are mocked, else HEX's from NSLS-II."""
+    return MockProposalClient() if re_client.mock else NSLS2ProposalClient("HEX")
+
+
 class QtTabbedTechniqueSelector(QWidget):
     """Container with shared RE controls, technique tabs, and progress bars.
 
     The shared RE controls are on top, the technique tabs in the middle, and the
-    shared live progress bars along the bottom.
+    shared live progress bars along the bottom. ``proposal_client`` defaults to
+    :func:`default_proposal_client`.
     """
 
     def __init__(
         self,
         re_client: RunEngineClient,
-        namespace: Mapping[str, Any],
         tiled_client: Any = None,
         *args,
+        proposal_client: ProposalClient | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         from hextools.gui.hex_config import shutter_controls
 
         self._re_client = re_client
-        user_ns = namespace
 
         vbox = QVBoxLayout()
 
-        # Shared top row: RE controls, metadata, plan status and shutters.
+        # Shared top row: weather, metadata, RE and queue controls, plan status and
+        # shutters.
         controls = QHBoxLayout()
-        controls.addWidget(QtReExecutionControls(re_client))
-        self.proposal_info = QtProposalInfo(re_client)
-        controls.addWidget(self.proposal_info)
         controls.addWidget(QtWeatherWidget())
+        self.proposal_info = QtProposalInfo(
+            re_client, proposal_client or default_proposal_client(re_client)
+        )
+        # Wide enough for long titles without stretching across a full screen.
+        self.proposal_info.setMaximumWidth(800)
+        # Spare width goes to the proposal first, then to the gap before shutters.
+        controls.addWidget(self.proposal_info, stretch=100)
+        controls.addWidget(QtReExecutionControls(re_client))
+        controls.addWidget(QtQueueControls(re_client))
         controls.addWidget(QtPlanStatus(re_client))
-        controls.addStretch()
+        controls.addStretch(1)
         shutters, shutter_plan = shutter_controls(re_client.device_registry)
         controls.addWidget(QtShutterStatus(re_client, shutters, shutter_plan))
         vbox.addLayout(controls)
@@ -403,7 +429,7 @@ class QtTabbedTechniqueSelector(QWidget):
         tabs.addTab(self._beamline, "Beamline")
         self._tomography = QtTomographyView(self._re_client)
         tabs.addTab(self._tomography, "Tomography")
-        self._edxd = QtEDXDView(self._re_client, user_ns)
+        self._edxd = QtEDXDView(self._re_client)
         tabs.addTab(self._edxd, "EDXD")
         self._xrd = QtXRDView(self._re_client)
         tabs.addTab(self._xrd, "XRD")
@@ -422,6 +448,7 @@ class QtTabbedTechniqueSelector(QWidget):
             tabs.addTab(self.scan_browser, "Scan Browser")
         self.plan_history = QtPlanHistory(re_client)
         tabs.addTab(self.plan_history, "History")
+        tabs.addTab(QtQueuePage(re_client), "Queue")
         tabs.addTab(QtPlanLogView(re_client), "Log")
         # self.auto_exporter = QtAutoExporterView(autostart=not is_running_in_ci())
         # tabs.addTab(self.auto_exporter, "NXS Export")
@@ -469,10 +496,11 @@ class QtDataAcquisitionWindow:
     ----------
     re_client : RunEngineClient
         Drives the RunEngine and reads the devices.
-    namespace : Mapping[str, Any]
-        The IPython session's namespace, for mock detectors.
     tiled_client : tiled client, optional
         Where the Scan Browser finds runs; without one, it isn't shown.
+    proposal_client : ProposalClient, optional
+        Lists and looks up the proposals offered by Change Proposal. Default:
+        :func:`default_proposal_client`.
 
     Attributes
     ----------
@@ -493,13 +521,15 @@ class QtDataAcquisitionWindow:
     def __init__(
         self,
         re_client: RunEngineClient,
-        namespace: Mapping[str, Any],
         tiled_client: Any = None,
         *,
+        proposal_client: ProposalClient | None = None,
         show: bool = True,
         end_ipython_on_close: bool = False,
     ):
-        self.qt_widget = QtTabbedTechniqueSelector(re_client, namespace, tiled_client)
+        self.qt_widget = QtTabbedTechniqueSelector(
+            re_client, tiled_client, proposal_client=proposal_client
+        )
 
         self._torn_down = False
         self._end_ipython_on_close = end_ipython_on_close
@@ -784,11 +814,15 @@ def launch_local_viewer(end_ipython_on_close: bool = False):
     apply_bnl_theme(app, saved_theme())
     user_ns = IPython.get_ipython().user_ns
     history_file = os.environ.get(PLAN_HISTORY_FILE_ENV) or default_plan_history_file()
+    queue_file = os.environ.get(PLAN_QUEUE_FILE_ENV) or default_plan_queue_file()
     return QtDataAcquisitionWindow(
         InProcessRunEngineClient(
-            user_ns, logger_name="hextools", history_file=history_file
+            user_ns,
+            logger_name="hextools",
+            history_file=history_file,
+            queue_file=queue_file,
+            mock=is_running_in_ci(),
         ),
-        user_ns,
         user_ns.get("tiled_reading_client") or user_ns.get("c"),
         end_ipython_on_close=end_ipython_on_close,
     )
@@ -817,6 +851,14 @@ def main():
         " or plan_history_mock.json with --mock). Can also be set"
         f" with {PLAN_HISTORY_FILE_ENV}.",
     )
+    parser.add_argument(
+        "--queue-file",
+        default=None,
+        help="JSON file to save the plan queue to as it changes, and to load it"
+        " from on startup (default: ~/.local/state/hextools/plan_queue.json,"
+        " or plan_queue_mock.json with --mock). Can also be set"
+        f" with {PLAN_QUEUE_FILE_ENV}.",
+    )
 
     parser.add_argument(
         "--keep-ipython",
@@ -832,6 +874,8 @@ def main():
     if args.history_file:
         # An env var, so it reaches the GUI built later inside the IPython session.
         os.environ[PLAN_HISTORY_FILE_ENV] = args.history_file
+    if args.queue_file:
+        os.environ[PLAN_QUEUE_FILE_ENV] = args.queue_file
 
     os.environ["BEAMLINE_ACRONYM"] = "HEX"
 

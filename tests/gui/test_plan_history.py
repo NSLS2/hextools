@@ -13,11 +13,12 @@ from ophyd_async.core import init_devices  # noqa: E402
 from ophyd_async.sim import PatternGenerator, SimPointDetector  # noqa: E402
 from qtpy.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
-from hextools.gui.plan_status import QtPlanHistory  # noqa: E402
+from hextools.gui.plan_status import QtPlanHistory, _scan_id_ranges  # noqa: E402
 from hextools.gui.run_engine_clients import (  # noqa: E402
     DeviceName,
     HistoryItem,
     InProcessRunEngineClient,
+    PlanResult,
 )
 
 
@@ -184,3 +185,76 @@ def test_default_history_file(monkeypatch, tmp_path, mock, name, xdg_state_home)
         monkeypatch.setenv("XDG_STATE_HOME", xdg_state_home)
         state_home = Path(xdg_state_home)
     assert default_plan_history_file() == state_home / "hextools" / name
+
+
+@pytest.mark.parametrize(
+    ("scan_ids", "shown"),
+    [
+        ([], ""),
+        ([7], "7"),
+        ([2, 3, 4, 5, 6], "2 - 6"),
+        ([1, 3, 4, 5, 9, 10], "1, 3 - 5, 9 - 10"),
+    ],
+)
+def test_consecutive_scan_ids_are_shown_as_ranges(scan_ids, shown):
+    assert _scan_id_ranges(scan_ids) == shown
+
+
+@pytest.mark.parametrize(("num_uids", "shown"), [(3, None), (4, "4 UIDs")])
+def test_uids_beyond_the_maximum_are_counted(RE, det, tmp_path, num_uids, shown):
+    if QApplication.instance() is None:
+        QApplication([])
+    history = QtPlanHistory(_client(RE, det, tmp_path / "history.json"))
+    uids = tuple(f"uid-{i}" for i in range(num_uids))
+    scan_ids = tuple(range(10, 10 + num_uids))
+    history._show(
+        (
+            HistoryItem(
+                "count", item_uid="a", result=PlanResult("completed", uids, scan_ids)
+            ),
+        )
+    )
+
+    uid_cell = history._table.item(0, 6)
+    assert uid_cell.text() == (shown or "\n".join(uids))
+    assert uid_cell.toolTip() == "\n".join(uids)
+    scan_cell = history._table.item(0, 5)
+    assert scan_cell.text() == f"10 - {9 + num_uids}"
+    assert scan_cell.toolTip() == ", ".join(str(s) for s in scan_ids)
+
+
+def test_edit_and_rerun_prefills_the_form_and_runs_the_edited_plan(
+    RE, det, tmp_path, monkeypatch
+):
+    client, history = _history(RE, det, tmp_path / "history.json")
+    RE(count([det], num=2, md={"note": "kept"}))
+    QApplication.processEvents()
+    history._table.selectRow(0)
+    assert history._edit_button.isEnabled()
+    ran: list[str] = []
+    monkeypatch.setattr("hextools.gui._ipython.run_in_ipython", ran.append)
+
+    # A modal error dialog would block the headless test forever.
+    def fail(parent, title, error):
+        raise AssertionError(f"{title}: {error}")
+
+    monkeypatch.setattr("hextools.gui.plan_widget.show_plan_error", fail)
+    try:
+        history._on_edit_clicked()
+        (editor,) = history._editors.values()
+        (devices,) = [f for f in editor._device_fields if f["name"] == "detectors"]
+        assert devices["widget"].selected_devices() == ["det"]
+        (num,) = [w for n, _, w, _ in editor._scalar_fields if n == "num"]
+        assert num.text() == "2"
+        # md has no field and can't be passed in a plan call, so it is left out.
+        assert "md" in editor._extras_label.text()
+
+        num.setText("5")
+        editor._on_submit_clicked()
+        QApplication.processEvents()
+        (call,) = ran
+        assert call.startswith("RE(count(") and "detectors=[det]" in call
+        assert "num=5" in call and "md=" not in call
+    finally:
+        history.close()
+        QApplication.processEvents()

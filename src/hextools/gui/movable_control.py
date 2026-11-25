@@ -46,6 +46,28 @@ def set_enabled_keep_focus(widget: QWidget, enabled: bool):
     widget.setEnabled(enabled)
 
 
+class _SelectOnClickLineEdit(QLineEdit):
+    """Line edit whose value is selected by the click that focuses it.
+
+    So a new value can be typed straight over it; later clicks place the cursor.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._select_on_release = False
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self._select_on_release = event.reason() == Qt.FocusReason.MouseFocusReason
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        # The press placed the cursor; select now unless the user dragged a range.
+        if self._select_on_release and not self.hasSelectedText():
+            self.selectAll()
+        self._select_on_release = False
+
+
 def _enum_choices(expr: TypeExpr | None) -> list[tuple[str, Any]] | None:
     """``(text, value)`` of each choice of an ``enum`` type, or None for others."""
     if expr is None or expr.get("kind") != "enum":
@@ -156,7 +178,7 @@ class QtMovableControl(QWidget):
         if self._is_numeric and self._tweak_plan is not None:
             left = QPushButton("\u25c0")
             right = QPushButton("\u25b6")
-            self._tweak = QLineEdit(_format_number(tweak, self._type))
+            self._tweak = _SelectOnClickLineEdit(_format_number(tweak, self._type))
             self._tweak.setFixedWidth(70)
             self._tweak.setAlignment(Qt.AlignmentFlag.AlignRight)
             self._tweak.setToolTip("Tweak step")
@@ -276,7 +298,7 @@ class QtMovableControl(QWidget):
             combo.activated.connect(lambda i: self._move(combo.itemData(i)))
             self._controls.append(combo)
             return combo
-        edit = QLineEdit()
+        edit = _SelectOnClickLineEdit()
         edit.setFixedWidth(100)
         edit.setPlaceholderText("Setpoint")
         edit.returnPressed.connect(lambda: self._on_setpoint_entered(edit))

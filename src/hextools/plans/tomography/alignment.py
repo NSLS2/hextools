@@ -17,10 +17,13 @@ from ophyd_async.epics.adkinetix import KinetixDetector
 from skimage import measure, segmentation
 from skimage.measure._regionprops import RegionProperties
 
-from hextools.detectors import PhantomDetector, enable_preview_mode
-from hextools.motors import RotationMotor
-from hextools.photon_delivery_system import Shutter
-from hextools.photon_delivery_system.shutter import (
+from hextools.devices.motors import RotationMotor
+from hextools.devices.shutter import Shutter
+from hextools.plans.detectors import (
+    PhantomDetector,
+    enable_preview_mode,
+)
+from hextools.plans.photon_delivery import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )
@@ -698,9 +701,10 @@ def tomo_alignment_scan(
     init_angle: float = 0.0,
     stop_angle: float = 360.0,
     use_shutter: bool = True,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
-    rot_motor: RotationMotor | None = None,
+    *,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
+    rot_motor: RotationMotor,
 ):
     """Tomography alignment scan.
 
@@ -708,12 +712,12 @@ def tomo_alignment_scan(
     ----------
     det : KinetixDetector | PhantomDetector
         The detector to use for the scan.
-    rot_motor : RotationMotor | None
-        The rotation stage motor. If None, it will be pulled from the namespace.
-    fe_shutter : Shutter | None
-        The front-end shutter. If None, it will be pulled from the namespace.
-    photon_shutter : Shutter | None
-        The photon shutter. If None, it will be pulled from the namespace.
+    rot_motor : RotationMotor
+        The rotation stage motor.
+    fe_shutter : Shutter
+        The front-end shutter.
+    photon_shutter : Shutter
+        The photon shutter.
     exposure_time : float
         Exposure time for each projection in seconds.
     num_projections : int, optional
@@ -723,9 +727,6 @@ def tomo_alignment_scan(
     stop_angle : float, optional
         Final angle for the rotation stage, by default 360.0.
     """
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
-    rot_motor = ensure_available(RotationMotor, rot_motor=rot_motor)
     # Restored in the cleanup, so the stage returns at full speed before slowing.
     initial_position = yield from bps.rd(rot_motor.user_readback)
     initial_velocity = yield from bps.rd(rot_motor.velocity)

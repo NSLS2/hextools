@@ -25,15 +25,24 @@ src/hextools/
 ├── utils/                      # session helpers: RunEngine setup, device init, proposals
 ├── log.py                      # the "hextools" logger and RunEngine logging hooks
 ├── specs.py                    # Tiled specs and validators for HEX run types
-├── machine.py                  # storage ring
-├── motors.py                   # stages, tables, microscope optics, move_motor
-├── photon_delivery_system/     # shutters, slits, filters, DCLM; beam mode and energy plans
-├── detectors/                  # Phantom, GeRM, Kinetix helpers
-├── tomography/                 # flyscans, step scans, radiography, alignment
-├── edxd.py                     # energy-dispersive diffraction plans
-├── xrd/                        # angle-dispersive diffraction plans
+├── devices/                    # device classes only, no plans
+│   ├── machine.py              # storage ring
+│   ├── motors.py               # stages, tables, microscope optics
+│   ├── shutter.py, slits.py, filters.py, dclm.py   # photon delivery system
+│   ├── flyers.py               # PandA fly-scan logic
+│   └── detectors/              # Phantom, GeRM, Kinetix, Perkin-Elmer
+├── plans/                      # bluesky plans and plan stubs
+│   ├── photon_delivery.py      # shutters, slits, filters, beam mode and energy
+│   ├── motors.py               # move_motor, step trajectories
+│   ├── detectors.py            # preview mode, Proc plugin and queue setup
+│   ├── tomography/             # flyscans, step scans, darks/flats, alignment
+│   ├── radiography.py          # radiograph series
+│   ├── edxd.py                 # energy-dispersive diffraction plans
+│   ├── xrd.py                  # angle-dispersive diffraction plans
+│   └── settings.py             # store and apply saved device settings
+├── settings/                   # saved device settings (YAML data)
 └── gui/                        # the HEX Data Acquisition GUI
-tests/                          # pytest suite, mirroring src/hextools
+tests/                          # pytest suite, grouped by area
 docs/                           # this documentation
 ```
 
@@ -56,20 +65,25 @@ plan usable from the GUI with no extra work.
    parameter without a usable annotation gets no field.
 2. **Write a numpydoc docstring with a `Parameters` section.** Each parameter's
    description becomes the tooltip on its form field.
-3. **Take supporting devices as optional keyword arguments defaulting to
-   `None`**, and resolve them with `ensure_available`. These are devices the
-   user rarely chooses (the PandA, rotation stage, shutters). The GUI hides them,
-   and at the prompt the plan finds the device of the same name in the session
-   namespace:
+3. **Take supporting devices as required parameters, and fill them in with
+   `functools.partial` in the profile.** These are the devices that are always
+   there and the user rarely chooses (the PandA, rotation stage, shutters).
+   If every device the plan takes is one of these, take them first,
+   positionally. Otherwise take them last, as keyword-only parameters (after
+   `*`), so the user's own devices and settings come first. The profile then
+   binds them once the devices exist:
 
    ```python
-   panda = ensure_available(HDFPanda, panda=panda)
+   # src/hextools/profiles/collection.py
+   change_beam_mode = partial(change_beam_mode, dclm, fe_shutter)
+   take_radiograph = partial(
+       take_radiograph, panda=panda, fe_shutter=fe_shutter, photon_shutter=photon_shutter
+   )
    ```
 
-   `ensure_available` returns the argument if one was given, otherwise the
-   object of that name in the IPython namespace, and raises a clear error if
-   neither exists or the type is wrong. The keyword must match the variable
-   name used in the profile.
+   Parameters bound this way get no GUI field, and at the prompt the plan is
+   called without them. Other plans and tests call the plan function itself, so
+   they pass the devices explicitly.
 4. **Take the devices the user chooses (detectors, the scanned motor) as
    required parameters**, typed with the device class. These become device
    selectors in the GUI.
@@ -96,17 +110,19 @@ The following plan takes one image per height while stepping the sample tower
 vertically. It is short, but it follows every convention above.
 
 ```python
-"""src/hextools/tomography/survey.py"""
+"""src/hextools/plans/tomography/survey.py"""
 
 import bluesky.plan_stubs as bps
 import bluesky.plans as bp
 import bluesky.preprocessors as bpp
 from ophyd_async.epics.adkinetix import KinetixDetector
 
-from hextools.motors import SampleTower
-from hextools.photon_delivery_system import Shutter
-from hextools.photon_delivery_system.shutter import ensure_shutter_closed, ensure_shutter_open
-from hextools.utils import ensure_available
+from hextools.devices.motors import SampleTower
+from hextools.devices.shutter import Shutter
+from hextools.plans.photon_delivery import (
+    ensure_shutter_closed,
+    ensure_shutter_open,
+)
 
 
 def height_survey(
@@ -117,9 +133,10 @@ def height_survey(
     exposure_time: float,
     sample_name: str | None = None,
     use_shutter: bool = True,
-    sample_tower: SampleTower | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
+    *,
+    sample_tower: SampleTower,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ):
     """Take one image per height while stepping the sample tower vertically.
 
@@ -139,18 +156,13 @@ def height_survey(
         Name of the sample, recorded in the run metadata.
     use_shutter : bool, optional
         Open the photon shutter for the survey and close it afterwards.
-    sample_tower : SampleTower, optional
-        The sample tower. If None, ``sample_tower`` from the session is used.
-    fe_shutter : Shutter, optional
-        Front-end shutter, which must already be open. If None, ``fe_shutter``
-        from the session is used.
-    photon_shutter : Shutter, optional
-        Photon shutter. If None, ``photon_shutter`` from the session is used.
+    sample_tower : SampleTower
+        The sample tower.
+    fe_shutter : Shutter
+        Front-end shutter, which must already be open.
+    photon_shutter : Shutter
+        Photon shutter.
     """
-    sample_tower = ensure_available(SampleTower, sample_tower=sample_tower)
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
-
     md = {"plan_name": "height_survey"}
     if sample_name is not None:
         md["sample_name"] = sample_name
@@ -174,8 +186,7 @@ Things to notice:
 
 - Nothing happens when `height_survey(...)` is called; the work starts when the
   RunEngine iterates the generator. Keep that in mind when validating inputs:
-  raising inside the plan (as `ensure_available` does) reports the error when
-  the plan starts.
+  raising inside the plan reports the error when the plan starts.
 - `bp.scan` opens and closes the run. Pass your metadata through its `md`
   argument; anything in `md` is stored in the run's start document and is
   searchable in Tiled.
@@ -185,13 +196,21 @@ Things to notice:
 ### Making the plan available
 
 1. Put the plan in the module for its technique (here
-   `src/hextools/tomography/`), and export it from the package `__init__.py`
+   `src/hextools/plans/tomography/`), and export it from the package `__init__.py`
    if the package re-exports its plans.
 2. Import it in `src/hextools/profiles/collection.py` so it exists in every
-   session:
+   session, and fill in its supporting devices after the devices are created:
 
    ```python
-   from hextools.tomography.survey import height_survey
+   from hextools.plans.tomography.survey import height_survey
+
+   ...
+   height_survey = partial(
+       height_survey,
+       sample_tower=sample_tower,
+       fe_shutter=fe_shutter,
+       photon_shutter=photon_shutter,
+   )
    ```
 
 3. Restart the session (`pixi run start-mock`) and try it:
@@ -212,9 +231,9 @@ import pytest
 from bluesky import RunEngine
 from ophyd_async.core import init_devices
 
-from hextools.motors import SampleTower
-from hextools.photon_delivery_system import Shutter
-from hextools.tomography.survey import height_survey
+from hextools.devices.motors import SampleTower
+from hextools.devices.shutter import Shutter
+from hextools.plans.tomography.survey import height_survey
 
 
 @pytest.fixture
@@ -231,18 +250,28 @@ def test_height_survey_records_plan_name(RE: RunEngine, devices):
     docs = []
     RE.subscribe(lambda name, doc: docs.append((name, doc)))
 
-    RE(height_survey([], 0, 1, 3, exposure_time=0.01, use_shutter=False,
-                     sample_tower=sample_tower, fe_shutter=fe_shutter,
-                     photon_shutter=photon_shutter))
+    RE(
+        height_survey(
+            [],
+            0,
+            1,
+            3,
+            exposure_time=0.01,
+            use_shutter=False,
+            sample_tower=sample_tower,
+            fe_shutter=fe_shutter,
+            photon_shutter=photon_shutter,
+        )
+    )
 
     start = next(doc for name, doc in docs if name == "start")
     assert start["plan_name"] == "height_survey"
     assert sum(name == "event" for name, _ in docs) == 3
 ```
 
-The `RE` fixture comes from `tests/conftest.py`. Pass every supporting device
-explicitly in tests: there is no IPython namespace for `ensure_available` to
-search. See `tests/tomography/` for fixtures that build mock shutters which
+The `RE` fixture comes from `tests/conftest.py`. Tests call the plan function,
+not the profile's partial, so they pass every supporting device explicitly.
+See `tests/tomography/` for fixtures that build mock shutters which
 respond to open/close commands and mock Kinetix detectors with file writers.
 
 Keep tests fast:
@@ -285,7 +314,8 @@ Import the plan at the top of `__main__.py` and add a tab to the technique's
 `plan_tabs`, e.g. in `QtTomographyView.__init__`:
 
 ```python
-from hextools.tomography.survey import height_survey
+from hextools.plans.tomography.survey import height_survey
+
 ...
 plan_tabs.addTab(QtPlanWidget(re_client, tomo_flyscan), "Flyscan")
 plan_tabs.addTab(QtPlanWidget(re_client, height_survey), "Height Survey")
@@ -295,7 +325,7 @@ plan_tabs.addTab(QtPlanWidget(re_client, height_survey), "Height Survey")
 mode) or Queue Server client, and the plan function. The form's title defaults
 to the function name in title case; pass `title=` to override it.
 
-When the user presses **Run Plan**, the widget:
+When the user presses **Run Now**, the widget:
 
 1. checks every field (required fields filled, numbers valid, devices exist and
    have the right type);
@@ -319,7 +349,8 @@ When the user presses **Run Plan**, the widget:
 | `list[float]`, `list[int]`, `list[str]`             | Text box taking comma-separated values.                                       |
 | A device class, or a union of them, **required**    | Drop-down of the session's devices of that type.                              |
 | `list[DeviceClass]` (or `list[A \| B]`)             | Growable list of device drop-downs with a **+** button.                        |
-| A device class with default `None`                  | *No field*: the plan resolves it itself (`ensure_available`).                  |
+| A parameter bound by `functools.partial` in the profile | *No field*: the profile fills it in.                                      |
+| A device class with default `None`                  | *No field*: the plan handles `None` itself.                                   |
 | `*args`, `**kwargs`, anything else                  | *No field*.                                                                   |
 
 Other details:

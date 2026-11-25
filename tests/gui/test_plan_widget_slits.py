@@ -9,9 +9,10 @@ from bluesky import RunEngine  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from hextools.catalog.generate import qualified_name  # noqa: E402
+from hextools.devices.slits import Slits  # noqa: E402
 from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
 from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
-from hextools.photon_delivery_system import Slits, move_slits  # noqa: E402
+from hextools.plans.photon_delivery import move_slits  # noqa: E402
 
 
 def test_slits_form_offers_device_optional_centers_gaps_and_relative():

@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from ophyd_async.fastcs.panda import PandaPcompDirection
 
+from hextools.devices.flyers import construct_fly_info_models
 from hextools.exporters.utils import average_per_projection
-from hextools.flyers import construct_fly_info_models
 
 RES = 0.001  # deg per encoder count
 

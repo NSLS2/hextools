@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib.metadata
 
 project = "hextools"
-copyright = "2024, Brookhaven National Laboratory"
+copyright = "2026, Brookhaven National Laboratory"
 author = "Brookhaven National Laboratory"
 version = release = importlib.metadata.version("hextools")
 

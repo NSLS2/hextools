@@ -20,10 +20,9 @@ from ophyd_async.epics.adkinetix import KinetixDetector
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from pytest_mock import MockerFixture
 
-from hextools.motors import RotationMotor
-from hextools.photon_delivery_system import Shutter
-from hextools.photon_delivery_system.shutter import ShutterStatus
-from hextools.tomography.alignment import (
+from hextools.devices.motors import RotationMotor
+from hextools.devices.shutter import Shutter, ShutterStatus
+from hextools.plans.tomography.alignment import (
     ensure_run_is_valid,
     fit_points_to_ellipse,
     identify_sign_tilt_angle,

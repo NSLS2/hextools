@@ -1,4 +1,5 @@
 import os
+from functools import partial
 
 import pytest
 
@@ -8,21 +9,22 @@ pytest.importorskip("qtpy")
 from bluesky import RunEngine  # noqa: E402
 from qtpy.QtWidgets import QApplication  # noqa: E402
 
-from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
-from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
-from hextools.photon_delivery_system.filters import (  # noqa: E402
+from hextools.devices.filters import (
     Filter1DownstreamPosition,
     Filter1UpstreamPosition,
     Filter2Position,
-    set_filters,
 )
+from hextools.gui.plan_widget import QtPlanWidget  # noqa: E402
+from hextools.gui.run_engine_clients import InProcessRunEngineClient  # noqa: E402
+from hextools.plans.photon_delivery import set_filters
 
 
 def test_filters_form_has_one_dropdown_per_filter_and_no_device_pickers():
     app = QApplication.instance() or QApplication([])
     namespace = {
         "RE": RunEngine({}, call_returns_result=True),
-        "set_filters": set_filters,
+        # As the profile binds it, with the filters and shutter filled in.
+        "set_filters": partial(set_filters, *(object() for _ in range(4))),
     }
     widget = QtPlanWidget(InProcessRunEngineClient(namespace), "set_filters")
     try:

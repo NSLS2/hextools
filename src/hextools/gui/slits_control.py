@@ -18,7 +18,7 @@ from qtpy.QtWidgets import (
 from hextools.gui.movable_group import QtMovableGroup
 from hextools.gui.run_engine_clients import RunEngineClient
 
-SLITS_CLASS = "hextools.photon_delivery_system.slits.Slits"
+SLITS_CLASS = "hextools.devices.slits.Slits"
 
 # Gaps and centers drive the same blades, so each is its own batch group, as in
 # move_slits, which moves gaps before centers.

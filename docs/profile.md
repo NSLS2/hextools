@@ -14,7 +14,7 @@ This page walks through the file from top to bottom.
 
 import os
 
-from hextools.detectors.germ import GeRMDetector
+from hextools.devices.detectors.germ import GeRMDetector
 
 from bluesky import preprocessors as bpp
 from bluesky.callbacks.best_effort import BestEffortCallback
@@ -25,6 +25,7 @@ from bluesky.run_engine import (
 )
 from bluesky.utils import ProgressBarManager
 from bluesky_tiled_plugins import TiledWriter
+
 ...
 ```
 
@@ -252,9 +253,9 @@ For example, `Filter(..., name="filter2")` exposes
 `filter2` directly in the session (`RE(bps.mv(filter2, ...))`).
 
 ```python
-    fs_window_cam.add_detector_logics(
-       PluginSignalDataLogic(fs_window_cam.driver, fs_window_stats.mean_value)
-    )
+fs_window_cam.add_detector_logics(
+    PluginSignalDataLogic(fs_window_cam.driver, fs_window_stats.mean_value)
+)
 ```
 
 Makes the fluorescence-screen camera also report its mean intensity as a

@@ -13,8 +13,11 @@ from ophyd_async.core import (
     set_mock_value,
 )
 
-from hextools.detectors.germ import GeRMDetector
-from hextools.photon_delivery_system.shutter import Shutter, ShutterStatus
+from hextools.devices.detectors.germ import GeRMDetector
+from hextools.devices.shutter import (
+    Shutter,
+    ShutterStatus,
+)
 
 # Pre-import websockets modules that trigger DeprecationWarnings so they are
 # cached in sys.modules before uvicorn's server thread imports them.

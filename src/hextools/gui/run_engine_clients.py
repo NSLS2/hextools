@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import enum
+import getpass
 import inspect
 import json
 import keyword
@@ -21,12 +22,12 @@ import re
 import time
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Hashable, Mapping
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from concurrent.futures import Future
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from bluesky import RunEngine
 from bluesky.protocols import Reading, Subscribable
@@ -46,6 +47,7 @@ from hextools.gui._hook_chain import (
     live_hook,
     uninstall_hook,
 )
+from hextools.gui._plan_queue import QueueEditor, QueueError, QueuePosition
 from hextools.log import _unwrap_failed_status
 
 #: Called with each new reading, possibly from a thread other than the caller's.
@@ -66,6 +68,24 @@ CatalogCallback = Callable[[PlanCatalog, DeviceRegistry], None]
 LogCallback = Callable[[float, int, str, str], None]
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+
+#: The user group the Queue Server API gives items by default.
+_USER_GROUP = "primary"
+
+
+def _write_json(path: Path, data: Any) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_text(json.dumps(data, indent=2, default=str))
+    os.replace(tmp, path)  # atomic, so a crash can't truncate the file
+
+
+def _qt_call_soon(callback: Callable[[], None]) -> None:
+    from qtpy.QtCore import QTimer
+
+    QTimer.singleShot(0, callback)
 
 
 def _arguments(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> str:
@@ -234,6 +254,97 @@ class HistoryItem:
         }
 
 
+@dataclass(frozen=True)
+class QueueItem:
+    """A plan waiting in the queue, as the Queue Server describes it.
+
+    Arguments are as in :class:`PlanInfo`. A new item has no ``item_uid``; the
+    client gives it one, and fills in ``user`` and ``user_group``, as it is added.
+    """
+
+    name: str
+    args: tuple[Any, ...] = ()
+    kwargs: Mapping[str, Any] = field(default_factory=dict)
+    item_uid: str = ""
+    user: str = ""
+    user_group: str = ""
+
+    @property
+    def arguments(self) -> str:
+        """The call's arguments as Python source, e.g. ``"[det], num=3"``."""
+        return _arguments(self.args, self.kwargs)
+
+    @property
+    def call(self) -> str:
+        """The plan call as Python source, e.g. ``"count([det], num=3)"``."""
+        return f"{self.name}({self.arguments})"
+
+    @classmethod
+    def from_dict(cls, item: Mapping[str, Any]) -> QueueItem:
+        """Return the plan of a Queue Server queue item."""
+        return cls(
+            item["name"],
+            tuple(item.get("args") or ()),
+            dict(item.get("kwargs") or {}),
+            item.get("item_uid") or "",
+            item.get("user") or "",
+            item.get("user_group") or "",
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the plan as a Queue Server queue item, with devices as names."""
+        return {
+            "item_type": "plan",
+            "name": self.name,
+            "args": _json(self.args),
+            "kwargs": _json(self.kwargs),
+            "item_uid": self.item_uid,
+            "user": self.user,
+            "user_group": self.user_group,
+        }
+
+
+@dataclass(frozen=True)
+class PlanQueue:
+    """The plans waiting to run, front first, as the Queue Server's ``queue_get``."""
+
+    items: tuple[QueueItem, ...] = ()
+    #: Changes with every edit, so a stale copy of the queue can be detected.
+    plan_queue_uid: str = ""
+    #: The queued plan being run, taken off the front of the queue.
+    running_item: QueueItem | None = None
+
+    @classmethod
+    def from_dict(cls, queue: Mapping[str, Any]) -> PlanQueue:
+        """Return the queue of a Queue Server ``queue_get`` response."""
+        running = queue.get("running_item")
+        return cls(
+            tuple(QueueItem.from_dict(item) for item in queue.get("items") or ()),
+            queue.get("plan_queue_uid") or "",
+            QueueItem.from_dict(running) if running else None,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the queue as a Queue Server ``queue_get`` response has it."""
+        return {
+            "items": [item.to_dict() for item in self.items],
+            "running_item": self.running_item.to_dict() if self.running_item else {},
+            "plan_queue_uid": self.plan_queue_uid,
+        }
+
+
+@dataclass(frozen=True)
+class QueueStatus:
+    """Whether the queue runs, as the Queue Server's ``status`` reports it."""
+
+    #: The queue is running plans, including while one is paused.
+    running: bool = False
+    #: The queue stops once the running plan finishes.
+    stop_pending: bool = False
+    #: The queue starts by itself whenever it has plans and the RunEngine is idle.
+    autostart: bool = False
+
+
 def _source(value: Any) -> str:
     if isinstance(value, DeviceName):
         return str(value)
@@ -254,6 +365,12 @@ PlanCallback = Callable[[PlanInfo | None], None]
 #: Called with the whole plan history, oldest first, each time it changes. May
 #: be called from any thread.
 HistoryCallback = Callable[[tuple[HistoryItem, ...]], None]
+#: Called with the whole plan queue each time it changes. May be called from any
+#: thread.
+QueueCallback = Callable[[PlanQueue], None]
+#: Called with the queue's status each time it changes. May be called from any
+#: thread.
+QueueStatusCallback = Callable[[QueueStatus], None]
 
 
 class PlanError(Exception):
@@ -508,9 +625,18 @@ class RunEngineClient(ABC):
     def state(self) -> str:
         """The RunEngine state, e.g. ``"idle"``, ``"running"`` or ``"paused"``."""
 
+    @property
+    @abstractmethod
+    def mock(self) -> bool:
+        """Whether the session's devices are simulated rather than real."""
+
     @abstractmethod
     def metadata(self) -> Mapping[str, Any]:
         """Return the RunEngine metadata (``RE.md``)."""
+
+    @abstractmethod
+    def update_metadata(self, updates: Mapping[str, Any]) -> None:
+        """Set the RunEngine metadata keys in ``updates``, leaving the rest."""
 
     @abstractmethod
     def serialize_plan(self, name: str, *args: Any, **kwargs: Any) -> str:
@@ -534,7 +660,8 @@ class RunEngineClient(ABC):
         PlanPausedError
             If the plan paused.
         PlanFailedError
-            If the plan could not be run, or (in process) failed.
+            If the plan could not be run, e.g. as the queue is running, or (in
+            process) failed.
         """
 
     @abstractmethod
@@ -614,6 +741,160 @@ class RunEngineClient(ABC):
         OSError
             If the file can't be written.
         """
+
+    # The queue methods are named, and behave, as in the Queue Server's API
+    # (bluesky_queueserver_api). Positions are an index (negative counts from the
+    # back), "front" or "back". Each raises QueueError, saying why, if it fails, and
+    # leaves the queue as it was.
+
+    @abstractmethod
+    def queue_get(self) -> PlanQueue:
+        """Return the plans waiting to run."""
+
+    @abstractmethod
+    def subscribe_queue(self, callback: QueueCallback) -> Hashable:
+        """Call ``callback`` with the plan queue each time it changes.
+
+        Returns
+        -------
+        Hashable
+            A token to pass to :meth:`unsubscribe_queue`.
+        """
+
+    @abstractmethod
+    def unsubscribe_queue(self, token: Hashable) -> None:
+        """Stop the updates started by :meth:`subscribe_queue`."""
+
+    @abstractmethod
+    def item_add(
+        self,
+        item: QueueItem,
+        *,
+        pos: QueuePosition | None = None,
+        before_uid: str | None = None,
+        after_uid: str | None = None,
+    ) -> QueueItem:
+        """Add a plan to the queue, at the back by default; return it as queued.
+
+        The plan gets a new UID. An index past either end of the queue adds it
+        at that end.
+        """
+
+    @abstractmethod
+    def item_add_batch(
+        self,
+        items: Sequence[QueueItem],
+        *,
+        pos: QueuePosition | None = None,
+        before_uid: str | None = None,
+        after_uid: str | None = None,
+    ) -> tuple[QueueItem, ...]:
+        """Add plans together, in order, where :meth:`item_add` adds one.
+
+        If any plan can't be added, none are.
+        """
+
+    @abstractmethod
+    def item_get(
+        self, *, pos: QueuePosition | None = None, uid: str | None = None
+    ) -> QueueItem:
+        """Return the queued plan at ``pos`` or with ``uid``; the back by default."""
+
+    @abstractmethod
+    def item_update(self, item: QueueItem, *, replace: bool = False) -> QueueItem:
+        """Put ``item`` in place of the queued plan with its ``item_uid``.
+
+        The plan keeps its UID, unless ``replace`` gives it a new one, for a
+        different plan rather than an edit of it. Returns it as queued.
+        """
+
+    @abstractmethod
+    def item_remove(
+        self, *, pos: QueuePosition | None = None, uid: str | None = None
+    ) -> QueueItem:
+        """Remove and return the plan at ``pos`` or with ``uid``; the back one."""
+
+    @abstractmethod
+    def item_remove_batch(
+        self, *, uids: Sequence[str], ignore_missing: bool = True
+    ) -> tuple[QueueItem, ...]:
+        """Remove and return the plans with ``uids``.
+
+        Unless ``ignore_missing``, fail if a UID is repeated or not in the queue.
+        """
+
+    @abstractmethod
+    def item_move(
+        self,
+        *,
+        pos: QueuePosition | None = None,
+        uid: str | None = None,
+        pos_dest: QueuePosition | None = None,
+        before_uid: str | None = None,
+        after_uid: str | None = None,
+    ) -> QueueItem:
+        """Move the plan at ``pos`` or with ``uid`` to ``pos_dest``, or next to another.
+
+        A plan moved to an index takes the place of the plan there.
+        """
+
+    @abstractmethod
+    def item_move_batch(
+        self,
+        *,
+        uids: Sequence[str],
+        pos_dest: QueuePosition | None = None,
+        before_uid: str | None = None,
+        after_uid: str | None = None,
+        reorder: bool = False,
+    ) -> tuple[QueueItem, ...]:
+        """Move the plans with ``uids`` together to where :meth:`item_move` moves one.
+
+        They keep the order of ``uids``, or with ``reorder`` their order in the queue.
+        """
+
+    @abstractmethod
+    def queue_clear(self) -> None:
+        """Remove every plan from the queue."""
+
+    @abstractmethod
+    def queue_status(self) -> QueueStatus:
+        """Return whether the queue is running, stopping, or starts by itself."""
+
+    @abstractmethod
+    def subscribe_queue_status(self, callback: QueueStatusCallback) -> Hashable:
+        """Call ``callback`` with the queue's status each time it changes.
+
+        Returns
+        -------
+        Hashable
+            A token to pass to :meth:`unsubscribe_queue_status`.
+        """
+
+    @abstractmethod
+    def unsubscribe_queue_status(self, token: Hashable) -> None:
+        """Stop the updates started by :meth:`subscribe_queue_status`."""
+
+    @abstractmethod
+    def queue_start(self) -> None:
+        """Start running the queued plans, front first, until it is empty or stops.
+
+        A plan that doesn't complete, or is stopped, stops the queue and turns
+        autostart off. One that fails, or is aborted or halted, goes back to the
+        front of the queue with a new UID. Returns without waiting for plans.
+        """
+
+    @abstractmethod
+    def queue_stop(self) -> None:
+        """Stop the queue once the running plan finishes, and turn autostart off."""
+
+    @abstractmethod
+    def queue_stop_cancel(self) -> None:
+        """Cancel a :meth:`queue_stop` before the running plan finishes."""
+
+    @abstractmethod
+    def queue_autostart(self, enable: bool) -> None:
+        """Turn on or off starting the queue whenever it has plans and is idle."""
 
     @abstractmethod
     def pause(self, defer: bool = False) -> None:
@@ -788,6 +1069,15 @@ class InProcessRunEngineClient(RunEngineClient):
     history_file : str or Path, optional
         JSON file the plan history is loaded from, and saved to as it changes.
         A file that can't be read is left alone, and the history isn't saved.
+    queue_file : str or Path, optional
+        JSON file the plan queue is loaded from, and saved to as it changes, in
+        the form of a Queue Server ``queue_get`` response. A file that can't be
+        read is left alone, and the queue isn't saved.
+    call_soon : Callable, optional
+        Calls a function on the main thread after the caller returns; queued
+        plans run through it, one at a time. Default: a zero-delay Qt timer.
+    mock : bool, optional
+        Whether the namespace's devices are simulated. Default: False.
     """
 
     def __init__(
@@ -795,8 +1085,12 @@ class InProcessRunEngineClient(RunEngineClient):
         namespace: Mapping[str, Any],
         logger_name: str | None = None,
         history_file: str | Path | None = None,
+        queue_file: str | Path | None = None,
+        call_soon: Callable[[Callable[[], None]], None] | None = None,
+        mock: bool = False,
     ):
         super().__init__()
+        self._mock = mock
         self._logger = logging.getLogger(logger_name)
         re = namespace.get("RE", None)
         if not isinstance(re, RunEngine):
@@ -815,13 +1109,30 @@ class InProcessRunEngineClient(RunEngineClient):
         self._stop_reasons: list[str] = []
         self._history_file = Path(history_file).expanduser() if history_file else None
         self._history = self._load_history()
+        self._queue_callbacks: dict[object, QueueCallback] = {}
+        self._queue_file = Path(queue_file).expanduser() if queue_file else None
+        self._queue = self._load_queue()
+        self._call_soon = call_soon or _qt_call_soon
+        self._queue_status = QueueStatus()
+        self._queue_status_callbacks: dict[object, QueueStatusCallback] = {}
+        # The running queued plan paused, so resume() or stop() etc. finishes it.
+        self._queue_item_paused = False
+        # How the running queued plan was interrupted: "stopped", "aborted" etc.
+        self._queue_interrupt: str | None = None
 
     @property
     def state(self) -> str:
         return str(self._re.state)
 
+    @property
+    def mock(self) -> bool:
+        return self._mock
+
     def metadata(self) -> Mapping[str, Any]:
         return self._re.md
+
+    def update_metadata(self, updates: Mapping[str, Any]) -> None:
+        self._re.md.update(updates)
 
     def refresh_catalog(self) -> None:
         """Describe the namespace's plans and devices again, and notify subscribers."""
@@ -905,6 +1216,17 @@ class InProcessRunEngineClient(RunEngineClient):
         return f"RE({check_plan_name(name)}({', '.join(params)}))"
 
     def execute_plan(self, name: str, *args: Any, **kwargs: Any) -> None:
+        if self._queue_status.running:
+            raise PlanFailedError(
+                "The queue is running: add the plan to the queue, or stop the "
+                "queue first."
+            )
+        try:
+            self._run_plan(name, *args, **kwargs)
+        finally:
+            self._autostart_push()
+
+    def _run_plan(self, name: str, *args: Any, **kwargs: Any) -> None:
         try:
             code = self.serialize_plan(name, *args, **kwargs)
         except (TypeError, ValueError) as error:
@@ -992,7 +1314,9 @@ class InProcessRunEngineClient(RunEngineClient):
                 time.time(),
             )
             self._stop_reasons = []
-            self._set_plan(replace(plan, item_uid=str(uuid.uuid4())))
+            running = self._queue.running_item
+            uid = running.item_uid if running is not None else str(uuid.uuid4())
+            self._set_plan(replace(plan, item_uid=uid))
         elif str(new_state) == "idle" and self._plan is not None:
             plan = self._plan
             self._set_plan(None)
@@ -1086,11 +1410,7 @@ class InProcessRunEngineClient(RunEngineClient):
         return value
 
     def _write_history(self, path: Path):
-        entries = [item.to_dict() for item in self._history]
-        tmp = path.with_name(path.name + ".tmp")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(entries, indent=2, default=str))
-        os.replace(tmp, path)  # atomic, so a crash can't truncate the file
+        _write_json(path, [item.to_dict() for item in self._history])
 
     def _history_changed(self):
         if self._history_file is not None:
@@ -1106,6 +1426,318 @@ class InProcessRunEngineClient(RunEngineClient):
                 callback(history)
             except Exception:
                 pass
+
+    def queue_get(self) -> PlanQueue:
+        return self._queue
+
+    def subscribe_queue(self, callback: QueueCallback) -> Hashable:
+        token = object()
+        self._queue_callbacks[token] = callback
+        return token
+
+    def unsubscribe_queue(self, token: Hashable) -> None:
+        self._queue_callbacks.pop(token, None)
+
+    def item_add(
+        self,
+        item: QueueItem,
+        *,
+        pos: QueuePosition | None = None,
+        before_uid: str | None = None,
+        after_uid: str | None = None,
+    ) -> QueueItem:
+        item = self._queued(item, str(uuid.uuid4()))
+        return self._edit_queue(
+            lambda queue: queue.add(
+                item, pos=pos, before_uid=before_uid, after_uid=after_uid
+            )
+        )
+
+    def item_add_batch(
+        self,
+        items: Sequence[QueueItem],
+        *,
+        pos: QueuePosition | None = None,
+        before_uid: str | None = None,
+        after_uid: str | None = None,
+    ) -> tuple[QueueItem, ...]:
+        queued = [self._queued(item, str(uuid.uuid4())) for item in items]
+        return tuple(
+            self._edit_queue(
+                lambda queue: queue.add_batch(
+                    queued, pos=pos, before_uid=before_uid, after_uid=after_uid
+                )
+            )
+        )
+
+    def item_get(
+        self, *, pos: QueuePosition | None = None, uid: str | None = None
+    ) -> QueueItem:
+        return QueueEditor(self._queue.items).get(pos=pos, uid=uid)
+
+    def item_update(self, item: QueueItem, *, replace: bool = False) -> QueueItem:
+        if not item.item_uid:
+            raise QueueError("Item description contains no UID")
+        queued = self._queued(item, str(uuid.uuid4()) if replace else item.item_uid)
+        return self._edit_queue(
+            lambda queue: queue.replace(queued, item_uid=item.item_uid)
+        )
+
+    def item_remove(
+        self, *, pos: QueuePosition | None = None, uid: str | None = None
+    ) -> QueueItem:
+        return self._edit_queue(lambda queue: queue.remove(pos=pos, uid=uid))
+
+    def item_remove_batch(
+        self, *, uids: Sequence[str], ignore_missing: bool = True
+    ) -> tuple[QueueItem, ...]:
+        return tuple(
+            self._edit_queue(
+                lambda queue: queue.remove_batch(
+                    uids=uids, ignore_missing=ignore_missing
+                )
+            )
+        )
+
+    def item_move(
+        self,
+        *,
+        pos: QueuePosition | None = None,
+        uid: str | None = None,
+        pos_dest: QueuePosition | None = None,
+        before_uid: str | None = None,
+        after_uid: str | None = None,
+    ) -> QueueItem:
+        return self._edit_queue(
+            lambda queue: queue.move(
+                pos=pos,
+                uid=uid,
+                pos_dest=pos_dest,
+                before_uid=before_uid,
+                after_uid=after_uid,
+            )
+        )
+
+    def item_move_batch(
+        self,
+        *,
+        uids: Sequence[str],
+        pos_dest: QueuePosition | None = None,
+        before_uid: str | None = None,
+        after_uid: str | None = None,
+        reorder: bool = False,
+    ) -> tuple[QueueItem, ...]:
+        return tuple(
+            self._edit_queue(
+                lambda queue: queue.move_batch(
+                    uids=uids,
+                    pos_dest=pos_dest,
+                    before_uid=before_uid,
+                    after_uid=after_uid,
+                    reorder=reorder,
+                )
+            )
+        )
+
+    def queue_clear(self) -> None:
+        self._edit_queue(lambda queue: queue.items.clear())
+
+    def _queued(self, item: QueueItem, uid: str) -> QueueItem:
+        """Return ``item`` with ``uid`` and its user, if the plan can be called so.
+
+        Raises
+        ------
+        QueueError
+            If the plan isn't in the catalog, or its arguments don't fit it.
+        """
+        description = self.plan_catalog.get(item.name)
+        if description is None:
+            raise QueueError(f"Plan {item.name!r} is not in the plan catalog")
+        signature = inspect.Signature(
+            [
+                inspect.Parameter(
+                    p.name,
+                    getattr(inspect.Parameter, p.kind.upper()),
+                    default=(
+                        inspect.Parameter.empty
+                        if p.required or p.kind.startswith("var_")
+                        else None
+                    ),
+                )
+                for p in description.parameters
+            ],
+            __validate_parameters__=False,
+        )
+        try:
+            signature.bind(*item.args, **item.kwargs)
+            self.serialize_plan(item.name, *item.args, **item.kwargs)
+            self._check_devices([*item.args, *item.kwargs.values()])
+        except (TypeError, ValueError) as error:
+            raise QueueError(f"Invalid arguments for {item.name!r}: {error}") from error
+        return replace(
+            item, item_uid=uid, user=getpass.getuser(), user_group=_USER_GROUP
+        )
+
+    def _check_devices(self, value: Any) -> None:
+        if isinstance(value, DeviceName):
+            try:
+                self._device_registry.node(value)
+            except KeyError:
+                raise ValueError(f"There is no device called {value!r}") from None
+        elif isinstance(value, list | tuple):
+            for v in value:
+                self._check_devices(v)
+
+    def _edit_queue(self, edit: Callable[[QueueEditor[QueueItem]], _T]) -> _T:
+        """Apply ``edit`` to a copy of the queue, and keep the copy if it succeeds."""
+        queue = QueueEditor(self._queue.items)
+        result = edit(queue)
+        self._set_queue(tuple(queue.items), self._queue.running_item)
+        self._autostart_push()
+        return result
+
+    def _set_queue(
+        self, items: tuple[QueueItem, ...], running_item: QueueItem | None
+    ) -> None:
+        self._queue = PlanQueue(items, str(uuid.uuid4()), running_item)
+        if self._queue_file is not None:
+            try:
+                _write_json(self._queue_file, self._queue.to_dict())
+            except OSError as ex:
+                logger.warning(
+                    "Failed to save plan queue to %s: %s", self._queue_file, ex
+                )
+        for callback in list(self._queue_callbacks.values()):
+            try:
+                callback(self._queue)
+            except Exception:
+                pass
+
+    def queue_status(self) -> QueueStatus:
+        return self._queue_status
+
+    def subscribe_queue_status(self, callback: QueueStatusCallback) -> Hashable:
+        token = object()
+        self._queue_status_callbacks[token] = callback
+        return token
+
+    def unsubscribe_queue_status(self, token: Hashable) -> None:
+        self._queue_status_callbacks.pop(token, None)
+
+    def _set_queue_status(self, **changes: bool) -> None:
+        status = replace(self._queue_status, **changes)
+        if status == self._queue_status:
+            return
+        self._queue_status = status
+        for callback in list(self._queue_status_callbacks.values()):
+            try:
+                callback(status)
+            except Exception:
+                pass
+
+    def queue_start(self) -> None:
+        if self._queue_status.running:
+            raise QueueError("Failed to start the queue: the queue is already running")
+        if self.state != "idle":
+            raise QueueError(
+                f"Failed to start the queue: the RunEngine is {self.state}"
+            )
+        self._set_queue_status(running=True, stop_pending=False)
+        self._call_soon(self._start_next_item)
+
+    def queue_stop(self) -> None:
+        if not self._queue_status.running:
+            raise QueueError("Failed to stop the queue: the queue is not running")
+        self._set_queue_status(stop_pending=True)
+
+    def queue_stop_cancel(self) -> None:
+        self._set_queue_status(stop_pending=False)
+
+    def queue_autostart(self, enable: bool) -> None:
+        self._set_queue_status(autostart=enable)
+        self._autostart_push()
+
+    def _autostart_push(self) -> None:
+        """Start the queue if autostart is on and there is something to run."""
+        status = self._queue_status
+        if (
+            status.autostart
+            and not status.running
+            and self._queue.items
+            and self.state == "idle"
+        ):
+            self._set_queue_status(running=True, stop_pending=False)
+            self._call_soon(self._start_next_item)
+
+    def _start_next_item(self) -> None:
+        """Run the front plan of the queue, or stop the queue if it shouldn't go on."""
+        status = self._queue_status
+        if not status.running or self._queue.running_item is not None:
+            return
+        if status.stop_pending or not self._queue.items or self.state != "idle":
+            self._set_queue_status(
+                running=False,
+                stop_pending=False,
+                autostart=status.autostart and not status.stop_pending,
+            )
+            return
+        item, *rest = self._queue.items
+        self._set_queue(tuple(rest), item)
+        try:
+            self._run_plan(item.name, *item.args, **item.kwargs)
+        except PlanPausedError:
+            self._queue_item_paused = True
+            return
+        except PlanError as error:
+            logger.error("Queued plan %s failed: %s", item.call, error)
+            self._finish_queue_item(failed=True)
+            return
+        self._finish_queue_item(failed=False)
+
+    def _finish_queue_item(self, *, failed: bool) -> None:
+        """Take the running queued plan off; go on, or stop if it didn't complete."""
+        item = self._queue.running_item
+        interrupt, self._queue_interrupt = self._queue_interrupt, None
+        self._queue_item_paused = False
+        items = self._queue.items
+        # As the Queue Server, a stopped plan counts as done; others are run again.
+        if item is not None and (failed or interrupt in ("aborted", "halted")):
+            items = (replace(item, item_uid=str(uuid.uuid4())), *items)
+        self._set_queue(items, None)
+        if failed or interrupt:
+            self._set_queue_status(running=False, stop_pending=False, autostart=False)
+        else:
+            self._call_soon(self._start_next_item)
+
+    def _interrupt(self, exit_status: str, request: Callable[[], Any]) -> None:
+        """Stop, abort or halt the plan, and if it is queued, stop the queue."""
+        if self._queue.running_item is not None:
+            self._queue_interrupt = exit_status
+        request()
+        if self._queue_item_paused:
+            self._finish_queue_item(failed=False)
+
+    def _load_queue(self) -> PlanQueue:
+        path = self._queue_file
+        if path is None or not path.exists():
+            return PlanQueue(plan_queue_uid=str(uuid.uuid4()))
+        try:
+            queue = PlanQueue.from_dict(json.loads(path.read_text()))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as ex:
+            # Don't overwrite a file we couldn't read; it may be worth recovering.
+            logger.warning("Not saving plan queue: failed to load %s: %s", path, ex)
+            self._queue_file = None
+            return PlanQueue(plan_queue_uid=str(uuid.uuid4()))
+        items = tuple(
+            replace(
+                item,
+                args=self._device_names(item.args),
+                kwargs=self._device_names(item.kwargs),
+            )
+            # A plan running when the session ended never finished, so runs again.
+            for item in (*filter(None, [queue.running_item]), *queue.items)
+        )
+        return replace(queue, items=items, running_item=None)
 
     def pause(self, defer: bool = False) -> None:
         self._re.request_pause(defer=defer)
@@ -1124,6 +1756,23 @@ class InProcessRunEngineClient(RunEngineClient):
         PlanFailedError
             If the resumed plan failed.
         """
+        queued = self._queue_item_paused
+        self._queue_item_paused = False
+        try:
+            self._resume_plan()
+        except PlanPausedError:
+            self._queue_item_paused = queued
+            raise
+        except PlanError:
+            if queued:
+                self._finish_queue_item(failed=True)
+            raise
+        if queued:
+            self._finish_queue_item(failed=False)
+        else:
+            self._autostart_push()
+
+    def _resume_plan(self) -> None:
         from IPython.core.getipython import get_ipython
 
         ipython = get_ipython()
@@ -1136,13 +1785,13 @@ class InProcessRunEngineClient(RunEngineClient):
             raise _plan_error(error) from error
 
     def stop(self) -> None:
-        self._re.stop()
+        self._interrupt("stopped", self._re.stop)
 
     def abort(self) -> None:
-        self._re.abort()
+        self._interrupt("aborted", self._re.abort)
 
     def halt(self) -> None:
-        self._re.halt()
+        self._interrupt("halted", self._re.halt)
 
     def subscribe_logs(self, callback: LogCallback) -> Hashable:
         handler = _LogHandler(callback)

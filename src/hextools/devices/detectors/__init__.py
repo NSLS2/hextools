@@ -19,7 +19,6 @@ from .phantom import (
     PhantomSettingsSlot,
     PhantomTrigEdge,
 )
-from .utils import enable_preview_mode, set_plugin_queue_sizes, set_proc_filter_type
 
 # Readout headroom (s) added to exposure_time when frame_period is unset;
 # same margin the beamline's deployed PandA plan kept between step and exposure.
@@ -45,8 +44,5 @@ __all__ = [
     "Gain",
     "GeRMDetector",
     "KinetixTriggerMode",
-    "enable_preview_mode",
-    "set_plugin_queue_sizes",
-    "set_proc_filter_type",
     "kinetix_factory",
 ]

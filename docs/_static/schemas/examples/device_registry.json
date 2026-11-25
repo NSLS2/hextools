@@ -6,7 +6,7 @@
       "aliases": ["slits_a"],
       "name": "a_slits",
       "classes": [
-        "hextools.photon_delivery_system.slits.Slits",
+        "hextools.devices.slits.Slits",
         "ophyd_async.core.StandardReadable",
         "ophyd_async.core.Device"
       ],
@@ -18,7 +18,7 @@
         "horizontal_gap": {
           "name": "a_slits-horizontal_gap",
           "classes": [
-            "hextools.photon_delivery_system.slits.SlitGap",
+            "hextools.devices.slits.SlitGap",
             "ophyd_async.core.StandardReadable",
             "ophyd_async.core.Device"
           ],
@@ -81,14 +81,14 @@
     "filter2": {
       "name": "filter2",
       "classes": [
-        "hextools.photon_delivery_system.filters.Filter",
+        "hextools.devices.filters.Filter",
         "ophyd_async.core.StandardReadable",
         "ophyd_async.core.Device"
       ],
       "protocols": ["Movable", "Readable", "Subscribable"],
       "set_type": {
         "kind": "enum",
-        "name": "hextools.photon_delivery_system.filters.Filter2Position",
+        "name": "hextools.devices.filters.Filter2Position",
         "choices": [{"value": "Out"}, {"value": "1 mm Cu"}, {"value": "2 mm Cu"}]
       }
     }

@@ -9,7 +9,8 @@ from ophyd_async.core import set_mock_value
 import hextools
 from hextools.catalog.generate import qualified_name
 from hextools.catalog.model import DeviceRegistry
-from hextools.motors import AsyncEpicsMotor, SampleSmall
+from hextools.devices.motors import SampleSmall
+from hextools.plans.motors import AsyncEpicsMotor
 
 
 @pytest.mark.parametrize("axis", ["x", "y"])

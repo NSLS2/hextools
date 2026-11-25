@@ -20,16 +20,15 @@ from ophyd_async.epics.adcore import (
 from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.sim import SimMotor
 
-from hextools.detectors.perkin_elmer import PerkinElmerDetector
-from hextools.detectors.utils import enable_preview_mode
-from hextools.motors import DiffractionTable
-from hextools.photon_delivery_system.shutter import (
-    Shutter,
+from hextools.devices.detectors.perkin_elmer import PerkinElmerDetector
+from hextools.devices.motors import DiffractionTable
+from hextools.devices.shutter import Shutter
+from hextools.plans.detectors import enable_preview_mode
+from hextools.plans.photon_delivery import (
     ensure_shutter_closed,
     ensure_shutter_open,
 )
 from hextools.specs import XRD_CALIBRATION_V1, XRD_DARK_REFERENCE_V1, XRD_SCAN_V1
-from hextools.utils import ensure_available
 
 logger = logging.getLogger("hextools")
 
@@ -83,7 +82,8 @@ def dark_reference(
     imgs_to_average: int,
     frames_to_wait: int = 20,
     filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
-    photon_shutter: Shutter | None = None,
+    *,
+    photon_shutter: Shutter,
 ) -> MsgGenerator[None]:
     """Take a dark reference reading with a given exposure time.
 
@@ -97,12 +97,11 @@ def dark_reference(
         The number of images to average for the dark reference.
     filter_type : NDProcessFilterType, optional
         The filter type to use for processing, by default NDProcessFilterType.AVERAGE.
-    photon_shutter : Shutter | None, optional
-        The photon shutter to use, by default None.
     frames_to_wait : int, optional
         The number of frames to wait after changing the exposure time, by default 20.
+    photon_shutter : Shutter
+        The photon shutter, kept closed.
     """
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     yield from ensure_shutter_closed(photon_shutter)
 
     def _body():
@@ -202,10 +201,10 @@ def xrd_scan_nd(
     sleep_time: float = 0.0,
     use_shutter: bool = True,
     snake_axes: bool | list[bool] = False,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
     description: str = "N-Dimensional XRD scan",
     md: dict | None = None,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ) -> MsgGenerator[None]:
     """Perform an XRD scan with the given parameters.
 
@@ -229,18 +228,15 @@ def xrd_scan_nd(
         Whether to use the shutters, by default True.
     snake_axes : bool | list[bool], optional
         Whether to snake the scan axes, by default False.
-    fe_shutter : Shutter | None, optional
-        The front-end shutter to use, by default None.
-    photon_shutter : Shutter | None, optional
-        The photon shutter to use, by default None.
     description : str, optional
         A description for the scan, by default "N-Dimensional XRD scan".
     md : dict | None, optional
         Metadata for the scan, by default None.
+    fe_shutter : Shutter
+        The front-end shutter.
+    photon_shutter : Shutter
+        The photon shutter.
     """
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
-
     # Extract the step axes from the positional arguments.
     if len(args) % 4:
         raise ValueError("Step axes must be given as (motor, start, stop, num) groups.")
@@ -318,9 +314,10 @@ def xrd_scan_2d(
     sleep_time: float = 0.0,
     use_shutter: bool = True,
     snake_axes: bool = False,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
     description: str = "2D XRD scan",
+    *,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ) -> MsgGenerator[None]:
     """Perform a 2D XRD scan with the given parameters.
 
@@ -358,12 +355,12 @@ def xrd_scan_2d(
         Whether to use the shutters, by default True.
     snake_axes : bool | list, optional
         Whether to snake the scan axes, by default False.
-    fe_shutter : Shutter | None, optional
-        The front-end shutter to use, by default None.
-    photon_shutter : Shutter | None, optional
-        The photon shutter to use, by default None.
     description : str, optional
         A description for the scan, by default "2D XRD scan".
+    fe_shutter : Shutter
+        The front-end shutter.
+    photon_shutter : Shutter
+        The photon shutter.
     """
     return (
         yield from xrd_scan_nd(
@@ -404,9 +401,10 @@ def xrd_scan(
     sleep_time: float = 0.0,
     use_shutter: bool = True,
     snake_axes: bool | list = False,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
     description: str = "1D XRD scan",
+    *,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ) -> MsgGenerator[None]:
     """Perform a 1D XRD scan with the given parameters.
 
@@ -438,12 +436,12 @@ def xrd_scan(
         Whether to use the shutters, by default True.
     snake_axes : bool | list, optional
         Whether to snake the scan axes, by default False.
-    fe_shutter : Shutter | None, optional
-        The front-end shutter to use, by default None.
-    photon_shutter : Shutter | None, optional
-        The photon shutter to use, by default None.
     description : str, optional
         A description for the scan, by default "1D XRD scan".
+    fe_shutter : Shutter
+        The front-end shutter.
+    photon_shutter : Shutter
+        The photon shutter.
     """
     return (
         yield from xrd_scan_nd(
@@ -476,10 +474,11 @@ def xrd_calibration(
     images_to_average: int = 1,
     filter_type: NDProcessFilterType = NDProcessFilterType.AVERAGE,
     use_shutter: bool = True,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
-    diff_table: DiffractionTable | None = None,
     description: str = "Energy-geometry calibration",
+    *,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
+    diff_table: DiffractionTable,
 ) -> MsgGenerator[None]:
     """Perform an XRD calibration scan.
 
@@ -498,18 +497,15 @@ def xrd_calibration(
         Default is None, which uses the current position.
     use_shutter : bool, optional
         Whether to use the shutters during the scan (default is True).
-    fe_shutter : Shutter | None, optional
-        The front-end shutter to use.
-    photon_shutter : Shutter | None, optional
-        The photon shutter to use.
-    diff_table : DiffractionTable | None, optional
-        The diffraction table to use.
     description : str, optional
         A description for the scan.
+    fe_shutter : Shutter
+        The front-end shutter.
+    photon_shutter : Shutter
+        The photon shutter.
+    diff_table : DiffractionTable
+        The diffraction table, whose z axis is stepped.
     """
-    diff_table = ensure_available(DiffractionTable, diff_table=diff_table)
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
     diff_z = diff_table.z
 
     if start_position is None:

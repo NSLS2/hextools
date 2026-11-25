@@ -27,7 +27,6 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -39,11 +38,21 @@ from hextools.gui._client_signals import (
     QtCurrentPlan,
     QtLogRecords,
     QtPlanHistoryChanges,
+    QtQueueStatus,
     QtRunEngineState,
 )
+from hextools.gui._elided_label import ElidedLabel
 from hextools.gui.log_watcher import level_color
 from hextools.gui.plan_errors import show_plan_error
-from hextools.gui.run_engine_clients import HistoryItem, PlanInfo, RunEngineClient
+from hextools.gui.plan_summary import QtPlanSummary
+from hextools.gui.plan_widget import QtPlanWidget
+from hextools.gui.run_engine_clients import (
+    HistoryItem,
+    PlanInfo,
+    QueueError,
+    QueueItem,
+    RunEngineClient,
+)
 
 _NO_PLAN = "\u2014"  # em dash
 _NOT_APPLICABLE = "N/A"
@@ -123,18 +132,13 @@ class QtPlanStatus(QWidget):
 
     def __init__(self, re_client: RunEngineClient, parent=None):
         super().__init__(parent)
-        self._plan = QLabel(_NO_PLAN)
-        self._inner_plan = QLabel(_NO_PLAN)
-        self._scan_id = QLabel(_NO_PLAN)
-        self._scan_id.setWordWrap(True)
-        self._inner_scan_id = QLabel(_NO_PLAN)
-        self._last = QLabel(_NO_PLAN)
-        self._last.setWordWrap(True)
-        self._last.setMinimumWidth(260)
-        # Wrap to the available width rather than widening the window.
-        self._last.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
-        )
+        # Single lines that never resize the header; long values show on hover.
+        self._plan = ElidedLabel(_NO_PLAN)
+        self._inner_plan = ElidedLabel(_NO_PLAN)
+        self._scan_id = ElidedLabel(_NO_PLAN)
+        self._inner_scan_id = ElidedLabel(_NO_PLAN)
+        self._last = ElidedLabel(_NO_PLAN, max_lines=2)
+        self._last.setMinimumWidth(240)
         self._outer_name = ""
         self._start_time: float | None = None
 
@@ -145,21 +149,32 @@ class QtPlanStatus(QWidget):
         state_row.addWidget(self._indicator)
         state_row.addWidget(self._state, stretch=1)
 
+        # Inner plan and scan ID share the outer ones' rows, so nesting adds none.
+        self._inner_plan_caption = QLabel("Inner plan:")
+        self._inner_scan_id_caption = QLabel("Inner scan ID:")
+        plan_row = QHBoxLayout()
+        plan_row.setContentsMargins(0, 0, 0, 0)
+        plan_row.addWidget(self._plan, stretch=1)
+        plan_row.addWidget(self._inner_plan_caption)
+        plan_row.addWidget(self._inner_plan, stretch=1)
+        scan_id_row = QHBoxLayout()
+        scan_id_row.setContentsMargins(0, 0, 0, 0)
+        scan_id_row.addWidget(self._scan_id, stretch=1)
+        scan_id_row.addWidget(self._inner_scan_id_caption)
+        scan_id_row.addWidget(self._inner_scan_id, stretch=1)
+
         form = QFormLayout()
         form.setContentsMargins(8, 6, 8, 6)
         form.addRow("RunEngine:", state_row)
-        form.addRow("Plan:", self._plan)
-        form.addRow("Inner plan:", self._inner_plan)
-        form.addRow("Scan ID:", self._scan_id)
-        form.addRow("Inner scan ID:", self._inner_scan_id)
-        form.addRow(QLabel("Last step:"))
-        form.addRow(self._last)
-        self._form = form
+        form.addRow("Plan:", plan_row)
+        form.addRow("Scan ID:", scan_id_row)
+        form.addRow("Last step:", self._last)
         self._set_inner_visible(False)
 
         group_box = QGroupBox("Plan Status")
         group_box.setLayout(form)
         vbox = QVBoxLayout()
+        vbox.setContentsMargins(0, 0, 0, 0)
         vbox.addWidget(group_box)
         self.setLayout(vbox)
 
@@ -173,8 +188,13 @@ class QtPlanStatus(QWidget):
         self._logs.record.connect(self._on_record)
 
     def _set_inner_visible(self, visible: bool):
-        self._form.setRowVisible(self._inner_plan, visible)
-        self._form.setRowVisible(self._inner_scan_id, visible)
+        for widget in (
+            self._inner_plan_caption,
+            self._inner_plan,
+            self._inner_scan_id_caption,
+            self._inner_scan_id,
+        ):
+            widget.setVisible(visible)
 
     @Slot(object)
     def _on_plan_changed(self, plan: PlanInfo | None):
@@ -552,47 +572,92 @@ class QtPlanLogView(QWidget):
         )
 
 
+def _scan_id_ranges(scan_ids: list[int]) -> str:
+    """``[2, 3, 4, 5, 6, 9]`` -> ``"2 - 6, 9"``: consecutive runs as ranges."""
+    runs: list[list[int]] = []
+    for scan_id in scan_ids:
+        if runs and scan_id == runs[-1][-1] + 1:
+            runs[-1].append(scan_id)
+        else:
+            runs.append([scan_id])
+    return ", ".join(
+        str(run[0]) if len(run) == 1 else f"{run[0]} - {run[-1]}" for run in runs
+    )
+
+
 class QtPlanHistory(QWidget):
     """Table of a RunEngine client's plan history, newest first.
 
-    A selected plan can be re-run, and the history cleared.
+    A selected plan can be re-run, unless the queue is running, or added to the
+    queue, and the history cleared. Consecutive scan IDs
+    are shown as ranges, e.g. ``2 - 6``; hovering a cell shows it all.
+    Double-clicking a plan opens its :class:`QtPlanSummary`.
 
     Parameters
     ----------
     re_client : RunEngineClient
         Keeps the history, and re-runs plans.
+    max_uids : int, optional
+        Most run uids listed for a plan; more are shown as a count, e.g.
+        ``10 UIDs``. Default: 3.
     """
 
     _COLUMNS = ("Start", "Stop", "Plan", "Arguments", "Status", "Scan ID", "UID")
     _ARGUMENTS_COLUMN = 3
+    # Wrapped to these widths, in average characters, rather than widening the table.
+    _WRAPPED_WIDTHS = {4: 28, 5: 14}
 
-    def __init__(self, re_client: RunEngineClient, parent=None):
+    def __init__(self, re_client: RunEngineClient, parent=None, *, max_uids: int = 3):
         super().__init__(parent)
         self._re_client = re_client
+        self._max_uids = max_uids
         self._items: list[HistoryItem] = []  # same order as table rows
+        self._summaries: dict[str, QtPlanSummary] = {}
+        self._editors: dict[str, QtPlanWidget] = {}
 
         self._table = QTableWidget(0, len(self._COLUMNS))
         self._table.setHorizontalHeaderLabels(self._COLUMNS)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # Long cells wrap onto more lines, and rows grow to show them whole.
+        self._table.setWordWrap(True)
+        self._table.setTextElideMode(Qt.TextElideMode.ElideNone)
         self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(
             self._ARGUMENTS_COLUMN, QHeaderView.ResizeMode.Stretch
         )
+        char_width = self._table.fontMetrics().averageCharWidth()
+        for column, chars in self._WRAPPED_WIDTHS.items():
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+            header.resizeSection(column, chars * char_width)
         self._table.itemSelectionChanged.connect(self._update_button)
+        self._table.cellDoubleClicked.connect(
+            lambda row, _: self.show_summary(self._items[row])
+        )
 
         self._rerun_button = QPushButton("Re-run Selected Plan")
         self._rerun_button.setEnabled(False)
         self._rerun_button.clicked.connect(self._on_rerun_clicked)
+        self._edit_button = QPushButton("Edit and Re-run\u2026")
+        self._edit_button.setEnabled(False)
+        self._edit_button.clicked.connect(self._on_edit_clicked)
+        self._queue_button = QPushButton("Add to Queue")
+        self._queue_button.setEnabled(False)
+        self._queue_button.clicked.connect(self._on_queue_clicked)
         self._clear_button = QPushButton("Clear History")
         self._clear_button.setEnabled(False)
         self._clear_button.clicked.connect(self._on_clear_clicked)
         buttons = QHBoxLayout()
         buttons.addWidget(self._clear_button)
         buttons.addStretch()
+        buttons.addWidget(self._edit_button)
+        buttons.addWidget(self._queue_button)
         buttons.addWidget(self._rerun_button)
 
         vbox = QVBoxLayout()
@@ -602,6 +667,8 @@ class QtPlanHistory(QWidget):
 
         self._history = QtPlanHistoryChanges(re_client, self)
         self._history.changed.connect(self._show)
+        self._queue_status = QtQueueStatus(re_client, self)
+        self._queue_status.changed.connect(self._update_button)
         self._show(re_client.plan_history())
 
     @staticmethod
@@ -617,20 +684,35 @@ class QtPlanHistory(QWidget):
         self._table.setRowCount(len(self._items))
         for row, item in enumerate(self._items):
             result = item.result
-            scan_ids = [str(s) for s in result.scan_ids if s is not None]
+            scan_ids = [s for s in result.scan_ids if s is not None]
+            uids = result.run_uids
             status = result.exit_status.capitalize()
+            status = f"{status}: {result.msg}" if result.msg else status
+            # (shown, on hover) for each column.
             cells = (
-                self._fmt_time(result.time_start),
-                self._fmt_time(result.time_stop),
-                item.name,
-                item.arguments,
-                f"{status}: {result.msg}" if result.msg else status,
-                ", ".join(scan_ids) or _NOT_APPLICABLE,
-                ", ".join(result.run_uids) or _NOT_APPLICABLE,
+                (self._fmt_time(result.time_start),) * 2,
+                (self._fmt_time(result.time_stop),) * 2,
+                (item.name,) * 2,
+                (item.arguments,) * 2,
+                (status,) * 2,
+                (
+                    _scan_id_ranges(scan_ids) or _NOT_APPLICABLE,
+                    ", ".join(str(s) for s in scan_ids) or _NOT_APPLICABLE,
+                ),
+                (
+                    # A uid can't wrap, so the column is one uid wide, one per line.
+                    f"{len(uids)} UID{'s' if len(uids) != 1 else ''}"
+                    if len(uids) > self._max_uids
+                    else "\n".join(uids) or _NOT_APPLICABLE,
+                    "\n".join(uids) or _NOT_APPLICABLE,
+                ),
             )
-            for column, text in enumerate(cells):
+            for column, (text, tooltip) in enumerate(cells):
                 cell = QTableWidgetItem(text)
-                cell.setToolTip(text)
+                cell.setTextAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+                )
+                cell.setToolTip(tooltip)
                 self._table.setItem(row, column, cell)
             if selected is not None and item.item_uid == selected.item_uid:
                 self._table.selectRow(row)
@@ -639,6 +721,50 @@ class QtPlanHistory(QWidget):
     def clear(self):
         """Remove every plan from the client's history."""
         self._re_client.clear_history()
+
+    def show_summary(self, item: HistoryItem) -> QtPlanSummary:
+        """Open the summary window of ``item``, or raise it if already open."""
+        key = item.item_uid or str(id(item))
+        summary = self._summaries.get(key)
+        if summary is None:
+            # No parent: a parented window is kept above the main window.
+            summary = QtPlanSummary(item, self._re_client.plan_catalog.get(item.name))
+            summary.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            summary.destroyed.connect(lambda *_: self._summaries.pop(key, None))
+            self._summaries[key] = summary
+        summary.show()
+        summary.raise_()
+        summary.activateWindow()
+        return summary
+
+    def edit_and_rerun(self, item: HistoryItem) -> QtPlanWidget:
+        """Open ``item``'s plan form, filled in as it ran, or raise it if open.
+
+        Raises
+        ------
+        KeyError
+            If the plan is no longer in the catalog.
+        TypeError
+            If its arguments can't all be given by name.
+        """
+        key = item.item_uid or str(id(item))
+        editor = self._editors.get(key)
+        if editor is None:
+            values = self._re_client.plan_catalog[item.name].bind(
+                item.args, item.kwargs
+            )
+            # No parent: a parented window is kept above the main window.
+            editor = QtPlanWidget(self._re_client, item.name)
+            editor.set_values(values)
+            editor.setWindowTitle(f"Edit and Re-run \u2014 {item.name}")
+            editor.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            editor.destroyed.connect(lambda *_: self._editors.pop(key, None))
+            editor.resize(max(editor.sizeHint().width(), 480), 600)
+            self._editors[key] = editor
+        editor.show()
+        editor.raise_()
+        editor.activateWindow()
+        return editor
 
     def _on_clear_clicked(self):
         answer = QMessageBox.question(
@@ -663,13 +789,49 @@ class QtPlanHistory(QWidget):
             return "Some of this plan's arguments can't be passed to it again."
         return None
 
+    def _edit_problem(self, item: HistoryItem) -> str | None:
+        """Why ``item`` can't be edited and re-run, or None if it can."""
+        plan = self._re_client.plan_catalog.get(item.name)
+        if plan is None:
+            return f"'{item.name}' is not an available plan."
+        try:
+            plan.bind(item.args, item.kwargs)
+        except TypeError:
+            return "This plan's positional arguments can't be edited in a form."
+        return None
+
     @Slot()
-    def _update_button(self):
+    def _update_button(self, *_):
         self._clear_button.setEnabled(bool(self._items))
         item = self._selected_item()
         problem = self._rerun_problem(item) if item is not None else None
+        self._queue_button.setEnabled(item is not None and problem is None)
+        self._queue_button.setToolTip(
+            problem or "Add the plan, with the same arguments, to the queue"
+        )
+        if problem is None and self._re_client.queue_status().running:
+            problem = "The queue is running: add the plan to the queue instead."
         self._rerun_button.setEnabled(item is not None and problem is None)
         self._rerun_button.setToolTip(problem or "")
+        problem = self._edit_problem(item) if item is not None else None
+        self._edit_button.setEnabled(item is not None and problem is None)
+        self._edit_button.setToolTip(
+            problem or "Open the plan's form, filled in as it ran, to change and run it"
+        )
+
+    def _on_edit_clicked(self):
+        item = self._selected_item()
+        if item is not None and self._edit_problem(item) is None:
+            self.edit_and_rerun(item)
+
+    def _on_queue_clicked(self):
+        item = self._selected_item()
+        if item is None or self._rerun_problem(item) is not None:
+            return
+        try:
+            self._re_client.item_add(QueueItem(item.name, item.args, item.kwargs))
+        except QueueError as error:
+            QMessageBox.warning(self, "Not added to the queue", str(error))
 
     def _on_rerun_clicked(self):
         item = self._selected_item()
@@ -691,4 +853,9 @@ class QtPlanHistory(QWidget):
 
     def closeEvent(self, event):
         self._history.stop()
+        self._queue_status.stop()
+        for summary in list(self._summaries.values()):
+            summary.close()
+        for editor in list(self._editors.values()):
+            editor.close()
         super().closeEvent(event)

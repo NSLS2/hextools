@@ -2,8 +2,6 @@
 
 import asyncio
 import os
-import shutil
-import sys
 from collections.abc import AsyncIterable, MutableMapping
 from datetime import datetime
 from typing import Any, TypeVar
@@ -24,6 +22,7 @@ from .nl_msg_hook import nl_msg_hook as nl_msg_hook
 from .path_providers import (
     StartDocAwareFilenameProvider as StartDocAwareFilenameProvider,
 )
+from .proposals import MOCK_PROPOSAL, MockProposalClient, NSLS2ProposalClient
 
 NSVarT = TypeVar("NSVarT")
 
@@ -168,14 +167,14 @@ def initialize_run_engine() -> RunEngine:
     if is_running_in_ci():
         return RunEngine(
             {
-                "data_session": "pass-123456",
+                "data_session": f"pass-{MOCK_PROPOSAL.number}",
                 "cycle": (
                     f"{datetime.today().year}-{int(datetime.today().month / 4) + 1}"
                 ),
                 "proposal": {
-                    "title": "Mock mode proposal",
-                    "type": "Mock Commissioning",
-                    "pi_name": os.getenv("USER", "Unknown"),
+                    "title": MOCK_PROPOSAL.title,
+                    "type": MOCK_PROPOSAL.type,
+                    "pi_name": MOCK_PROPOSAL.pi_name,
                 },
             }
         )
@@ -204,148 +203,6 @@ def start_beamtime(proposal_id: int, verbose: bool = True) -> None:
     print_proposal_info(md)
 
 
-NSLS2_API_URL = "https://api.nsls2.bnl.gov"
-_MOCK_PROPOSALS = {
-    "123456": {"title": "Mock mode proposal", "type": "Mock Commissioning"},
-    "314159": {"title": "Another mock proposal", "type": "Mock General User"},
-}
-_MOCK_COMMISSIONING = ["123456"]
-
-
-def _sorted_desc(proposals: dict[str, str]) -> list[tuple[str, str]]:
-    return sorted(
-        proposals.items(),
-        key=lambda p: int(p[0]) if p[0].isdigit() else 0,
-        reverse=True,
-    )
-
-
-def list_proposals(beamline: str = "HEX") -> dict[str, list[tuple[str, str]]]:
-    """Return ``(number, title)`` of the proposals for ``beamline``, newest first.
-
-    Returns
-    -------
-    dict[str, list[tuple[str, str]]]
-        ``"user"``: the beamline's proposals in the current cycle, and
-        ``"commissioning"``: its commissioning proposals.
-    """
-    if is_running_in_ci():
-        titles = {p: info["title"] for p, info in _MOCK_PROPOSALS.items()}
-        return {
-            "user": [(p, t) for p, t in titles.items() if p not in _MOCK_COMMISSIONING],
-            "commissioning": [(p, titles.get(p, "")) for p in _MOCK_COMMISSIONING],
-        }
-
-    import httpx
-
-    with httpx.Client(base_url=NSLS2_API_URL, timeout=10) as client:
-        cycle = (
-            client.get("/v1/facility/nsls2/cycles/current")
-            .raise_for_status()
-            .json()["cycle"]
-        )
-        in_cycle = set(
-            client.get(f"/v1/facility/nsls2/cycle/{cycle}/proposals")
-            .raise_for_status()
-            .json()["proposals"]
-        )
-        # The beamline-filtered listing needs an API key; this public one doesn't.
-        beamline_proposals = (
-            client.get("/v1/proposals/recent/1000", params={"beamline": beamline})
-            .raise_for_status()
-            .json()["proposals"]
-        )
-        commissioning = set(
-            client.get("/v1/proposals/commissioning", params={"beamline": beamline})
-            .raise_for_status()
-            .json()
-            .get("commissioning_proposals", [])
-        )
-    titles = {p["proposal_id"]: p.get("title") or "" for p in beamline_proposals}
-    user = {p: t for p, t in titles.items() if p in in_cycle and p not in commissioning}
-    return {
-        "user": _sorted_desc(user),
-        "commissioning": _sorted_desc({p: titles.get(p, "") for p in commissioning}),
-    }
-
-
-def get_proposal_info(proposal_number: int | str) -> dict[str, str]:
-    """Return the ``title``, ``type``, and ``pi_name`` of a proposal."""
-    if is_running_in_ci():
-        info = _MOCK_PROPOSALS.get(
-            str(proposal_number), {"title": "Mock proposal", "type": "Mock"}
-        )
-        return {**info, "pi_name": os.getenv("USER", "Unknown")}
-
-    import httpx
-
-    with httpx.Client(base_url=NSLS2_API_URL, timeout=10) as client:
-        proposal = (
-            client.get(f"/v1/proposal/{proposal_number}")
-            .raise_for_status()
-            .json()["proposal"]
-        )
-    if "error_message" in proposal:
-        raise ValueError(proposal["error_message"])
-    pi = next((u for u in proposal.get("users") or [] if u.get("is_pi")), {})
-    return {
-        "title": proposal.get("title") or "",
-        "type": proposal.get("type") or "",
-        "pi_name": f"{pi.get('first_name') or ''} {pi.get('last_name') or ''}".strip(),
-    }
-
-
-def _run_sync_experiment(
-    proposal_number: int,
-    username: str,
-    password: str,
-    beamline: str,
-    timeout: float = 60.0,
-) -> str:
-    """Run ``sync-experiment``, answering its prompts.
-
-    Return its output, or raise on failure.
-    """
-    import pexpect
-
-    exe = shutil.which(
-        "sync-experiment", path=os.path.dirname(sys.executable)
-    ) or shutil.which("sync-experiment")
-    if exe is None:
-        raise RuntimeError("The sync-experiment command was not found.")
-
-    child = pexpect.spawn(
-        exe,
-        ["--beamline", beamline, "--proposal", str(proposal_number), "--enable-ssl"],
-        encoding="utf-8",
-        timeout=timeout,
-    )
-    output = ""
-    try:
-        for prompt, answer in (("Username : ", username), ("Password : ", password)):
-            if child.expect([prompt, pexpect.EOF]) == 1:
-                output += child.before or ""
-                break
-            output += (child.before or "") + prompt
-            child.sendline(answer)
-        else:
-            child.expect(pexpect.EOF)
-            output += child.before or ""
-    except pexpect.TIMEOUT:
-        raise RuntimeError("sync-experiment timed out.") from None
-    finally:
-        child.close(force=True)
-
-    if child.exitstatus != 0:
-        lines = [line for line in output.splitlines() if line.strip()]
-        raise RuntimeError(
-            lines[-1]
-            if lines
-            else f"sync-experiment failed (exit status {child.exitstatus})."
-        )
-    return output
-
-
 def switch_proposal(
     proposal_number: int,
     username: str,
@@ -368,20 +225,18 @@ def switch_proposal(
     if is_running_in_ci():
         if md is None:
             raise ValueError("In mock mode, the metadata to update must be given.")
-        md["data_session"] = f"pass-{proposal_number}"
-        md["username"] = username
-        md["start_datetime"] = datetime.now().isoformat()
-        info = get_proposal_info(proposal_number)
-        md["proposal"] = {
-            "proposal_id": str(proposal_number),
-            "title": info["title"],
-            "type": info["type"],
-            "pi_name": info["pi_name"],
-        }
+        md.update(
+            MockProposalClient().change_proposal(proposal_number, username, password)
+        )
         return md
 
-    _run_sync_experiment(proposal_number, username, password, beamline)
-    return md if md is not None else {}
+    md = md if md is not None else {}
+    md.update(
+        NSLS2ProposalClient(beamline).change_proposal(
+            proposal_number, username, password
+        )
+    )
+    return md
 
 
 PIPE = "│"

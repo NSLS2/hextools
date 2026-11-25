@@ -129,3 +129,16 @@ def test_load_catalog_reads_written_files(namespace, tmp_path, catalog, registry
     loaded_catalog, loaded_registry = load_catalog(path)
     assert loaded_catalog == catalog
     assert set(loaded_registry) == set(registry)
+
+
+def test_plans_bind_positional_arguments_to_parameter_names():
+    plan = PlanCatalog.from_namespace({"scan": scan})["scan"]
+
+    assert plan.bind((["m1"], Mode.SLOW), {"stage": "s"}) == {
+        "points": ["m1"],
+        "mode": Mode.SLOW,
+        "stage": "s",
+    }
+    assert plan.bind((), {"points": []}) == {"points": []}
+    with pytest.raises(TypeError):
+        plan.bind((1, 2, 3, 4), {})

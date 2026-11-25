@@ -1,6 +1,7 @@
 """Bluesky profile for the 27-ID-1 HEX beamline at NSLS-II."""
 
 import os
+from functools import partial
 from pathlib import (
     Path,  # noqa: F401 - operator namespace
     PureWindowsPath,
@@ -36,17 +37,17 @@ from ophyd_async.fastcs.panda import HDFPanda
 from ophyd_async.sim import SimMotor
 from tiled.client import from_uri, simple
 
-from hextools.detectors.germ import (
+from hextools.devices.dclm import DCLM
+from hextools.devices.detectors.germ import (
     GeRMDetector,
     GeRMStatsDataLogic,  # noqa: F401 - operator namespace
 )
-from hextools.detectors.kinetix import kinetix_factory
-from hextools.detectors.perkin_elmer import PerkinElmerDetector
-from hextools.detectors.phantom import PhantomDetector
-from hextools.edxd import *
-from hextools.log import *
-from hextools.machine import *
-from hextools.motors import (
+from hextools.devices.detectors.kinetix import kinetix_factory
+from hextools.devices.detectors.perkin_elmer import PerkinElmerDetector
+from hextools.devices.detectors.phantom import PhantomDetector
+from hextools.devices.filters import Filter
+from hextools.devices.machine import *
+from hextools.devices.motors import (
     CollimatorTable,
     DiffractionTable,
     EDXDTable,
@@ -55,16 +56,33 @@ from hextools.motors import (
     OpticsTable,
     SampleSmall,
     SampleTower,
+)
+from hextools.devices.shutter import (
+    InterlockAcknowledge,  # noqa: F401 - operator namespace
+    PPSShutter,
+    Shutter,
+    ShutterStatus,  # noqa: F401 - operator namespace
+)
+from hextools.devices.slits import (
+    FrontEndSlit,
+    SlitAperture,  # noqa: F401 - operator namespace
+    Slits,
+)
+from hextools.log import *
+from hextools.plans.edxd import *
+from hextools.plans.motors import (
     move_motor,  # noqa: F401 - operator namespace
 )
-from hextools.photon_delivery_system import *
-from hextools.settings import (
+from hextools.plans.photon_delivery import *
+from hextools.plans.radiography import take_radiograph
+from hextools.plans.settings import (
     apply_device_settings,  # noqa: F401 - operator namespace
     store_device_settings,  # noqa: F401 - operator namespace
     store_device_settings_snapshot,  # noqa: F401 - operator namespace
 )
+from hextools.plans.tomography import *
+from hextools.plans.xrd import *
 from hextools.suspenders import SuspendFloorUnlessOpsMode
-from hextools.tomography import *
 from hextools.utils import (
     StartDocAwareFilenameProvider,
     initialize_run_engine,
@@ -74,7 +92,6 @@ from hextools.utils import (
     show_docs,  # noqa: F401 - operator namespace
 )
 from hextools.utils.path_providers import mock_path_provider
-from hextools.xrd import *
 
 # TODO: Enable mock customization via flags once
 # https://github.com/bluesky/ophyd-async/pull/1446 is merged
@@ -359,6 +376,53 @@ with init_devices(
     sim_z = SimMotor(name="sim_z", instant=False)
 
 
+# Fill in the devices that are always there, so plans only take what the operator
+# chooses. Plans whose devices are all filled in take them first, positionally;
+# the rest take them by keyword, after the operator's own devices.
+_shutters = {"fe_shutter": fe_shutter, "photon_shutter": photon_shutter}
+
+# EDXD
+configure_test_pulses = partial(configure_test_pulses, germ)
+edxd_count = partial(edxd_count, germ)
+edxd_2theta_tilt = partial(edxd_2theta_tilt, edxd_table, collimator_table)
+edxd_calib_scan = partial(
+    edxd_calib_scan, sample_tower, germ, fe_shutter, photon_shutter
+)
+edxd_scan = partial(edxd_scan, germ=germ, **_shutters)
+edxd_grid_scan = partial(edxd_grid_scan, germ=germ, **_shutters)
+edxd_custom_pos_list_grid = partial(edxd_custom_pos_list_grid, germ=germ, **_shutters)
+
+# XRD
+dark_reference = partial(dark_reference, photon_shutter=photon_shutter)
+xrd_scan = partial(xrd_scan, **_shutters)
+xrd_scan_2d = partial(xrd_scan_2d, **_shutters)
+xrd_calibration = partial(xrd_calibration, diff_table=diff_table, **_shutters)
+
+# Tomography
+tomo_dark_flat = partial(tomo_dark_flat, sample_tower=sample_tower, **_shutters)
+tomo_flyscan = partial(tomo_flyscan, panda=panda, rot_motor=rot_motor, **_shutters)
+_tomo_step_scan_devices = {
+    "panda": panda,
+    "rot_motor": rot_motor,
+    "sample_tower": sample_tower,
+    **_shutters,
+}
+tomo_flyscan_loop = partial(tomo_flyscan_loop, **_tomo_step_scan_devices)
+tomo_1d_step_scan = partial(tomo_1d_step_scan, **_tomo_step_scan_devices)
+tomo_2d_step_scan = partial(tomo_2d_step_scan, **_tomo_step_scan_devices)
+tomo_alignment_scan = partial(tomo_alignment_scan, rot_motor=rot_motor, **_shutters)
+take_radiograph = partial(take_radiograph, panda=panda, **_shutters)
+
+# Photon delivery
+change_beam_mode = partial(change_beam_mode, dclm, fe_shutter)
+change_energy = partial(change_energy, dclm, fs_window_cam)
+set_filters = partial(
+    set_filters, filter1_upstream, filter1_downstream, filter2, fe_shutter
+)
+move_filters = partial(move_filters, fe_shutter=fe_shutter)
+set_fe_aperture = partial(set_fe_aperture, fe_slit1)
+
+
 # Pause the RunEngine if the beam current drops below 100 mA and resume above
 # 390 mA. Always installed; it ignores low beam while the ring is in maintenance
 # or shutdown, checking the mode each time rather than once at startup.
@@ -392,3 +456,7 @@ RE.preprocessors.append(sd)
 # Disable bec printout of baseline readings
 # since it is kind of noisy
 bec.disable_baseline()
+
+if is_running_in_ci():
+    # The mock GeRM only counts diffraction while both shutters are open.
+    germ._mock.set_shutters(fe_shutter, photon_shutter)  # noqa: SLF001

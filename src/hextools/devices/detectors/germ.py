@@ -1,8 +1,7 @@
 """Ophyd async support for the GeRM detector at HEX."""
 
 import asyncio
-import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -47,9 +46,7 @@ from ophyd_async.epics.adcore import (
 from ophyd_async.epics.core import EpicsDevice, PvSuffix
 
 if TYPE_CHECKING:
-    from hextools.photon_delivery_system.shutter import Shutter
-
-logger = logging.getLogger(__name__)
+    from hextools.devices.shutter import Shutter
 
 
 class TDCSlopeTimes(StrictEnum):
@@ -411,9 +408,9 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
 
     The frame is the sum of the diffraction signal, counted only while every shutter
     given to :meth:`set_shutters` is open, and a fixed test pulse peak while
-    ``test_pulse_enable`` is set; with neither it is all zeros. Functions given to
-    :meth:`register_frame_callback` are called with the accumulated frame once per
-    second while counting, and with the final frame.
+    ``test_pulse_enable`` is set; with neither it is all zeros. The frame, flattened,
+    is put in ``driver.mca``: all zeros once connected, the frame accumulated so far
+    once per second while counting, then the final frame.
     """
 
     #: The HEX GeRM is a 192-strip detector.
@@ -422,30 +419,14 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
     lines_kev = ((11.7, 6.0), (12.4, 3.0), (28.3, 3.0), (30.6, 4.0), (35.0, 10.0))
     #: Full-scale test pulse amplitude, in DAC counts.
     test_pulse_full_scale = 1024
-    #: Seconds between frame callbacks while counting.
+    #: Seconds between ``mca`` updates while counting.
     frame_update_period = 1.0
 
     def __init__(self, name: str = "", parent: DeviceMock | None = None) -> None:
         super().__init__(name, parent)
         self._acquisition: asyncio.Task | None = None
         self._rng = np.random.default_rng(0)
-        self._frame_callbacks: list[Callable[[np.ndarray], None]] = []
         self._shutters: tuple[Shutter, ...] = ()
-        self._frame_shape: tuple[int, int] | None = None
-
-    def register_frame_callback(self, callback: Callable[[np.ndarray], None]) -> None:
-        """Call ``callback`` with each ``(num_elements, num_energy_bins)`` frame.
-
-        It is first called with an all-zero frame, once the detector is connected.
-        Later calls come from the event loop the detector is connected in.
-        """
-        self._frame_callbacks.append(callback)
-        if self._frame_shape is not None:
-            callback(np.zeros(self._frame_shape, dtype=np.int32))
-
-    def unregister_frame_callback(self, callback: Callable[[np.ndarray], None]) -> None:
-        """Stop calling a callback given to :meth:`register_frame_callback`."""
-        self._frame_callbacks.remove(callback)
 
     def set_shutters(self, *shutters: "Shutter") -> None:
         """Only count the diffraction signal while all of ``shutters`` are open."""
@@ -488,11 +469,10 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
 
         callback_on_mock_put(driver.acquire, _on_acquire)
 
-        self._frame_shape = (
-            self.num_elements,
-            await driver.num_energy_bins.get_value(),
+        num_bins = await driver.num_energy_bins.get_value()
+        set_mock_value(
+            driver.mca, np.zeros(self.num_elements * num_bins, dtype=np.int32)
         )
-        self._notify(np.zeros(self._frame_shape, dtype=np.int32))
 
     @staticmethod
     def _reset_count_on_capture(writer: NDPluginFileIO) -> None:
@@ -536,7 +516,7 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
                 elapsed < acquire_time
             ):
                 since_update = 0.0
-                self._notify(self._frame(signal, pulses))
+                set_mock_value(driver.mca, self._frame(signal, pulses).ravel())
 
         frame = self._frame(signal, pulses)
         set_mock_value(driver.mca, frame.ravel())
@@ -550,15 +530,7 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
                 captured = await writer.num_captured.get_value()
                 set_mock_value(writer.num_captured, captured + 1)
 
-        self._notify(frame)
         set_mock_value(driver.acquire, False)
-
-    def _notify(self, frame: np.ndarray) -> None:
-        for callback in list(self._frame_callbacks):
-            try:
-                callback(frame)
-            except Exception:
-                logger.exception("GeRM mock frame callback %r failed", callback)
 
     @staticmethod
     def _frame(signal: np.ndarray, pulses: np.ndarray) -> np.ndarray:
@@ -566,7 +538,7 @@ class GeRMDetectorMock(DeviceMock["GeRMDetector"]):
         return signal + np.rint(pulses).astype(np.int32)
 
     async def _shutters_open(self) -> bool:
-        from hextools.photon_delivery_system.shutter import ShutterStatus
+        from hextools.devices.shutter import ShutterStatus
 
         for shutter in self._shutters:
             if await shutter.status.get_value() != ShutterStatus.OPEN:

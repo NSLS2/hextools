@@ -15,10 +15,12 @@ from ophyd_async.core import (
     set_mock_value,
 )
 
-from hextools.photon_delivery_system.shutter import (
+from hextools.devices.shutter import (
     InterlockAcknowledge,
     Shutter,
     ShutterStatus,
+)
+from hextools.plans.photon_delivery import (
     ensure_shutter_closed,
     ensure_shutter_open,
     ensure_shutter_state,
@@ -153,9 +155,7 @@ async def test_mock_shutter_default_behavior(
         uniform_calls.append((a, b))
         return 0.1
 
-    monkeypatch.setattr(
-        "hextools.photon_delivery_system.shutter.random.uniform", fake_uniform
-    )
+    monkeypatch.setattr("hextools.devices.shutter.random.uniform", fake_uniform)
 
     assert await mock_shutter.status.get_value() is ShutterStatus.CLOSED
 
@@ -263,7 +263,7 @@ async def test_interlock_already_acknowledged_is_not_written(RE: RunEngine):
 async def test_interlock_acknowledge_fails_if_the_pps_never_reports_it(
     RE: RunEngine, monkeypatch
 ):
-    monkeypatch.setattr("hextools.photon_delivery_system.shutter.DEFAULT_TIMEOUT", 0.1)
+    monkeypatch.setattr("hextools.plans.photon_delivery.DEFAULT_TIMEOUT", 0.1)
     interlock = _interlock()
     set_mock_value(interlock.acknowledged, False)
     callback_on_mock_put(interlock.request, lambda *_, **__: None)

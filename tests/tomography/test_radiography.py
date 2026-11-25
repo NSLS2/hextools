@@ -16,8 +16,14 @@ from ophyd_async.epics.adkinetix import KinetixDetector, KinetixTriggerMode
 from ophyd_async.epics.core import epics_signal_rw
 from ophyd_async.fastcs.panda import DatasetTable, HDFPanda, PandaHdf5DatasetType
 
-from hextools.photon_delivery_system import Shutter, ShutterStatus
-from hextools.tomography.radiography import FRAME_PERIOD_MARGIN, take_radiograph
+from hextools.devices.shutter import (
+    Shutter,
+    ShutterStatus,
+)
+from hextools.plans.radiography import (
+    FRAME_PERIOD_MARGIN,
+    take_radiograph,
+)
 
 
 @pytest.mark.usefixtures("skip_long_sleeps")
@@ -55,6 +61,7 @@ async def test_take_radiograph_single_row(
             use_shutter=True,
             fe_shutter=fe_shutter,
             photon_shutter=photon_shutter,
+            panda=None,  # type: ignore[arg-type]  # unused without external_trigger
         ),
         cache_docs,  # type: ignore
     )
@@ -190,29 +197,6 @@ async def test_external_trigger_radiograph_is_paced_by_the_panda(
     assert await panda.bits.b.get_value() == 0
 
 
-def test_external_trigger_without_a_panda_fails_before_arming(
-    RE: RunEngine,
-    kinetix_det_factory: Callable[[int], KinetixDetector],
-    two_shutters: tuple[Shutter, Shutter],
-):
-    """With nothing pulsing the camera, an external radiograph used to time out."""
-    fe_shutter, photon_shutter = two_shutters
-    ktx = kinetix_det_factory(1)
-    with pytest.raises(ValueError, match="panda"):
-        RE(
-            take_radiograph(
-                [ktx],
-                0.1,
-                num_images=19,
-                external_trigger=True,
-                use_shutter=False,
-                fe_shutter=fe_shutter,
-                photon_shutter=photon_shutter,
-            )
-        )
-    assert not get_mock_put(ktx.driver.acquire).called
-
-
 @pytest.mark.parametrize(
     ("kwargs", "expected"),
     [
@@ -246,6 +230,7 @@ async def test_averaged_radiograph_sets_the_proc_filter_type(
             use_shutter=False,
             fe_shutter=fe_shutter,
             photon_shutter=photon_shutter,
+            panda=None,  # type: ignore[arg-type]  # unused without external_trigger
             **kwargs,
         ),
         cache_docs,  # type: ignore

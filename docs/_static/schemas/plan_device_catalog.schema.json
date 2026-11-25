@@ -16,7 +16,7 @@
       "minimum": 0
     },
     "QualifiedName": {
-      "description": "Importable dotted name of a Python object, e.g. 'hextools.motors.SampleTower'.",
+      "description": "Importable dotted name of a Python object, e.g. 'hextools.devices.motors.SampleTower'.",
       "type": "string",
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$"
     },

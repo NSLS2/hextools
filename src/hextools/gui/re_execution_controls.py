@@ -34,13 +34,13 @@ class QtReExecutionControls(QWidget):
         self._resume_pending = False
 
         self._pb_plan_pause_deferred = self._button(
-            "Pause: Deferred",
+            "Pause",
             "Pause at the next checkpoint",
             self._pb_plan_pause_deferred_clicked,
         )
         self._pb_plan_pause_immediate = self._button(
-            "Pause: Immediate",
-            "Pause now",
+            "Pause Now",
+            "Pause immediately, without waiting for a checkpoint",
             self._pb_plan_pause_immediate_clicked,
         )
         self._pb_plan_resume = self._button(
@@ -56,16 +56,23 @@ class QtReExecutionControls(QWidget):
             "Halt", "End the paused plan without cleanup", self._pb_plan_halt_clicked
         )
 
+        # Pauses on top (offered while running), the paused-only actions below.
         grid = QGridLayout()
+        grid.setContentsMargins(8, 6, 8, 6)
+        grid.setSpacing(4)
         grid.addWidget(self._pb_plan_pause_deferred, 0, 0)
         grid.addWidget(self._pb_plan_pause_immediate, 0, 1)
-        grid.addWidget(self._pb_plan_resume, 0, 2)
-        grid.addWidget(self._pb_plan_stop, 1, 0)
-        grid.addWidget(self._pb_plan_abort, 1, 1)
-        grid.addWidget(self._pb_plan_halt, 1, 2)
+        grid.addWidget(self._pb_plan_resume, 1, 0)
+        grid.addWidget(self._pb_plan_stop, 1, 1)
+        grid.addWidget(self._pb_plan_abort, 2, 0)
+        grid.addWidget(self._pb_plan_halt, 2, 1)
+
         group_box = QGroupBox("Plan Execution")
         group_box.setLayout(grid)
+        # Three rows of buttons fit the header's height with less vertical padding.
+        group_box.setStyleSheet("QPushButton { padding: 2px 10px; }")
         vbox = QVBoxLayout()
+        vbox.setContentsMargins(0, 0, 0, 0)
         vbox.addWidget(group_box)
         self.setLayout(vbox)
 

@@ -12,12 +12,15 @@ from ophyd_async.epics.motor import Motor as AsyncEpicsMotor
 from ophyd_async.sim import SimMotor
 from tiled.structures.core import Spec
 
-from hextools.detectors.germ import GeRMDetector
-from hextools.motors import CollimatorTable, EDXDTable, SampleTower
-from hextools.photon_delivery_system import Shutter, ensure_shutter_open
-from hextools.photon_delivery_system.shutter import ensure_shutter_closed
+from hextools.devices.detectors.germ import GeRMDetector
+from hextools.devices.motors import (
+    CollimatorTable,
+    EDXDTable,
+    SampleTower,
+)
+from hextools.devices.shutter import Shutter
+from hextools.plans.photon_delivery import ensure_shutter_closed, ensure_shutter_open
 from hextools.specs import EDXD_CALIBRATION_V1, EDXD_SCAN_V1
-from hextools.utils import ensure_available
 
 
 def _tiled_specs(spec: Spec) -> list[dict[str, str | None]]:
@@ -29,16 +32,18 @@ def _prepare_germ(germ: GeRMDetector, count_time: float):
 
 
 def configure_test_pulses(
+    germ: GeRMDetector,
     use_test_pulses: bool,
     test_pulse_amplitude: int = 100,
     test_pulse_freq: int = 1000,
     test_pulse_count: int = 99999,
-    germ: GeRMDetector | None = None,
 ):
     """Configure test pulses for the GeRM detector.
 
     Parameters
     ----------
+    germ : GeRMDetector
+        The GeRM detector device.
     use_test_pulses : bool
         Whether to enable or disable test pulses.
     test_pulse_amplitude : int, default 100
@@ -47,11 +52,7 @@ def configure_test_pulses(
         The frequency of the test pulses.
     test_pulse_count : int, default 99999
         The number of test pulses to generate.
-    germ : GeRMDetector, optional
-        The GeRM detector device. If None, will pull from global namespace.
     """
-    germ = ensure_available(GeRMDetector, germ=germ)
-
     test_pulses_enabled = yield from bps.rd(germ.driver.test_pulse_enable)
 
     # If already in the given state, must switch it off first
@@ -77,26 +78,24 @@ def configure_test_pulses(
 
 
 def edxd_count(
+    germ: GeRMDetector,
     count_time: float,
     num: int = 1,
     description: str | None = None,
-    germ: GeRMDetector | None = None,
 ):
     """Take one or more counts with the GeRM detector.
 
     Parameters
     ----------
+    germ : GeRMDetector
+        The GeRM detector device.
     count_time : float
         The acquisition time for each count.
     num : int, default 1
         The number of counts to take.
     description : str | None, optional
         A description for the count, if any.
-    germ : GeRMDetector | None, optional
-        The GeRM detector device. If None, will pull from global namespace.
     """
-    germ = ensure_available(GeRMDetector, germ=germ)
-
     yield from _prepare_germ(germ, count_time)
 
     _md: dict[str, Any] = {
@@ -120,9 +119,10 @@ def edxd_scan(
     save_as_tiff: bool = True,
     reset_position: bool = True,
     use_shutter: bool = True,
-    germ: GeRMDetector | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
+    *,
+    germ: GeRMDetector,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ):
     """Perform a 1D scan with the EDXD detector.
 
@@ -151,16 +151,13 @@ def edxd_scan(
         A pause does not restore the position. False leaves the final position.
     use_shutter : bool, default True
         Whether to use the shutters during the scan.
-    germ : GeRMDetector | None, optional
-        The GeRM detector device. If None, will pull from global namespace.
-    fe_shutter : Shutter | None, optional
-        The front-end shutter device. If None, will pull from global namespace.
-    photon_shutter : Shutter | None, optional
-        The photon shutter device. If None, will pull from global namespace.
+    germ : GeRMDetector
+        The GeRM detector device.
+    fe_shutter : Shutter
+        The front-end shutter device.
+    photon_shutter : Shutter
+        The photon shutter device.
     """
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
-    germ = ensure_available(GeRMDetector, germ=germ)
     initial_position = (yield from bps.rd(motor)) if reset_position else None
 
     def _body():
@@ -215,9 +212,10 @@ def edxd_custom_pos_list_grid(
     use_shutter: bool = True,
     reset_positions: bool = True,
     description: str | None = None,
-    germ: GeRMDetector | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
+    *,
+    germ: GeRMDetector,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ):
     """Run a custom-position EDXD grid, saving TIFF unless save_as_tiff=False.
 
@@ -233,11 +231,13 @@ def edxd_custom_pos_list_grid(
         The number of times to run the whole grid.
     time_between_iterations : float, default 0.0
         The time to wait between iterations.
+    germ : GeRMDetector
+        The GeRM detector device.
+    fe_shutter : Shutter
+        The front-end shutter device.
+    photon_shutter : Shutter
+        The photon shutter device.
     """
-    germ = ensure_available(GeRMDetector, germ=germ)
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
-
     inner_starts = (
         inner_start * len(outer_positions_list)
         if len(inner_start) == 1
@@ -321,9 +321,10 @@ def edxd_grid_scan(
     use_shutter: bool = True,
     reset_position: bool = True,
     description: str | None = None,
-    germ: GeRMDetector | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
+    *,
+    germ: GeRMDetector,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
 ):
     """Perform a 2D grid scan, taking an EDXD measurement at each grid point.
 
@@ -356,16 +357,13 @@ def edxd_grid_scan(
         A pause does not restore positions. False leaves the final positions.
     description : str | None, optional
         A description for the scan, if any.
-    germ : GeRMDetector | None, optional
-        The GeRM detector device. If None, will pull from global namespace.
-    fe_shutter : Shutter | None, optional
-        The front-end shutter device. If None, will pull from global namespace.
-    photon_shutter : Shutter | None, optional
-        The photon shutter device. If None, will pull from global namespace.
+    germ : GeRMDetector
+        The GeRM detector device.
+    fe_shutter : Shutter
+        The front-end shutter device.
+    photon_shutter : Shutter
+        The photon shutter device.
     """
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
-    germ = ensure_available(GeRMDetector, germ=germ)
     germ.save_as_hdf()
 
     @bpp.reset_positions_decorator([outer_motor, inner_motor] if reset_position else [])
@@ -405,29 +403,24 @@ def edxd_grid_scan(
 
 
 def edxd_2theta_tilt(
+    edxd_table: EDXDTable,
+    collimator_table: CollimatorTable,
     theta: float,
     move_out: bool = False,
-    edxd_table: EDXDTable | None = None,
-    collimator_table: CollimatorTable | None = None,
 ):
     """Plan stub to tilt the EDXD detector to a specified 2-theta angle.
 
     Parameters
     ----------
+    edxd_table : EDXDTable
+        The EDXD table device.
+    collimator_table : CollimatorTable
+        The collimator table device.
     theta : float
         The desired 2-theta angle for the EDXD detector.
     move_out : bool, default False
         Whether to move the EDXD table out before tilting.
-    edxd_table : EDXDTable | None, optional
-        The EDXD table device. If None, will pull from global namespace.
-    collimator_table : CollimatorTable | None, optional
-        The collimator table device. If None, will pull from global namespace.
     """
-    edxd_table = ensure_available(EDXDTable, edxd_table=edxd_table)
-    collimator_table = ensure_available(
-        CollimatorTable, collimator_table=collimator_table
-    )
-
     # TODO: Pull out into human readable file
     x_out = -270.0
     x0 = 0.0
@@ -467,20 +460,28 @@ def edxd_2theta_tilt(
 
 
 def edxd_calib_scan(
+    sample_tower: SampleTower,
+    germ: GeRMDetector,
+    fe_shutter: Shutter,
+    photon_shutter: Shutter,
     start: float,
     stop: float,
     iterations: int = 2,
     count_time: float = 3000,
     description: str | None = None,
-    sample_tower: SampleTower | None = None,
-    germ: GeRMDetector | None = None,
-    fe_shutter: Shutter | None = None,
-    photon_shutter: Shutter | None = None,
 ):
     """Perform a sweeping edxd calibration scan.
 
     Parameters
     ----------
+    sample_tower : SampleTower
+        The sample tower device.
+    germ : GeRMDetector
+        The GeRM detector device.
+    fe_shutter : Shutter
+        The front-end shutter device.
+    photon_shutter : Shutter
+        The photon shutter device.
     start : float
         The starting position for the sweep motion.
     stop : float
@@ -493,21 +494,7 @@ def edxd_calib_scan(
         the requested number of sweeps within this count time.
     description : str | None, optional
         A description for the scan. If None, no description is added.
-    sample_tower : SampleTower | None, optional
-        The sample tower device. If None, will pull from global namespace.
-    germ : GeRMDetector | None, optional
-        The GeRM detector device. If None, will pull from global namespace.
-    fe_shutter : Shutter | None, optional
-        The front-end shutter device. If None, will pull from global namespace.
-    photon_shutter : Shutter | None, optional
-        The photon shutter device. If None, will pull from global namespace.
     """
-    germ = ensure_available(GeRMDetector, germ=germ)
-    sample_tower = ensure_available(SampleTower, sample_tower=sample_tower)
-
-    fe_shutter = ensure_available(Shutter, fe_shutter=fe_shutter)
-    photon_shutter = ensure_available(Shutter, photon_shutter=photon_shutter)
-
     _md: dict[str, Any] = {
         "plan_name": "edxd_calib_scan",
         "tiled_specs": _tiled_specs(EDXD_CALIBRATION_V1),

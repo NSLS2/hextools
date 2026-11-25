@@ -22,7 +22,7 @@ from hextools.catalog import (
     type_expr,
     write_catalog,
 )
-from hextools.photon_delivery_system.slits import Slits
+from hextools.devices.slits import Slits
 
 jsonschema = pytest.importorskip("jsonschema")
 
@@ -83,6 +83,30 @@ def scan(
 def opaque(thing: Any):
     """Take something no form can build."""
     yield from bps.null()
+
+
+def google_style(count: int):
+    """Count in Google style.
+
+    Args:
+        count (int): How many to count.
+    """
+    yield from bps.null()
+
+
+def rest_style(count: int):
+    """Count in reST style.
+
+    :param count: How many to count.
+    """
+    yield from bps.null()
+
+
+@pytest.mark.parametrize("plan", [google_style, rest_style])
+def test_plan_catalog_reads_parameter_descriptions_in_other_styles(plan):
+    catalog = plan_catalog({plan.__name__: plan})
+    [param] = catalog["plans"][plan.__name__]["parameters"]
+    assert param["description"] == "How many to count."
 
 
 class _Axes(Device):

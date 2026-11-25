@@ -26,6 +26,7 @@ The `hex-gui` task runs `python -m hextools.gui`, which accepts these options:
 | `--profile NAME`          | Profile to load in in-process mode (default `collection`).                               |
 | `--queueserver-uri URI`   | Run in Queue Server mode against the HTTP server at `URI` (e.g. `http://localhost:60610`). |
 | `--history-file PATH`     | JSON file to save plan history to, and reload it from on startup. Also settable with `HEXTOOLS_PLAN_HISTORY_FILE`. |
+| `--queue-file PATH`       | JSON file to save the plan queue to, and reload it from on startup. Also settable with `HEXTOOLS_PLAN_QUEUE_FILE`. |
 
 In in-process mode the terminal you started the GUI from becomes a normal
 IPython prompt connected to the same session. You can keep typing commands
@@ -50,9 +51,10 @@ The window has four areas:
 
 | Panel              | What it does                                                                                                                                                    |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Plan Execution** | Pause (deferred or immediate), Resume, Stop, Abort and Halt the running plan. These do the same as `Ctrl+C` and `RE.resume()` etc. at the prompt.               |
-| **Proposal Info**  | The active proposal, cycle, title, type and PI. **Change Proposal…** switches proposals (see below).                                                             |
 | **Weather**        | Current conditions at the beamline.                                                                                                                             |
+| **Proposal Info**  | The active proposal, cycle, title, type and PI. **Change Proposal…** switches proposals (see below).                                                             |
+| **Plan Execution** | Pause (deferred or immediate), Resume, Stop, Abort and Halt the running plan. These do the same as `Ctrl+C` and `RE.resume()` etc. at the prompt.               |
+| **Queue**          | **Start** runs the queued plans, front first. **Stop** lets the running plan finish, then stops the queue; press it again (**Cancel Stop**) to keep going. **Clear** empties the queue. With **Auto-start**, plans run as they are added, whenever the RunEngine is idle. Hover the count to list the queued plans. |
 | **Plan Status**    | The running plan, its scan ID(s), and the last step it reported. When a plan runs another plan internally (e.g. a step scan running flyscans), both are shown. |
 | **Shutters**       | One button per shutter: green when open, red when closed. Click to toggle; both controls are disabled until that action finishes, and whenever the RunEngine is busy or paused. |
 
@@ -133,6 +135,11 @@ PV Access). Use **Start** and **Stop** to acquire outside of a plan, and the
 **Settings** menu to adjust the viewer. The indicator next to the PV prefix
 shows whether the viewer is receiving images.
 
+**Pop Out** (at the right of the detector tabs) opens the selected view in its
+own window, which keeps updating whichever tab you switch to, e.g. to watch
+the tomography or XRD detector while adjusting slits on the Beamline tab.
+Close the window to return the view to its tab.
+
 ## Running a plan
 
 ![A plan form](_static/screenshots/gui_plan_form.png)
@@ -155,13 +162,16 @@ shutters, ...) are not shown on the form.
 Hover over a field's label to see the description from the plan's
 documentation.
 
-Press **Run Plan**. The GUI checks the inputs, then runs the plan. If an input
+Press **Run Now**. The GUI checks the inputs, then runs the plan. If an input
 is invalid, or the plan fails, a message explains why. While the plan runs, the
 top row, the progress bars and the **Plan Execution** tab update live.
 
-In Queue Server mode the button reads **Submit to Queue** and adds the plan to
-the queue shown at the bottom of the window; start the queue from the queue
-controls in the top row.
+Press **Add to Queue** instead to add the plan to the back of the queue, and
+run it from the **Queue** controls in the top row. While the queue is running,
+**Run Now** is disabled, so plans only run in queue order. A queued plan that
+fails, or is aborted or halted, goes back to the front of the queue and stops
+it, as with the Bluesky Queue Server. The queue is kept across sessions; see
+`--queue-file`.
 
 ## Following a plan
 
@@ -191,7 +201,26 @@ errors.
 Every plan run in this session, from the GUI or the terminal: start and stop
 times, the plan and its arguments, whether it succeeded, and its scan IDs and
 uids. Select a row and press **Re-run Selected Plan** to run it again with the
-same arguments. Use `--history-file` to keep the history across sessions.
+same arguments, **Add to Queue** to queue it, or **Edit and Re-run…** to open
+the plan's form filled in with them, change what you need, and press **Run Now**
+or **Add to Queue**. Use `--history-file` to
+keep the history across sessions.
+
+Double-click a row to open its **Plan Summary**: how the plan ended and when,
+the plan's description, every parameter with the value it ran with (defaults in
+italics) and its description, a table of every run's scan ID and uid, and the
+traceback if it failed.
+
+### Queue
+
+On the left, pick any plan from the dropdown and fill in its form below, then
+press **Add to Queue** (or **Run Now**, while the queue isn't running).
+
+On the right, the plans waiting to run, front first, with the plan running from the queue on
+top. Select a queued plan to **Move Up** or **Move Down** the queue, **Remove**
+it, or **Edit…** it: its form opens filled in with its arguments, and **Save**
+puts the changes back in its place in the queue. Double-clicking a plan edits it
+too. Start and stop the queue from the **Queue** controls in the top row.
 
 ### Available Devices
 

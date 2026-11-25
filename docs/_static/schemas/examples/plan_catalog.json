@@ -4,7 +4,7 @@
   "plans": {
     "move_slits": {
       "name": "move_slits",
-      "module": "hextools.photon_delivery_system.slits",
+      "module": "hextools.plans.photon_delivery",
       "description": "Move slit gaps and centers, gaps first.",
       "parameters": [
         {
@@ -12,7 +12,7 @@
           "kind": "positional_or_keyword",
           "type": {
             "kind": "device",
-            "classes": ["hextools.photon_delivery_system.slits.Slits"]
+            "classes": ["hextools.devices.slits.Slits"]
           },
           "required": true,
           "description": "The slits to move."
@@ -39,14 +39,14 @@
     },
     "change_beam_mode": {
       "name": "change_beam_mode",
-      "module": "hextools.photon_delivery_system.dclm",
+      "module": "hextools.plans.photon_delivery",
       "parameters": [
         {
           "name": "mode",
           "kind": "positional_or_keyword",
           "type": {
             "kind": "enum",
-            "name": "hextools.photon_delivery_system.dclm.BeamMode",
+            "name": "hextools.devices.dclm.BeamMode",
             "choices": [
               {"value": "mono", "label": "Monochromatic"},
               {"value": "pink", "label": "Pink"}
@@ -58,7 +58,7 @@
     },
     "tomo_flyscan": {
       "name": "tomo_flyscan",
-      "module": "hextools.tomography.flyscans",
+      "module": "hextools.plans.tomography.flyscans",
       "description": "Continuous-rotation tomography scan.",
       "parameters": [
         {
@@ -66,7 +66,7 @@
           "kind": "positional_or_keyword",
           "type": {
             "kind": "record",
-            "name": "hextools.tomography.FlyscanSetup",
+            "name": "hextools.plans.tomography.FlyscanSetup",
             "description": "Detectors and stage for a flyscan.",
             "fields": [
               {
@@ -84,7 +84,7 @@
                     "protocols": ["Readable", "Triggerable"],
                     "classes": [
                       "ophyd_async.epics.adkinetix.KinetixDetector",
-                      "hextools.detectors.phantom.PhantomDetector"
+                      "hextools.devices.detectors.phantom.PhantomDetector"
                     ]
                   }
                 },
