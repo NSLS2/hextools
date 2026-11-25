@@ -83,6 +83,26 @@ async def test_change_energy_moves_motors(RE: RunEngine, dclm: DCLM, energy: flo
     )
 
 
+def test_change_energy_checkpoints_before_moving(RE: RunEngine, dclm: DCLM):
+    commands: list[str] = []
+    RE.msg_hook = lambda msg: commands.append(msg.command)  # type: ignore[assignment]
+    RE(change_energy(10.0, dclm=dclm, auto_tune=False))
+    assert commands.index("checkpoint") < commands.index("set")
+
+
+async def test_stopping_the_dclm_passes_success_to_its_motors(
+    RE: RunEngine, dclm: DCLM, monkeypatch
+):
+    calls: list[bool] = []
+
+    async def stop(motor, success: bool = False):
+        calls.append(success)
+
+    monkeypatch.setattr(AsyncEpicsMotor, "stop", stop)
+    await dclm.stop(success=True)
+    assert calls == [True, True]
+
+
 async def test_change_energy_raises_if_not_monochromatic(RE: RunEngine, dclm: DCLM):
     set_mock_value(dclm.xtal1_vertical_trans.user_readback, dclm.constants.xtal1_out)
     set_mock_value(dclm.cooled_beam_stop.user_readback, dclm.constants.beam_stop_out)

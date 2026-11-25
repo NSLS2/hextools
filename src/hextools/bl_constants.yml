@@ -64,3 +64,28 @@ fe_aperture:
   fully_closed: 0.0
   small: 10.0
   pinhole: 30.0
+
+imaging_table_positions:
+  2_and_4_mm:
+    x: -22.45
+    y: -23.5
+  20_and_40_mm:
+    x: 3.53
+    y: 8.48
+  dual_cam:
+    x: 12.26
+    y: 81.97
+
+shielding_table_pinhole:
+  low_limit:
+    x: -7.28
+    y: -60.22
+  pinhole:
+    x: -2.2
+    y: 25.1
+  laser_pos:
+    x: -1
+    y: -28.57
+  out_of_beam:
+    x: 0
+    y: 84

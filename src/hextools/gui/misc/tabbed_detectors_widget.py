@@ -3,17 +3,12 @@
 from typing import Any
 
 import numpy as np
-from bluesky_widgets.models.run_engine_client import RunEngineClient
-from IPython.core.getipython import get_ipython
 from ntnda_qt_viewer import NTNDAViewerWidget
 from qtpy.QtCore import Signal, Slot
 from qtpy.QtWidgets import QHBoxLayout, QTabWidget, QWidget
 
-from hextools.gui.device_sources import (
-    DeviceSource,
-    NamespaceDeviceSource,
-    QueueServerDeviceSource,
-)
+from hextools.gui._client_signals import QtCatalog
+from hextools.gui.run_engine_clients import RunEngineClient
 
 
 class QtTabbedDetectorsWidget(QTabWidget):
@@ -24,15 +19,13 @@ class QtTabbedDetectorsWidget(QTabWidget):
 
     Parameters
     ----------
-    re_client : RunEngineClient or RunEngine
-        Queue Server client, or the in-process RunEngine. Determines where
-        device availability is checked.
+    re_client : RunEngineClient
+        Whose device registry says which detectors are available.
     """
 
-    _signal_devices_changed = Signal()
     _signal_frame = Signal(str, object)
 
-    def __init__(self, re_client, *args, **kwargs):
+    def __init__(self, re_client: RunEngineClient, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._detectors: dict[str, dict[str, Any]] = {}
         self._combined: dict[str, list[str]] = {}
@@ -41,12 +34,12 @@ class QtTabbedDetectorsWidget(QTabWidget):
         self._combined_tabs: dict[str, QWidget] = {}
         self._tab_viewers: dict[QWidget, list[NTNDAViewerWidget]] = {}
         self._running: set[NTNDAViewerWidget] = set()
-        self._source = self._make_source(re_client)
+        self._re_client = re_client
 
         self.currentChanged.connect(self._sync_running)
-        self._signal_devices_changed.connect(self._refresh)
+        self._catalog = QtCatalog(re_client, self)
+        self._catalog.changed.connect(lambda *_: self._refresh())
         self._signal_frame.connect(self._on_frame)
-        self._source.subscribe(self._on_devices_changed)
 
     def add_detector(
         self,
@@ -104,36 +97,25 @@ class QtTabbedDetectorsWidget(QTabWidget):
         for viewer in self._viewers_by_name.get(name, []):
             viewer.push_frame(frame)
 
-    @staticmethod
-    def _make_source(re_client) -> DeviceSource:
-        if isinstance(re_client, RunEngineClient):
-            return QueueServerDeviceSource(re_client)
-        ipython = get_ipython()
-        return NamespaceDeviceSource(ipython.user_ns if ipython is not None else {})
-
-    def _on_devices_changed(self, event=None):
-        # May fire from the Queue Server polling thread; marshal onto the GUI thread.
-        self._signal_devices_changed.emit()
-
     @Slot()
     def _refresh(self):
-        available = {
-            name: self._source.is_valid_device(name) for name in self._detectors
-        }
+        registry = self._re_client.device_registry
+        available = [name for name in self._detectors if name in registry]
+
         for name in self._detectors:
             viewer = self._viewers.get(name)
             if viewer is None:
-                if not available[name]:
+                if name not in available:
                     continue
                 # Created lazily so unavailable detectors open no PV connections.
                 viewer = self._make_viewer(name)
                 self._viewers[name] = viewer
                 self._tab_viewers[viewer] = [viewer]
                 self.insertTab(self._tab_position(name), viewer, name)
-            self.setTabVisible(self.indexOf(viewer), available[name])
+            self.setTabVisible(self.indexOf(viewer), name in available)
 
         for label, names in self._combined.items():
-            all_available = all(available.get(name, False) for name in names)
+            all_available = all(name in available for name in names)
             tab = self._combined_tabs.get(label)
             if tab is None:
                 if not all_available:
@@ -195,7 +177,7 @@ class QtTabbedDetectorsWidget(QTabWidget):
         return sum(1 for other in order[: order.index(name)] if other in self._viewers)
 
     def closeEvent(self, event):
-        self._source.unsubscribe(self._on_devices_changed)
+        self._catalog.stop()
         for viewer in self._running:
             viewer.stop()
         self._running.clear()

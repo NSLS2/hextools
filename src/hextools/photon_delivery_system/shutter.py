@@ -252,8 +252,10 @@ def ensure_shutter_state(
         yield from bps.wait(group=group, timeout=DEFAULT_TIMEOUT)
 
         # It seems that the shutter status in EPICS is not reliable enough to
-        # consider the shutter fully opened/closed, so wait some extra time.
-        yield from bps.sleep(sleep_time)
+        # consider the shutter fully opened/closed, so wait some extra time
+        # if requested.
+        if sleep_time > 0:
+            yield from bps.sleep(sleep_time)
 
 
 def ensure_shutter_open(

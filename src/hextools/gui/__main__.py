@@ -1,14 +1,11 @@
-"""HEX queue-monitor GUI.
+"""HEX data acquisition GUI.
 
-A recreation of the bluesky-widgets ``queue_monitor`` application, consolidated
-into a single entrypoint so it can serve as the main HEX GUI. Run with::
+Run with::
 
     python -m hextools.gui
 
-With ``--queueserver-uri`` (or ``QSERVER_HTTP_SERVER_URI``) the GUI connects to a
-QueueServer and submits plans to its queue. Otherwise it starts IPython on a
-profile (``--profile``, default ``collection``) with the GUI attached and runs
-plans in-process via ``RE(plan(...))``.
+This starts IPython on a profile (``--profile``, default ``collection``) with the
+GUI attached, running plans in-process via ``RE(plan(...))``.
 """
 
 from __future__ import annotations
@@ -18,41 +15,23 @@ import asyncio
 import atexit
 import os
 import time as ttime
+from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 import IPython
-from bluesky import RunEngine
-from bluesky_widgets.models.run_engine_client import RunEngineClient
-from bluesky_widgets.qt.run_engine_client import (
-    QLabel,
-    QtReConsoleMonitor,
-    QtReEnvironmentControls,
-    QtReExecutionControls,
-    QtReManagerConnection,
-    QtRePlanEditor,
-    QtRePlanHistory,
-    QtRePlanQueue,
-    QtReQueueControls,
-    QtReRunningPlan,
-    QtReStatusMonitor,
-)
 from IPython.terminal.interactiveshell import TerminalInteractiveShell
-from ophyd_async.epics.adkinetix import KinetixDetector
-from ophyd_async.epics.advimba import VimbaDetector
-from ophyd_async.fastcs.panda import HDFPanda
 from qtpy import shiboken
-from qtpy.QtCore import QObject, Qt, QTimer, Signal
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QApplication,
     QFileDialog,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QMessageBox,
-    QSplitter,
     QStatusBar,
     QTabWidget,
     QVBoxLayout,
@@ -61,81 +40,34 @@ from qtpy.QtWidgets import (
 from tiled.structures.core import Spec
 
 from hextools.detectors.germ import GeRMDetectorMock
-from hextools.detectors.phantom import PhantomDetector
-from hextools.edxd import (
-    configure_test_pulses,
-    edxd_2theta_tilt,
-    edxd_calib_scan,
-    edxd_count,
-    edxd_custom_pos_list_grid,
-    edxd_grid_scan,
-    edxd_scan,
-)
-from hextools.gui._hook_chain import install_hook, uninstall_hook
+from hextools.gui._client_signals import QtRunEngineState
 from hextools.gui._theme import apply_bnl_theme, saved_theme
 from hextools.gui.available_devices import QtAvailableDevices
 from hextools.gui.device_progress_viewer import QtReWaitingHookMonitor
 from hextools.gui.live_re_md_viewer import QtProposalInfo
 from hextools.gui.misc import QtTabbedDetectorsWidget, QtWeatherWidget
 from hextools.gui.plan_status import (
-    PlanMonitor,
     QtPlanExecutionView,
     QtPlanHistory,
     QtPlanLogView,
     QtPlanStatus,
 )
 from hextools.gui.plan_widget import QtPlanWidget
-from hextools.gui.re_execution_controls import (
-    QtReExecutionControls as QtReExecutionControlsLocal,
+from hextools.gui.re_execution_controls import QtReExecutionControls
+from hextools.gui.run_engine_clients import (
+    InProcessRunEngineClient,
+    RunEngineClient,
 )
-from hextools.gui.reading_sources import NamespaceReadingSource
 from hextools.gui.scan_browser import QtScanBrowser
 from hextools.gui.shutter_status import QtShutterStatus
 from hextools.gui.signal_status_group import QtBeamlineStatus
 from hextools.gui.theme_switch import QtThemeAction
-from hextools.machine import NSLS2StorageRing
-from hextools.motors import (
-    FOV_2_4_mm_Camera,
-    FOV_20_40_mm_Camera,
-    OpticsTable,
-    SampleSmall,
-    SampleTower,
-    move_motor,
-)
-from hextools.photon_delivery_system import (
-    DCLM,
-    FrontEndSlit,
-    PPSShutter,
-    Shutter,
-    Slits,
-    change_energy,
-    move_slits,
-    set_fe_aperture,
-    set_filters,
-)
-from hextools.photon_delivery_system.dclm import change_beam_mode
-from hextools.settings import (
-    apply_device_settings,
-    store_device_settings,
-    store_device_settings_snapshot,
-)
+from hextools.photon_delivery_system import Shutter
 from hextools.specs import ALL_SPECS
-from hextools.tomography.alignment import tomo_alignment_scan
-from hextools.tomography.flyscans import (
-    tomo_1d_step_scan,
-    tomo_2d_step_scan,
-    tomo_dark_flat,
-    tomo_flyscan,
-    tomo_flyscan_loop,
-)
-from hextools.tomography.radiography import take_radiograph
-from hextools.utils import is_running_in_ci, reset_scan_id
-from hextools.xrd import dark_reference, xrd_calibration, xrd_scan, xrd_scan_2d
+from hextools.utils import is_running_in_ci
 
-from ._event_loop import get_our_app_name, gui_qt
+from ._event_loop import get_our_app_name
 from ._threading import wait_for_workers_to_quit
-
-RunEngineClientT = TypeVar("RunEngineClientT", bound=RunEngineClient | RunEngine)
 
 PLAN_HISTORY_FILE_ENV = "HEXTOOLS_PLAN_HISTORY_FILE"
 
@@ -147,143 +79,12 @@ def default_plan_history_file() -> Path:
     return Path(state_home) / "hextools" / name
 
 
-# Names must match those defined in the profile / Queue Server namespace.
-EXPECTED_DEVICES: list[tuple[str, type]] = [
-    ("fe_shutter", PPSShutter),
-    ("photon_shutter", Shutter),
-    ("a_slits", Slits),
-    ("f_slits", Slits),
-    ("fe_slit1", FrontEndSlit),
-    ("storage_ring", NSLS2StorageRing),
-    ("dclm", DCLM),
-    ("optics_table", OpticsTable),
-    ("sample_tower", SampleTower),
-    ("sample_small", SampleSmall),
-    ("panda", HDFPanda),
-    ("kinetix1", KinetixDetector),
-    ("kinetix2", KinetixDetector),
-    ("kinetix3", KinetixDetector),
-    ("kinetix4", KinetixDetector),
-    ("double_obj_camera", FOV_2_4_mm_Camera),
-    ("wide_fov_camera", FOV_20_40_mm_Camera),
-    ("phantom", PhantomDetector),
-    ("sample_cam", VimbaDetector),
-    ("f_hutch_cam", VimbaDetector),
-]
-
-
-def _patch_setchecked_checkstate():
-    """Let ``setChecked`` accept ``Qt.CheckState`` enums.
-
-    Needed for bluesky-widgets on PySide6>=6.9.
-    """
-    from qtpy.QtWidgets import QAbstractButton
-
-    original = QAbstractButton.setChecked
-
-    def set_checked(self, value):
-        if not isinstance(value, (bool, int)):
-            value = getattr(value, "value", value)
-        return original(self, bool(value))
-
-    QAbstractButton.setChecked = set_checked
-
-
-_patch_setchecked_checkstate()
-
-
-class QtOrganizeQueueWidgets(QSplitter):
-    """Vertically stacked monitor-mode queue, history, and console widgets."""
-
-    def __init__(self, model, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.model = model
-
-        self.setOrientation(Qt.Orientation.Vertical)
-
-        self._frame_1 = QFrame(self)
-        self._frame_2 = QFrame(self)
-        self._frame_3 = QFrame(self)
-
-        self.addWidget(self._frame_1)
-        self.addWidget(self._frame_2)
-        self.addWidget(self._frame_3)
-
-        self._running_plan = QtReRunningPlan(model)
-        self._running_plan.monitor_mode = True
-        self._plan_queue = QtRePlanQueue(model)
-        self._plan_queue.monitor_mode = True
-        self._plan_history = QtRePlanHistory(model)
-        self._plan_history.monitor_mode = True
-        self._console_monitor = QtReConsoleMonitor(model)
-
-        vbox = QVBoxLayout()
-        vbox.addWidget(self._running_plan)
-        self._frame_1.setLayout(vbox)
-
-        vbox = QVBoxLayout()
-        vbox.addWidget(self._plan_queue)
-        vbox.addWidget(self._plan_history)
-        self._frame_2.setLayout(vbox)
-
-        vbox = QVBoxLayout()
-        vbox.addWidget(self._console_monitor)
-        self._frame_3.setLayout(vbox)
-
-
-class QtRunEngineManagerMonitor(QWidget):
-    """Read-only view of the queue, history, and running plan."""
-
-    def __init__(self, model, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.model = model
-        vbox = QVBoxLayout()
-        hbox = QHBoxLayout()
-        hbox.addWidget(QtReManagerConnection(model))
-        hbox.addWidget(QtReStatusMonitor(model))
-        hbox.addWidget(QtProposalInfo(model))
-        hbox.addWidget(QtWeatherWidget())
-        hbox.addStretch()
-        vbox.addLayout(hbox)
-
-        vbox.addWidget(QtOrganizeQueueWidgets(model), stretch=2)
-
-        self.setLayout(vbox)
-
-
-class QtRunEngineManagerEditor(QWidget):
-    """Full control view with environment, queue, and plan editing."""
-
-    def __init__(self, model, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.model = model
-        vbox = QVBoxLayout()
-        hbox = QHBoxLayout()
-        hbox.addWidget(QtReEnvironmentControls(model))
-        hbox.addWidget(QtReQueueControls(model))
-        hbox.addWidget(QtReExecutionControls(model))
-        hbox.addWidget(QtReStatusMonitor(model))
-        hbox.addStretch()
-        vbox.addLayout(hbox)
-
-        hbox = QHBoxLayout()
-        vbox1 = QVBoxLayout()
-
-        # Register plan editor so double-clicking a queue item opens it.
-        pe = QtRePlanEditor(model)
-        pq = QtRePlanQueue(model)
-        pq.registered_item_editors.append(pe.edit_queue_item)
-
-        vbox1.addWidget(pe, stretch=1)
-        vbox1.addWidget(pq, stretch=1)
-        hbox.addLayout(vbox1)
-
-        vbox2 = QVBoxLayout()
-        vbox2.addWidget(QtReRunningPlan(model), stretch=1)
-        vbox2.addWidget(QtRePlanHistory(model), stretch=2)
-        hbox.addLayout(vbox2)
-        vbox.addLayout(hbox)
-        self.setLayout(vbox)
+def _plan_tabs(re_client: RunEngineClient, plans: dict[str, str]) -> QTabWidget:
+    """Tabs of :class:`QtPlanWidget`, by tab label to plan name."""
+    tabs = QTabWidget()
+    for label, plan in plans.items():
+        tabs.addTab(QtPlanWidget(re_client, plan), label)
+    return tabs
 
 
 class QtTomographyView(QWidget):
@@ -294,7 +95,7 @@ class QtTomographyView(QWidget):
     live outside the tab in :class:`QtTabbedTechniqueSelector`.
     """
 
-    def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
+    def __init__(self, re_client: RunEngineClient, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._re_client = re_client
 
@@ -319,17 +120,19 @@ class QtTomographyView(QWidget):
         )
         top.addWidget(detectors, stretch=3)
 
-        # Side column: a tabbed selector offering the tomography plans. Each tab
-        # validates and runs its plan per the active execution mode (in-process
-        # IPython vs. Queue Server).
-        plan_tabs = QTabWidget()
-        plan_tabs.addTab(QtPlanWidget(re_client, tomo_dark_flat), "Dark/Flat")
-        plan_tabs.addTab(QtPlanWidget(re_client, tomo_flyscan), "Flyscan")
-        plan_tabs.addTab(QtPlanWidget(re_client, tomo_flyscan_loop), "Flyscan Loop")
-        plan_tabs.addTab(QtPlanWidget(re_client, tomo_1d_step_scan), "1D Step")
-        plan_tabs.addTab(QtPlanWidget(re_client, tomo_2d_step_scan), "2D Step")
-        plan_tabs.addTab(QtPlanWidget(re_client, take_radiograph), "Radiography")
-        plan_tabs.addTab(QtPlanWidget(re_client, tomo_alignment_scan), "Alignment")
+        # Side column: a tabbed selector offering the tomography plans.
+        plan_tabs = _plan_tabs(
+            re_client,
+            {
+                "Dark/Flat": "tomo_dark_flat",
+                "Flyscan": "tomo_flyscan",
+                "Flyscan Loop": "tomo_flyscan_loop",
+                "1D Step": "tomo_1d_step_scan",
+                "2D Step": "tomo_2d_step_scan",
+                "Radiography": "take_radiograph",
+                "Alignment": "tomo_alignment_scan",
+            },
+        )
 
         side = QVBoxLayout()
         side.addWidget(plan_tabs, stretch=1)
@@ -364,29 +167,36 @@ def germ_viewer_options(mock: bool) -> dict[str, Any]:
 class QtEDXDView(QWidget):
     """Energy-dispersive X-ray diffraction view: the live GeRM viewer and EDXD plans."""
 
-    def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
+    def __init__(
+        self,
+        re_client: RunEngineClient,
+        namespace: Mapping[str, Any],
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._re_client = re_client
+        self._namespace = namespace
 
         top = QHBoxLayout()
         detectors = QtTabbedDetectorsWidget(re_client)
-        mock = isinstance(re_client, RunEngine) and is_running_in_ci()
+        mock = is_running_in_ci()
         detectors.add_detector(
             "germ", "XF:27ID1-ES{GeRM-Det:1}MCA", **germ_viewer_options(mock=mock)
         )
         top.addWidget(detectors, stretch=3)
 
-        plan_tabs = QTabWidget()
-        plan_tabs.addTab(QtPlanWidget(re_client, edxd_2theta_tilt), "2Theta Tilt")
-        plan_tabs.addTab(QtPlanWidget(re_client, edxd_calib_scan), "Calibration")
-        plan_tabs.addTab(QtPlanWidget(re_client, edxd_scan), "Scan")
-        plan_tabs.addTab(QtPlanWidget(re_client, edxd_grid_scan), "Grid Scan")
-        plan_tabs.addTab(
-            QtPlanWidget(re_client, edxd_custom_pos_list_grid), "Custom Pos List Grid"
-        )
-        plan_tabs.addTab(QtPlanWidget(re_client, edxd_count), "Count")
-        plan_tabs.addTab(
-            QtPlanWidget(re_client, configure_test_pulses), "Configure Test Pulses"
+        plan_tabs = _plan_tabs(
+            re_client,
+            {
+                "2Theta Tilt": "edxd_2theta_tilt",
+                "Calibration": "edxd_calib_scan",
+                "Scan": "edxd_scan",
+                "Grid Scan": "edxd_grid_scan",
+                "Custom Pos List Grid": "edxd_custom_pos_list_grid",
+                "Count": "edxd_count",
+                "Configure Test Pulses": "configure_test_pulses",
+            },
         )
         side = QVBoxLayout()
         side.addWidget(plan_tabs, stretch=1)
@@ -402,8 +212,7 @@ class QtEDXDView(QWidget):
 
     def _attach_germ_mock(self, detectors: QtTabbedDetectorsWidget) -> None:
         """Show the mock GeRM's frames, gated by the namespace's shutters."""
-        ipython = IPython.get_ipython()
-        user_ns = ipython.user_ns if ipython is not None else {}
+        user_ns = self._namespace
         mock = getattr(user_ns.get("germ"), "_mock", None)
         if not isinstance(mock, GeRMDetectorMock):
             return
@@ -428,7 +237,7 @@ class QtEDXDView(QWidget):
 class QtXRDView(QWidget):
     """X-ray diffraction view: the live Perkin Elmer viewer and XRD plans."""
 
-    def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
+    def __init__(self, re_client: RunEngineClient, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._re_client = re_client
 
@@ -439,12 +248,16 @@ class QtXRDView(QWidget):
         )
         top.addWidget(detectors, stretch=3)
 
-        plan_tabs = QTabWidget()
-        plan_tabs.addTab(QtPlanWidget(re_client, dark_reference), "Dark Reference")
-        plan_tabs.addTab(QtPlanWidget(re_client, xrd_calibration), "Calibration")
-        plan_tabs.addTab(QtPlanWidget(re_client, xrd_scan), "Scan")
-        plan_tabs.addTab(QtPlanWidget(re_client, xrd_scan_2d), "2D Scan")
-        plan_tabs.addTab(QtPlanWidget(re_client, take_radiograph), "Radiography")
+        plan_tabs = _plan_tabs(
+            re_client,
+            {
+                "Dark Reference": "dark_reference",
+                "Calibration": "xrd_calibration",
+                "Scan": "xrd_scan",
+                "2D Scan": "xrd_scan_2d",
+                "Radiography": "take_radiograph",
+            },
+        )
         side = QVBoxLayout()
         side.addWidget(plan_tabs, stretch=1)
         top.addLayout(side, stretch=1)
@@ -463,7 +276,7 @@ class QtBeamlineView(QWidget):
     :class:`QtTabbedTechniqueSelector`.
     """
 
-    def __init__(self, re_client: RunEngineClient | RunEngine, *args, **kwargs):
+    def __init__(self, re_client: RunEngineClient, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._re_client = re_client
 
@@ -481,26 +294,23 @@ class QtBeamlineView(QWidget):
             cameras.add_detector(name, prefix, preserve_aspect_ratio=True)
         top.addWidget(cameras, stretch=3)
 
-        # Side column: a tabbed selector offering the beamline plans. Each tab
-        # validates and runs its plan per the active execution mode (in-process
-        # IPython vs. Queue Server).
+        # Side column: a tabbed selector offering the beamline plans.
         plan_tabs = QTabWidget()
-        plan_tabs.addTab(QtPlanWidget(re_client, move_motor), "Motors")
+        plan_tabs.addTab(QtPlanWidget(re_client, "move_motor"), "Motors")
         plan_tabs.addTab(self._slits_tab(re_client), "Slits")
-        plan_tabs.addTab(QtPlanWidget(re_client, set_fe_aperture), "Frontend Aperture")
+        plan_tabs.addTab(
+            QtPlanWidget(re_client, "set_fe_aperture"), "Frontend Aperture"
+        )
         plan_tabs.addTab(self._filters_tab(re_client), "Filters")
-        plan_tabs.addTab(QtPlanWidget(re_client, change_beam_mode), "Change Beam Mode")
-        plan_tabs.addTab(QtPlanWidget(re_client, change_energy), "Change Energy")
-        plan_tabs.addTab(QtPlanWidget(re_client, reset_scan_id), "Reset Scan ID")
-        plan_tabs.addTab(
-            QtPlanWidget(re_client, store_device_settings_snapshot), "Settings Snapshot"
-        )
-        plan_tabs.addTab(
-            QtPlanWidget(re_client, store_device_settings), "Store Settings"
-        )
-        plan_tabs.addTab(
-            QtPlanWidget(re_client, apply_device_settings), "Apply Settings"
-        )
+        for label, plan in {
+            "Change Beam Mode": "change_beam_mode",
+            "Change Energy": "change_energy",
+            "Reset Scan ID": "reset_scan_id",
+            "Settings Snapshot": "store_device_settings_snapshot",
+            "Store Settings": "store_device_settings",
+            "Apply Settings": "apply_device_settings",
+        }.items():
+            plan_tabs.addTab(QtPlanWidget(re_client, plan), label)
 
         side = QVBoxLayout()
         side.addWidget(plan_tabs, stretch=1)
@@ -511,28 +321,22 @@ class QtBeamlineView(QWidget):
         self.setLayout(vbox)
 
     @staticmethod
-    def _slits_tab(re_client: RunEngineClient | RunEngine) -> QWidget:
-        """Live slit controls locally; the ``move_slits`` plan for the Queue Server."""
-        if not isinstance(re_client, RunEngine):
-            return QtPlanWidget(re_client, move_slits)
+    def _slits_tab(re_client: RunEngineClient) -> QWidget:
+        """Live controls for each set of slits."""
         from hextools.gui.hex_config import slits_entries
         from hextools.gui.slits_control import QtSlitsSelector
 
-        ipython = IPython.get_ipython()
-        user_ns = ipython.user_ns if ipython is not None else {}
-        return QtSlitsSelector(dict(slits_entries(user_ns)), re_client, user_ns)
+        return QtSlitsSelector(
+            dict(slits_entries(re_client.device_registry)), re_client
+        )
 
     @staticmethod
-    def _filters_tab(re_client: RunEngineClient | RunEngine) -> QWidget:
-        """Live filter controls locally; the ``set_filters`` plan for Queue Server."""
-        if not isinstance(re_client, RunEngine):
-            return QtPlanWidget(re_client, set_filters)
+    def _filters_tab(re_client: RunEngineClient) -> QWidget:
+        """Live controls for the filters."""
         from hextools.gui.hex_config import filter_rows
         from hextools.gui.movable_group import QtMovableGroup
 
-        ipython = IPython.get_ipython()
-        user_ns = ipython.user_ns if ipython is not None else {}
-        rows, value_types = filter_rows(user_ns)
+        rows, value_types = filter_rows(re_client.device_registry)
         tab = QWidget()
         vbox = QVBoxLayout(tab)
         if rows:
@@ -543,7 +347,6 @@ class QtBeamlineView(QWidget):
                 QtMovableGroup(
                     rows,
                     re_client,
-                    user_ns,
                     value_types=value_types,
                     move_plan="move_filters",
                     tweak_plan=None,
@@ -557,53 +360,39 @@ class QtBeamlineView(QWidget):
         return tab
 
 
-class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
+class QtTabbedTechniqueSelector(QWidget):
     """Container with shared RE controls, technique tabs, and progress bars.
 
     The shared RE controls are on top, the technique tabs in the middle, and the
     shared live progress bars along the bottom.
     """
 
-    def __init__(self, re_client: RunEngineClientT, *args, **kwargs):
+    def __init__(
+        self,
+        re_client: RunEngineClient,
+        namespace: Mapping[str, Any],
+        tiled_client: Any = None,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
+        from hextools.gui.hex_config import shutter_controls
+
         self._re_client = re_client
+        user_ns = namespace
 
         vbox = QVBoxLayout()
 
-        # Shared top row: queue/plan controls (Queue Server only) and RE
-        # metadata. In-process mode reads metadata from the local RunEngine.
+        # Shared top row: RE controls, metadata, plan status and shutters.
         controls = QHBoxLayout()
-        if isinstance(re_client, RunEngineClient):
-            controls.addWidget(QtReQueueControls(re_client))
-            controls.addWidget(QtReExecutionControls(re_client))
-            controls.addWidget(QtReRunningPlan(re_client))
-        else:
-            controls.addWidget(QtReExecutionControlsLocal(local=True))
+        controls.addWidget(QtReExecutionControls(re_client))
         self.proposal_info = QtProposalInfo(re_client)
         controls.addWidget(self.proposal_info)
         controls.addWidget(QtWeatherWidget())
-        ipython = IPython.get_ipython()
-        user_ns = ipython.user_ns if ipython is not None else {}
-        self._plan_monitor = (
-            PlanMonitor(re_client, namespace=user_ns, parent=self)
-            if isinstance(re_client, RunEngine)
-            else None
-        )
-        if self._plan_monitor is not None:
-            controls.addWidget(QtPlanStatus(self._plan_monitor, "hextools"))
+        controls.addWidget(QtPlanStatus(re_client))
         controls.addStretch()
-        if isinstance(re_client, RunEngine) and ipython is not None:
-            from hextools.gui.hex_config import shutter_controls
-
-            shutters, shutter_command = shutter_controls(user_ns)
-            controls.addWidget(
-                QtShutterStatus(
-                    re_client,
-                    NamespaceReadingSource(user_ns, re_client.loop),
-                    shutters,
-                    shutter_command,
-                )
-            )
+        shutters, shutter_plan = shutter_controls(re_client.device_registry)
+        controls.addWidget(QtShutterStatus(re_client, shutters, shutter_plan))
         vbox.addLayout(controls)
 
         # Technique tabs.
@@ -614,36 +403,26 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         tabs.addTab(self._beamline, "Beamline")
         self._tomography = QtTomographyView(self._re_client)
         tabs.addTab(self._tomography, "Tomography")
-        self._edxd = QtEDXDView(self._re_client)
+        self._edxd = QtEDXDView(self._re_client, user_ns)
         tabs.addTab(self._edxd, "EDXD")
         self._xrd = QtXRDView(self._re_client)
         tabs.addTab(self._xrd, "XRD")
-        self._available_devices = QtAvailableDevices(self._re_client, EXPECTED_DEVICES)
+        self._available_devices = QtAvailableDevices(re_client)
         tabs.addTab(self._available_devices, "Available Devices")
-        if self._plan_monitor is not None:
-            execution_view = QtPlanExecutionView(self._plan_monitor, "hextools")
-            tiled_client = user_ns.get("tiled_reading_client") or user_ns.get("c")
-            tabs.addTab(execution_view, "Plan Execution")
-            if tiled_client is not None:
-                # Every run has the BlueskyRun spec, so selecting it finds all runs.
-                self.scan_browser = QtScanBrowser(
-                    tiled_client,
-                    [Spec("BlueskyRun", version="3.0"), *ALL_SPECS],
-                    re_client,
-                )
-                tabs.addTab(self.scan_browser, "Scan Browser")
-            else:
-                self.scan_browser = None
-            self.plan_history = QtPlanHistory(
-                self._plan_monitor,
-                history_file=os.environ.get(PLAN_HISTORY_FILE_ENV)
-                or default_plan_history_file(),
+        execution_view = QtPlanExecutionView(re_client)
+        tabs.addTab(execution_view, "Plan Execution")
+        self.scan_browser: QtScanBrowser | None = None
+        if tiled_client is not None:
+            # Every run has the BlueskyRun spec, so selecting it finds all runs.
+            self.scan_browser = QtScanBrowser(
+                tiled_client,
+                [Spec("BlueskyRun", version="3.0"), *ALL_SPECS],
+                re_client,
             )
-            tabs.addTab(self.plan_history, "History")
-            tabs.addTab(QtPlanLogView(self._plan_monitor, "hextools"), "Log")
-        else:
-            self.plan_history = None
-            self.scan_browser = None
+            tabs.addTab(self.scan_browser, "Scan Browser")
+        self.plan_history = QtPlanHistory(re_client)
+        tabs.addTab(self.plan_history, "History")
+        tabs.addTab(QtPlanLogView(re_client), "Log")
         # self.auto_exporter = QtAutoExporterView(autostart=not is_running_in_ci())
         # tabs.addTab(self.auto_exporter, "NXS Export")
 
@@ -652,20 +431,7 @@ class QtTabbedTechniqueSelector(QWidget, Generic[RunEngineClientT]):
         # Shared live per-device progress bars pinned to the bottom.
         vbox.addWidget(QtReWaitingHookMonitor(re_client))
 
-        # Queue status pinned to the bottom of the window (Queue Server only).
-        if isinstance(re_client, RunEngineClient):
-            vbox.addWidget(QtRePlanQueue(re_client))
-
         self.setLayout(vbox)
-
-    def closeEvent(self, event):
-        if self._plan_monitor is not None:
-            self._plan_monitor.detach()
-        super().closeEvent(event)
-
-
-class _StateSignal(QObject):
-    changed = Signal()
 
 
 def _end_ipython_session() -> None:
@@ -701,8 +467,12 @@ class QtDataAcquisitionWindow:
 
     Parameters
     ----------
-    qt_widget : QtViewer
-        Contained viewer widget.
+    re_client : RunEngineClient
+        Drives the RunEngine and reads the devices.
+    namespace : Mapping[str, Any]
+        The IPython session's namespace, for mock detectors.
+    tiled_client : tiled client, optional
+        Where the Scan Browser finds runs; without one, it isn't shown.
 
     Attributes
     ----------
@@ -722,12 +492,14 @@ class QtDataAcquisitionWindow:
 
     def __init__(
         self,
-        re_client: RunEngineClient | RunEngine,
+        re_client: RunEngineClient,
+        namespace: Mapping[str, Any],
+        tiled_client: Any = None,
         *,
         show: bool = True,
         end_ipython_on_close: bool = False,
     ):
-        self.qt_widget = QtTabbedTechniqueSelector(re_client)
+        self.qt_widget = QtTabbedTechniqueSelector(re_client, namespace, tiled_client)
 
         self._torn_down = False
         self._end_ipython_on_close = end_ipython_on_close
@@ -750,12 +522,8 @@ class QtDataAcquisitionWindow:
         self._help = QLabel("")
         self._status_bar.addPermanentWidget(self._help)
         self._build_menus()
-        if isinstance(re_client, RunEngine):
-            self._install_state_hook(re_client)
-        else:
-            self._re_state_timer = QTimer(self._qt_window)
-            self._re_state_timer.timeout.connect(self._update_re_state)
-            self._re_state_timer.start(250)
+        self._re_state = QtRunEngineState(re_client, self._qt_window)
+        self._re_state.changed.connect(lambda *_: self._update_re_state())
 
         layout = self._qt_center.layout()
         if layout is not None:
@@ -789,8 +557,7 @@ class QtDataAcquisitionWindow:
             return
         self._torn_down = True
         atexit.unregister(self._close_at_exit)
-        if isinstance(self._re_client, RunEngine):
-            self._uninstall_state_hook(self._re_client)
+        self._re_state.stop()
         if self._beamline_status is not None:
             self._beamline_status.close()
         # WA_DeleteOnClose deletes the children without sending them closeEvent.
@@ -810,22 +577,12 @@ class QtDataAcquisitionWindow:
         self.file_menu.addSeparator()
         save_history = self.file_menu.addAction("Save Plan History As…")
         save_history.triggered.connect(self._on_save_history_as)
-        if self.qt_widget.plan_history is None:
-            save_history.setEnabled(False)
-            save_history.setToolTip(
-                "Plan history is only recorded when running plans locally."
-            )
         screenshot = self.file_menu.addAction("Take Screenshot…")
         screenshot.triggered.connect(self._on_take_screenshot)
 
         self.view_menu = menu_bar.addMenu("&View")
         beamline_status = self.view_menu.addAction("Beamline Status")
         beamline_status.triggered.connect(self._on_show_beamline_status)
-        if not isinstance(self._re_client, RunEngine):
-            beamline_status.setEnabled(False)
-            beamline_status.setToolTip(
-                "Beamline status is only available when running plans locally."
-            )
         self._beamline_status: QtBeamlineStatus | None = None
 
         self.settings_menu = menu_bar.addMenu("&Settings")
@@ -838,16 +595,11 @@ class QtDataAcquisitionWindow:
         if self._beamline_status is None:
             from hextools.gui.hex_config import status_sections
 
-            re = self._re_client
-            if not isinstance(re, RunEngine):
-                return
-            ipython = IPython.get_ipython()
-            user_ns = ipython.user_ns if ipython is not None else {}
+            re_client = self._re_client
             # No parent: a parented window is kept above the main window.
-            source = NamespaceReadingSource(user_ns, re.loop)
             window = QtBeamlineStatus(
-                status_sections(user_ns, source),
-                source,
+                status_sections(re_client),
+                re_client,
                 title=None,
             )
             window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -895,9 +647,6 @@ class QtDataAcquisitionWindow:
         box.exec()
 
     def _on_save_history_as(self):
-        history = self.qt_widget.plan_history
-        if history is None:
-            return
         path, _ = QFileDialog.getSaveFileName(
             self._qt_window,
             "Save Plan History As",
@@ -907,7 +656,7 @@ class QtDataAcquisitionWindow:
         if not path:
             return
         try:
-            history.save_as(path)
+            self._re_client.save_history(path)
         except OSError as ex:
             QMessageBox.critical(
                 self._qt_window, "Save failed", f"Couldn't save plan history:\n{ex}"
@@ -935,27 +684,11 @@ class QtDataAcquisitionWindow:
             return
         self._status_bar.showMessage(f"Screenshot saved to {path}", 5000)
 
-    def _install_state_hook(self, re: RunEngine):
-        self._state_signal = _StateSignal(self._qt_window)
-        self._state_signal.changed.connect(self._update_re_state)
-        # Called from the RunEngine's event-loop thread.
-        self._state_hook = install_hook(
-            re, "state_hook", lambda *_: self._state_signal.changed.emit()
-        )
-
-    def _uninstall_state_hook(self, re: RunEngine):
-        uninstall_hook(re, "state_hook", self._state_hook)
-
     def _update_re_state(self):
         self._re_state_label.setText(self._re_state_text())
 
     def _re_state_text(self) -> str:
-        if isinstance(self._re_client, RunEngine):
-            state = self._re_client.state
-        else:
-            status = self._re_client.re_manager_status or {}
-            state = status.get("re_state") or status.get("manager_state") or "unknown"
-        return f"RunEngine: {str(state).capitalize()}"
+        return f"RunEngine: {self._re_client.state.capitalize()}"
 
     def resize(self, width, height):
         """Resize the window.
@@ -1049,33 +782,26 @@ def launch_local_viewer(end_ipython_on_close: bool = False):
     # QApplication now to build widgets safely.
     app = QApplication.instance() or QApplication([])
     apply_bnl_theme(app, saved_theme())
-    re = IPython.get_ipython().user_ns.get("RE", None)
-    if not isinstance(re, RunEngine):
-        raise RuntimeError(
-            "RE not found in IPython user namespace or is not a RunEngine instance."
-        )
-
+    user_ns = IPython.get_ipython().user_ns
+    history_file = os.environ.get(PLAN_HISTORY_FILE_ENV) or default_plan_history_file()
     return QtDataAcquisitionWindow(
-        re_client=re, end_ipython_on_close=end_ipython_on_close
+        InProcessRunEngineClient(
+            user_ns, logger_name="hextools", history_file=history_file
+        ),
+        user_ns,
+        user_ns.get("tiled_reading_client") or user_ns.get("c"),
+        end_ipython_on_close=end_ipython_on_close,
     )
 
 
 def main():
     """Launch the HEX Data Acquisition GUI."""
-    parser = argparse.ArgumentParser(description="HEX Queue Monitor")
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument(
-        "--queueserver-uri",
-        default=None,
-        help="Address of the Bluesky QueueServer http server. If set, connect to"
-        " the QueueServer via HTTP and submit plans to its queue.",
-    )
-    mode.add_argument(
+    parser = argparse.ArgumentParser(description="HEX Data Acquisition")
+    parser.add_argument(
         "--profile",
         default="collection",
-        help="Profile to load when running acquisition in-process. If set (or if"
-        " no QueueServer is given), start IPython on this profile with the GUI"
-        " attached, running plans via RE(plan(...)).",
+        help="Profile to start IPython on, with the GUI attached, running plans"
+        " via RE(plan(...)).",
     )
     parser.add_argument(
         "--mock",
@@ -1109,37 +835,31 @@ def main():
 
     os.environ["BEAMLINE_ACRONYM"] = "HEX"
 
-    if args.queueserver_uri:
-        with gui_qt("HEX Queue Monitor"):
-            apply_bnl_theme(theme=saved_theme())
-            re_client = RunEngineClient(http_server_uri=args.queueserver_uri)
-            QtDataAcquisitionWindow(re_client=re_client)
-    else:
-        from IPython import start_ipython
-        from traitlets.config import Config
+    from IPython import start_ipython
+    from traitlets.config import Config
 
-        profile_path = (
-            Path(__file__).resolve().parent.parent / "profiles" / f"{args.profile}.py"
-        )
-        if not profile_path.exists():
-            raise FileNotFoundError(f"Profile not found: {profile_path}")
+    profile_path = (
+        Path(__file__).resolve().parent.parent / "profiles" / f"{args.profile}.py"
+    )
+    if not profile_path.exists():
+        raise FileNotFoundError(f"Profile not found: {profile_path}")
 
-        # Mirror the environment tweaks from the pixi `start` task.
-        for var in ("SESSION_MANAGER", "PYTHONPATH", "PYTHONUSERBASE"):
-            os.environ.pop(var, None)
-        os.environ["MPLBACKEND"] = "qtagg"
+    # Mirror the environment tweaks from the pixi `start` task.
+    for var in ("SESSION_MANAGER", "PYTHONPATH", "PYTHONUSERBASE"):
+        os.environ.pop(var, None)
+    os.environ["MPLBACKEND"] = "qtagg"
 
-        config = Config()
-        config.InteractiveShellApp.gui = "qt"
-        # Run the profile first (defining RE and devices), then attach the GUI.
-        # exec_lines run in order, before any command-line files.
-        config.InteractiveShellApp.exec_lines = [
-            f"get_ipython().run_line_magic('run', {f'-i {profile_path}'!r})",
-            "from hextools.gui.__main__ import launch_local_viewer",
-            f"launch_local_viewer(end_ipython_on_close={not args.keep_ipython})",
-        ]
-        config.TerminalIPythonApp.display_banner = False
-        start_ipython(argv=[], config=config)
+    config = Config()
+    config.InteractiveShellApp.gui = "qt"
+    # Run the profile first (defining RE and devices), then attach the GUI.
+    # exec_lines run in order, before any command-line files.
+    config.InteractiveShellApp.exec_lines = [
+        f"get_ipython().run_line_magic('run', {f'-i {profile_path}'!r})",
+        "from hextools.gui.__main__ import launch_local_viewer",
+        f"launch_local_viewer(end_ipython_on_close={not args.keep_ipython})",
+    ]
+    config.TerminalIPythonApp.display_banner = False
+    start_ipython(argv=[], config=config)
 
 
 if __name__ == "__main__":

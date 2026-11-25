@@ -17,8 +17,6 @@ from __future__ import annotations
 from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 
-from bluesky import RunEngine
-from bluesky_widgets.models.run_engine_client import RunEngineClient
 from qtpy.QtCore import Qt, QTimer, Signal, Slot
 from qtpy.QtGui import QIntValidator
 from qtpy.QtWidgets import (
@@ -38,11 +36,10 @@ from qtpy.QtWidgets import (
 )
 
 from hextools.gui._threading import FunctionWorker
+from hextools.gui.run_engine_clients import RunEngineClient
 from hextools.utils import (
     get_proposal_info,
-    is_running_in_ci,
     list_proposals,
-    switch_proposal,
 )
 
 RunEngineMetadata = MutableMapping[str, Any]
@@ -73,7 +70,7 @@ class QtReMetadataMonitor(QWidget):
 
     def __init__(
         self,
-        re: RunEngineClient | RunEngine,
+        re_client: RunEngineClient,
         keys: Sequence[str] | dict[str, str],
         parent: QWidget | None = None,
         *,
@@ -81,7 +78,7 @@ class QtReMetadataMonitor(QWidget):
         title: str = "RE Metadata",
     ):
         super().__init__(parent)
-        self._re = re
+        self._re_client = re_client
         self._keys = list(keys) if isinstance(keys, Sequence) else list(keys.values())
         self._key_labels = list(keys.keys()) if isinstance(keys, dict) else keys
         self._worker = None
@@ -117,30 +114,11 @@ class QtReMetadataMonitor(QWidget):
         # Kick off an immediate refresh instead of waiting for the first tick.
         self._start_worker()
 
-    def _fetch_metadata(self) -> RunEngineMetadata:
-        """Return the current RE metadata dict, or an empty dict on failure."""
-        if isinstance(self._re, RunEngineClient):
-            try:
-                # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
-                response = self._re._client.re_metadata()  # noqa: SLF001  # type: ignore
-            except Exception:
-                return {}
-            if not response.get("success", False):
-                return {}
-            return response.get("re_metadata") or {}
-        elif isinstance(self._re, RunEngine):
-            return self._re.md
-
-        raise RuntimeError(
-            "RE Metadata Viewer widget must be initialized with a RunEngineClient "
-            "or RunEngine instance."
-        )
-
     def _start_worker(self):
         # Skip if a request is still in flight to avoid overlapping polls.
         if self._worker is not None:
             return
-        self._worker = FunctionWorker(self._fetch_metadata)
+        self._worker = FunctionWorker(self._re_client.metadata)
         self._worker.returned.connect(self._on_worker_returned)
         self._worker.start()
 
@@ -178,14 +156,14 @@ class QtProposalInfo(QtReMetadataMonitor):
 
     def __init__(
         self,
-        re: RunEngineClient | RunEngine,
+        re_client: RunEngineClient,
         parent: QWidget | None = None,
         *,
         poll_period: float = 1.0,
     ):
 
         super().__init__(
-            re,
+            re_client,
             {
                 "Proposal ID": "data_session",
                 "Cycle": "cycle",
@@ -204,24 +182,7 @@ class QtProposalInfo(QtReMetadataMonitor):
         self._group_layout.addWidget(self._change_button)
 
     def _switch(self, proposal: int, username: str, password: str):
-        if isinstance(self._re, RunEngine):
-            return switch_proposal(proposal, username, password, md=self._re.md)
-        client = self._re._client  # noqa: SLF001
-        # Not in bluesky-queueserver-api 0.0.13; needs a newer release.
-        response = client.re_metadata()  # type: ignore
-        if not response.get("success", False):
-            raise RuntimeError(
-                response.get("msg") or "Couldn't read the RunEngine metadata."
-            )
-        md = dict(response.get("re_metadata") or {})
-        updated = switch_proposal(proposal, username, password, md=md)
-        if is_running_in_ci():
-            # Outside mock mode RE.md is Redis-backed, so the switch already reached
-            # the worker.
-            keys = ("data_session", "username", "start_datetime", "proposal")
-            changes = {k: updated[k] for k in keys if k in updated}
-            client.script_upload(f"RE.md.update({changes!r})")
-        return updated
+        return
 
     def change_proposal(self):
         """Open the dialog to pick a proposal and sign in, then switch to it."""

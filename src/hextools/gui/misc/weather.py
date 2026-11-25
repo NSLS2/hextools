@@ -1,7 +1,7 @@
-"""A small Qt widget showing the date, time, and current weather for Upton, NY.
+"""A small Qt widget showing the date, time, and current weather for a location.
 
 The clock (date and time) updates every second from the local machine, using the
-``America/New_York`` timezone so it matches the site. Weather (temperature and a
+location's timezone so it matches the site. Weather (temperature and a
 short condition) is fetched periodically from the free Open-Meteo API, which
 needs no API key. Display is best effort: a failed request leaves the previous
 reading in place and shows a placeholder until the next successful fetch.
@@ -12,7 +12,9 @@ from __future__ import annotations
 import json
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from qtpy.QtCore import Qt, QTimer, Signal, Slot
@@ -20,12 +22,40 @@ from qtpy.QtWidgets import QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from hextools.gui._threading import FunctionWorker
 
+
+@dataclass(frozen=True)
+class Location:
+    """A named site for the weather widget.
+
+    ``timezone`` is an IANA name (e.g. ``"America/New_York"``).
+    """
+
+    name: str
+    latitude: float
+    longitude: float
+    timezone: str
+
+    @property
+    def tzinfo(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
+
+
+# Brookhaven National Laboratory.
+UPTON_NY = Location(
+    name="Upton, NY",
+    latitude=40.8677,
+    longitude=-72.8814,
+    timezone="America/New_York",
+)
+
 _PLACEHOLDER = "\u2014"  # em dash
 
-# Brookhaven National Laboratory, Upton, NY.
-_LATITUDE = 40.8677
-_LONGITUDE = -72.8814
-_TIMEZONE = ZoneInfo("America/New_York")
+# Unit letter -> (Open-Meteo temperature_unit, display suffix).
+_TEMPERATURE_UNITS: dict[str, tuple[str, str]] = {
+    "F": ("fahrenheit", "\u00b0F"),
+    "C": ("celsius", "\u00b0C"),
+}
+
 _API_URL = "https://api.open-meteo.com/v1/forecast"
 
 # WMO weather interpretation codes -> (description, emoji).
@@ -67,16 +97,20 @@ def _describe(code: int) -> str:
 
 
 class QtWeatherWidget(QWidget):
-    """Display the current date, time, temperature, and weather for Upton, NY.
+    """Display the current date, time, temperature, and weather for a location.
 
     Parameters
     ----------
     parent : QWidget, optional
         Parent widget.
+    location : Location, optional
+        Site to show the clock and weather for. Default: ``UPTON_NY``.
     weather_period : float, optional
         Interval between weather requests, in seconds. Default: 600 (10 minutes).
+    temperature_unit : {"F", "C"}, optional
+        Temperature unit to request and display. Default: ``"F"``.
     title : str, optional
-        Group box title. Default: ``"Upton, NY"``.
+        Group box title. Default: ``location.name``.
     """
 
     signal_weather_updated = Signal(object)
@@ -85,11 +119,21 @@ class QtWeatherWidget(QWidget):
         self,
         parent=None,
         *,
+        location: Location = UPTON_NY,
         weather_period: float = 600.0,
-        title: str = "Upton, NY",
+        temperature_unit: Literal["F", "C"] = "F",
+        title: str | None = None,
     ):
         super().__init__(parent)
+        unit = temperature_unit.upper()
+        if unit not in _TEMPERATURE_UNITS:
+            raise ValueError(
+                f"temperature_unit must be 'F' or 'C', got {temperature_unit!r}"
+            )
         self._worker = None
+        self._location = location
+        self._tzinfo = location.tzinfo
+        self._api_temperature_unit, self._temperature_suffix = _TEMPERATURE_UNITS[unit]
 
         self._date_label = QLabel(_PLACEHOLDER)
         self._time_label = QLabel(_PLACEHOLDER)
@@ -112,7 +156,7 @@ class QtWeatherWidget(QWidget):
         form.addRow("Temperature:", self._temp_label)
         form.addRow("Condition:", self._condition_label)
 
-        group_box = QGroupBox(title)
+        group_box = QGroupBox(title if title is not None else location.name)
         group_box.setLayout(form)
 
         vbox = QVBoxLayout()
@@ -135,7 +179,7 @@ class QtWeatherWidget(QWidget):
         self._start_worker()
 
     def _update_clock(self):
-        now = datetime.now(_TIMEZONE)
+        now = datetime.now(self._tzinfo)
         self._date_label.setText(now.strftime("%A, %B %d, %Y"))
         self._time_label.setText(now.strftime("%I:%M:%S %p %Z"))
 
@@ -151,11 +195,11 @@ class QtWeatherWidget(QWidget):
         """Return the current-weather dict, or an empty dict on any failure."""
         query = urllib.parse.urlencode(
             {
-                "latitude": _LATITUDE,
-                "longitude": _LONGITUDE,
+                "latitude": self._location.latitude,
+                "longitude": self._location.longitude,
                 "current": "temperature_2m,weather_code",
-                "temperature_unit": "fahrenheit",
-                "timezone": "America/New_York",
+                "temperature_unit": self._api_temperature_unit,
+                "timezone": self._location.timezone,
             }
         )
         try:
@@ -173,7 +217,7 @@ class QtWeatherWidget(QWidget):
     def _slot_weather_updated(self, current: dict):
         temperature = current.get("temperature_2m")
         if temperature is not None:
-            self._temp_label.setText(f"{temperature:g} \u00b0F")
+            self._temp_label.setText(f"{temperature:g} {self._temperature_suffix}")
         else:
             self._temp_label.setText(_PLACEHOLDER)
 
